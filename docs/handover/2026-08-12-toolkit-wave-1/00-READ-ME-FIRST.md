@@ -14,7 +14,17 @@ A copy of `docs/plan/COMMAND-CENTER.html`, from the moment this pack was generat
 START HERE, THEN docs/plan/TOOLKIT-PLAN-2026-08-12.md. That plan is the
 program; everything else in this pack supports it.
 
-STATE: green and pushed at 3dea27d. Full gate 3130 tests across 35 suites,
+STATE at close: 34 of 35 suites green, 3136 tests. ONE suite is red and it
+is NOT from this session's work: the v3.2.0 tag and the VERSION file disagree
+about which commit is the release, because history was rewritten under this
+session by another one. It is filed with three options and a recommendation at
+docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md and it needs YOUR
+decision, not a fix. Until it is decided, `tools/test_all.py` exits 1 on that
+one check and any session requiring ALL GREEN before pushing must know why.
+
+READ THAT FILE SECOND, right after this one.
+
+Earlier state, still true: Full gate 3130 tests across 35 suites,
 exit 0, tree clean, remote verified three ways, doctor 11 of 11. Nothing is
 half-landed. No record is held.
 
