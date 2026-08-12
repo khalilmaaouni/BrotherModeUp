@@ -485,6 +485,21 @@ REGISTRY = {
         "list": PURE_READ,
     },
 
+    # -- bm_toolkit.py --------------------------------------------------
+    # Added 2026-08-12, the Toolkit's first verb. Its own module docstring
+    # states EFFECT CLASS: pure_read, and it earns that the same way
+    # bm_idle.py does: it walks the plugin cache, the skills directory and
+    # the settings layers, reads JSON, and constructs no Store, because
+    # constructing one is itself a write. Six write sites by the scanner's
+    # count and every one of them is the stdout or stderr funnel. The
+    # inventory it produces is the input every later toolkit verb consumes,
+    # so a verb here that could mutate the machine it is describing would be
+    # the wrong shape from the start.
+    "bm_toolkit.py": {
+        "inventory": PURE_READ,
+        "json": PURE_READ,
+    },
+
     # -- bm_idle.py -----------------------------------------------------
     # Added 2026-08-12. Its own module docstring states "EFFECT CLASS:
     # pure_read ... writes NOT ONE BYTE anywhere, ever", and it was built

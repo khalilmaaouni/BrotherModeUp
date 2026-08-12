@@ -1,0 +1,566 @@
+#!/usr/bin/env python3
+"""Enumerate what capability is installed on this machine, mechanically.
+
+WHY THIS EXISTS
+  BrotherMode's Toolkit is a capability BROKER, not a marketplace (see
+  docs/plan/TOOLKIT-PLAN-2026-08-12.md section 3, function F1). No command
+  today answers "what capability is installed on this machine" across
+  plugins, skills, hooks, settings layers and MCP servers at once. Claude
+  Code enumerates plugins one at a time (`claude plugin details`) but never
+  aggregates across them, and never covers skills, settings layers or CLIs.
+  This tool is that aggregation, read straight from artifacts: plugin
+  manifests, hooks.json files, settings.json, the skills directory, and
+  .claude.json. What a tool registers is observable without running it.
+
+THE CONTRACT
+  Two verbs, `inventory` (human readable, the default) and `json` (one
+  JSON object, schema 1, for later loops such as conflict detection to
+  consume rather than re-parse). See the top-level JSON shape in the plan
+  brief; `build_inventory()` below is the single place that shape is built.
+
+  Every surface that cannot be read (permission error, not-a-directory,
+  invalid JSON) is appended to `unreadable` with its path and reason; it
+  never crashes the run and never silently vanishes. Absence is NOT
+  unreadable: a marketplaces cache directory, a skills directory, or an
+  enabledPlugins/mcpServers key that simply does not exist reports zero
+  items, not an error, because "nothing here" is a real, readable answer.
+
+  If EVERY one of the four core surfaces (marketplaces cache, user
+  settings.json, skills directory, .claude.json) could not be read, the
+  tool prints a line starting with the literal "NO-DATA:" and exits 2.
+  Otherwise: 0 read something, 2 could not tell at all. There is no exit 1
+  in this verb; nothing here is a failure verdict, only an inventory.
+
+EFFECT CLASS: pure_read
+  This tool writes NOT ONE BYTE anywhere, ever: no file writes, no
+  directories created, no store touched. It never constructs a writable
+  bm_store.Store (doing so is itself a write). bm_store is loaded only to
+  borrow its resolve_root() for best-effort --root resolution, and that
+  call is wrapped so a failure there degrades to os.getcwd(), never a
+  crash and never a write.
+
+BE SILENT-SAFE
+  Any unexpected exception anywhere in this module is caught by `main` and
+  reported as NO-DATA at exit 2, carrying the exception's type and
+  message, rather than raising.
+
+Python 3.9, standard library only. No network. No subprocess.
+No em or en dashes anywhere in this file or its output.
+
+Usage:
+  python3 tools/bm_toolkit.py inventory [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py json      [--home PATH] [--root PATH]
+
+`inventory` is also the default when no verb is given.
+"""
+
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+_VERBS = ("inventory", "json")
+
+
+# ---------------------------------------------------------------------------
+# Root resolution (best effort only; see module docstring). Mirrors the
+# --root pattern in tools/bm_progress_check.py and tools/bm_idle.py, but a
+# failure here never aborts the run: the project root only feeds the
+# project/project-local settings_layers rows, never the home-anchored
+# surfaces that make up the bulk of the inventory.
+# ---------------------------------------------------------------------------
+
+def _load_bm_store():
+    """Load bm_store.py by PATH, the same shape the sibling tools use: this
+    tool is invoked with an arbitrary cwd, and a plain `import bm_store`
+    would depend on whichever sys.path the caller happened to have. Never
+    raises: an unimportable module degrades to (None, reason)."""
+    try:
+        import importlib.util
+        path = os.path.join(HERE, "bm_store.py")
+        spec = importlib.util.spec_from_file_location(
+            "bm_store_for_toolkit", path)
+        if spec is None or spec.loader is None:
+            return None, "could not build an import spec for bm_store.py"
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod, None
+    except Exception as exc:
+        return None, "%s: %s" % (type(exc).__name__, exc)
+
+
+def resolve_home(explicit_home):
+    """Return (home, None) or (None, reason). `explicit_home` (--home)
+    always wins; otherwise the real user home. Unlike root, a bad home is
+    fatal: nearly every surface this tool reads lives under it."""
+    raw = explicit_home if explicit_home else "~"
+    candidate = os.path.realpath(os.path.expanduser(raw))
+    if not os.path.isdir(candidate):
+        return None, "no such directory: %s" % candidate
+    return candidate, None
+
+
+def resolve_root(explicit_root):
+    """Return a best-effort project root, always a string, never raising.
+    An explicit --root is used as given (even if it turns out not to
+    exist; the settings_layers rows built from it will just report
+    exists=False, which is itself a true answer). Otherwise bm_store's
+    resolve_root() is borrowed; any failure there falls back to cwd."""
+    if explicit_root:
+        return os.path.realpath(os.path.expanduser(explicit_root))
+    mod, _err = _load_bm_store()
+    if mod is not None:
+        try:
+            root, _source = mod.resolve_root()
+            if root:
+                return root
+        except Exception:
+            pass
+    return os.getcwd()
+
+
+# ---------------------------------------------------------------------------
+# Pure filesystem helpers shared by every surface below.
+# ---------------------------------------------------------------------------
+
+def _is_safe_child(home_real, path):
+    """True if the symlink at `path` resolves to somewhere inside
+    `home_real`. Used to refuse walking a symlink that escapes home."""
+    try:
+        target_real = os.path.realpath(path)
+    except OSError:
+        return False
+    return target_real == home_real or target_real.startswith(home_real + os.sep)
+
+
+def _list_dir_entries(dir_path, home_real, unreadable):
+    """Return the sorted list of (name, full_path) directory children of
+    `dir_path`, or None if `dir_path` itself could not be listed (recorded
+    into `unreadable`). A symlinked child that escapes home_real is
+    skipped and recorded rather than followed. Non-directory children are
+    silently skipped: this walks capability directories, not files."""
+    try:
+        names = sorted(os.listdir(dir_path))
+    except OSError as exc:
+        unreadable.append({"path": dir_path,
+                            "reason": "%s: %s" % (type(exc).__name__, exc)})
+        return None
+    result = []
+    for name in names:
+        full = os.path.join(dir_path, name)
+        if os.path.islink(full) and not _is_safe_child(home_real, full):
+            unreadable.append({"path": full,
+                                "reason": "symlink escapes home directory, skipped"})
+            continue
+        if os.path.isdir(full):
+            result.append((name, full))
+    return result
+
+
+def _safe_listdir(dir_path, home_real, unreadable):
+    """(entries, ok). entries is always a list, never None. A directory
+    that simply does not exist is a valid empty answer (ok=True, zero
+    items): absence is not unreadable. ok is False only when the path
+    exists but could not be listed (permission error, not a directory)."""
+    if not os.path.exists(dir_path):
+        return [], True
+    entries = _list_dir_entries(dir_path, home_real, unreadable)
+    if entries is None:
+        return [], False
+    return entries, True
+
+
+def _describe_unreadable_file(path):
+    """Reason string for a path that was expected to be a readable file
+    but is not: distinguishes "never existed" from "exists as something
+    else" (a directory, most commonly), so the unreadable entry is honest
+    about what was actually found on disk."""
+    if not os.path.exists(path):
+        return "missing file"
+    return "not a regular file"
+
+
+def _read_json_file(path):
+    """(data, None) or (None, reason). The only place this module opens a
+    JSON file; every surface below goes through here."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle), None
+    except FileNotFoundError:
+        return None, "missing file"
+    except (OSError, ValueError) as exc:
+        return None, "%s: %s" % (type(exc).__name__, exc)
+
+
+def _parse_hook_events(hooks_path, unreadable):
+    """The SET (sorted list) of capitalised event names a hooks.json file
+    registers, or [] if the file is absent (not an error: hooks are
+    optional). The top level is either the event map directly, or an
+    object with a "hooks" key holding it; only capitalised keys count as
+    event names, per the plan brief's exact list (SessionStart,
+    PreToolUse, and so on). A malformed file is recorded into
+    `unreadable` and treated as zero events, never a crash."""
+    if not os.path.isfile(hooks_path):
+        return []
+    data, err = _read_json_file(hooks_path)
+    if err:
+        unreadable.append({"path": hooks_path, "reason": err})
+        return []
+    if not isinstance(data, dict):
+        unreadable.append({"path": hooks_path,
+                            "reason": "hooks.json root is not a JSON object"})
+        return []
+    event_map = data.get("hooks") if isinstance(data.get("hooks"), dict) else data
+    events = sorted(
+        key for key in event_map.keys()
+        if isinstance(key, str) and key[:1].isupper()
+    )
+    return events
+
+
+# ---------------------------------------------------------------------------
+# The surfaces. Each returns its slice of the inventory plus appends any
+# read failures to the shared `unreadable` list. None of these raise: a
+# failure inside one surface degrades that surface, never the whole run.
+# ---------------------------------------------------------------------------
+
+def _collect_plugins(home, home_real, unreadable):
+    """(marketplaces, plugins, ok). ok is False only if the marketplaces
+    cache directory itself exists but could not be listed."""
+    cache_dir = os.path.join(home, ".claude", "plugins", "cache")
+    marketplace_entries, ok = _safe_listdir(cache_dir, home_real, unreadable)
+
+    marketplaces = []
+    plugins = []
+    for mkt_name, mkt_path in marketplace_entries:
+        plugin_entries, _ok = _safe_listdir(mkt_path, home_real, unreadable)
+        marketplaces.append({"name": mkt_name, "plugin_count": len(plugin_entries)})
+
+        for plugin_name, plugin_path in plugin_entries:
+            version_entries, _ok = _safe_listdir(plugin_path, home_real, unreadable)
+            for version_name, version_path in version_entries:
+                manifest_path = os.path.join(
+                    version_path, ".claude-plugin", "plugin.json")
+                manifest_present = os.path.isfile(manifest_path)
+                manifest_data = None
+                if manifest_present:
+                    manifest_data, m_err = _read_json_file(manifest_path)
+                    if m_err:
+                        unreadable.append({"path": manifest_path, "reason": m_err})
+                    if not isinstance(manifest_data, dict):
+                        manifest_data = None
+
+                name = (manifest_data or {}).get("name") or plugin_name
+                version = (manifest_data or {}).get("version") or version_name
+                description = (manifest_data or {}).get("description") \
+                    if manifest_data else None
+                hooks_path = os.path.join(version_path, "hooks", "hooks.json")
+                hook_events = _parse_hook_events(hooks_path, unreadable)
+
+                plugins.append({
+                    "name": name,
+                    "marketplace": mkt_name,
+                    "version": version,
+                    "path": version_path,
+                    "enabled": None,  # filled in by _apply_enabled() below
+                    "hook_events": hook_events,
+                    "manifest_present": manifest_present,
+                    "description": description,
+                })
+    return marketplaces, plugins, ok
+
+
+def _collect_skills(home, home_real, unreadable):
+    """(skills, ok). ok is False only if the skills directory itself
+    exists but could not be listed."""
+    skills_dir = os.path.join(home, ".claude", "skills")
+    entries, ok = _safe_listdir(skills_dir, home_real, unreadable)
+    skills = []
+    for skill_name, skill_path in entries:
+        has_skill_md = os.path.isfile(os.path.join(skill_path, "SKILL.md"))
+        hooks_path = os.path.join(skill_path, "hooks", "hooks.json")
+        hook_events = _parse_hook_events(hooks_path, unreadable)
+        skills.append({
+            "name": skill_name,
+            "path": skill_path,
+            "has_skill_md": has_skill_md,
+            "hook_events": hook_events,
+        })
+    return skills, ok
+
+
+def _collect_mcp_servers(home, unreadable):
+    """(mcp_servers, ok). Only `mcpServers`' KEYS are kept; the rest of
+    .claude.json is discarded immediately, since that file is large and
+    carries unrelated keys (module docstring, hard constraint). A missing
+    or unparsable file is unreadable (ok=False); a valid file that simply
+    lacks the mcpServers key is zero servers, not an error."""
+    path = os.path.join(home, ".claude.json")
+    if not os.path.isfile(path):
+        unreadable.append({"path": path,
+                            "reason": _describe_unreadable_file(path)})
+        return [], False
+    data, err = _read_json_file(path)
+    if err:
+        unreadable.append({"path": path, "reason": err})
+        return [], False
+    servers_map = data.get("mcpServers") if isinstance(data, dict) else None
+    data = None  # drop the rest of the parsed file now that the key is taken
+    if isinstance(servers_map, dict):
+        return [{"name": key} for key in sorted(servers_map.keys())], True
+    return [], True
+
+
+def _load_user_settings(home, unreadable):
+    """(settings_data_or_None, ok). settings_data is None whenever the
+    file could not be read at all (missing or invalid), which is exactly
+    the condition under which plugin `enabled` must report null rather
+    than false, per the contract."""
+    path = os.path.join(home, ".claude", "settings.json")
+    if not os.path.isfile(path):
+        unreadable.append({"path": path,
+                            "reason": _describe_unreadable_file(path)})
+        return None, False
+    data, err = _read_json_file(path)
+    if err:
+        unreadable.append({"path": path, "reason": err})
+        return None, False
+    return data, True
+
+
+def _apply_enabled(plugins, settings_data):
+    """Fill each plugin's "enabled" field in place. null (None) means
+    settings.json could not be read at all (could-not-tell); false means
+    it WAS read and the plugin's "<name>@<marketplace>" key is simply
+    absent from enabledPlugins (a fact). These two are never conflated."""
+    if settings_data is None:
+        for plugin in plugins:
+            plugin["enabled"] = None
+        return
+    enabled_map = settings_data.get("enabledPlugins")
+    if not isinstance(enabled_map, dict):
+        enabled_map = {}
+    for plugin in plugins:
+        key = "%s@%s" % (plugin["name"], plugin["marketplace"])
+        plugin["enabled"] = bool(enabled_map.get(key, False))
+
+
+def _user_hook_commands(settings_data):
+    """{event: count of hook commands}, read from user settings.json's
+    "hooks" key, shape {event: [ {..., "hooks": [ {"command": ...}, ...] },
+    ...]}. Empty dict if settings_data is None or carries no hooks key."""
+    counts = {}
+    if not isinstance(settings_data, dict):
+        return counts
+    hooks_key = settings_data.get("hooks")
+    if not isinstance(hooks_key, dict):
+        return counts
+    for event, matchers in hooks_key.items():
+        if not isinstance(matchers, list):
+            continue
+        count = 0
+        for matcher in matchers:
+            if isinstance(matcher, dict) and isinstance(matcher.get("hooks"), list):
+                count += len(matcher["hooks"])
+        counts[event] = count
+    return counts
+
+
+def _settings_layers(home, root):
+    user_path = os.path.join(home, ".claude", "settings.json")
+    project_path = os.path.join(root, ".claude", "settings.json")
+    project_local_path = os.path.join(root, ".claude", "settings.local.json")
+    return [
+        {"path": user_path, "kind": "user", "exists": os.path.isfile(user_path)},
+        {"path": project_path, "kind": "project",
+         "exists": os.path.isfile(project_path)},
+        {"path": project_local_path, "kind": "project-local",
+         "exists": os.path.isfile(project_local_path)},
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Assembly.
+# ---------------------------------------------------------------------------
+
+def build_inventory(home, root):
+    """(data, overall_ok). `data` always has every documented top-level
+    key, even when overall_ok is False, so a caller can still inspect
+    `unreadable` for the reasons. overall_ok is False only when all four
+    core surfaces (marketplaces cache, user settings.json, skills
+    directory, .claude.json) could not be read; a missing-but-legitimately-
+    empty surface never counts against it."""
+    home_real = os.path.realpath(home)
+    unreadable = []
+
+    marketplaces, plugins, ok_marketplaces = _collect_plugins(
+        home, home_real, unreadable)
+    skills, ok_skills = _collect_skills(home, home_real, unreadable)
+    mcp_servers, ok_mcp = _collect_mcp_servers(home, unreadable)
+    settings_data, ok_settings = _load_user_settings(home, unreadable)
+
+    _apply_enabled(plugins, settings_data)
+    user_hook_commands = _user_hook_commands(settings_data)
+    settings_layers = _settings_layers(home, root)
+
+    data = {
+        "schema": 1,
+        "home": home,
+        "root": root,
+        "marketplaces": marketplaces,
+        "plugins": plugins,
+        "skills": skills,
+        "mcp_servers": mcp_servers,
+        "settings_layers": settings_layers,
+        "user_hook_commands": user_hook_commands,
+        "unreadable": unreadable,
+    }
+    overall_ok = ok_marketplaces or ok_settings or ok_skills or ok_mcp
+    return data, overall_ok
+
+
+# ---------------------------------------------------------------------------
+# Human readable rendering for the `inventory` verb.
+# ---------------------------------------------------------------------------
+
+def render_inventory(data):
+    lines = []
+
+    marketplaces = data["marketplaces"]
+    lines.append("MARKETPLACES (%d)" % len(marketplaces))
+    for mkt in marketplaces:
+        lines.append("  %s (%d plugins)" % (mkt["name"], mkt["plugin_count"]))
+
+    plugins = data["plugins"]
+    lines.append("")
+    lines.append("PLUGINS (%d)" % len(plugins))
+    for plugin in plugins:
+        if plugin["enabled"] is True:
+            status = "ENABLED"
+        elif plugin["enabled"] is False:
+            status = "NOT-ENABLED"
+        else:
+            status = "ENABLED-UNKNOWN"
+        events = ",".join(plugin["hook_events"]) if plugin["hook_events"] else "none"
+        lines.append("  %s @ %s v%s [%s] hooks: %s" % (
+            plugin["name"], plugin["marketplace"], plugin["version"],
+            status, events))
+
+    skills = data["skills"]
+    lines.append("")
+    lines.append("SKILLS (%d)" % len(skills))
+    for skill in skills:
+        md = "has SKILL.md" if skill["has_skill_md"] else "no SKILL.md"
+        events = ",".join(skill["hook_events"]) if skill["hook_events"] else "none"
+        lines.append("  %s [%s] hooks: %s" % (skill["name"], md, events))
+
+    mcp_servers = data["mcp_servers"]
+    lines.append("")
+    lines.append("MCP SERVERS (%d)" % len(mcp_servers))
+    for server in mcp_servers:
+        lines.append("  %s" % server["name"])
+
+    lines.append("")
+    lines.append("SETTINGS LAYERS")
+    for layer in data["settings_layers"]:
+        state = "present" if layer["exists"] else "absent"
+        lines.append("  %s: %s [%s]" % (layer["kind"], layer["path"], state))
+    hook_counts = data["user_hook_commands"]
+    if hook_counts:
+        counts_text = ", ".join(
+            "%s=%d" % (event, hook_counts[event]) for event in sorted(hook_counts))
+    else:
+        counts_text = "none"
+    lines.append("  user hook commands: %s" % counts_text)
+
+    unreadable = data["unreadable"]
+    lines.append("")
+    lines.append("UNREADABLE (%d)" % len(unreadable))
+    for entry in unreadable:
+        lines.append("  %s: %s" % (entry["path"], entry["reason"]))
+
+    not_enabled = sum(1 for p in plugins if p["enabled"] is False)
+    lines.append("")
+    lines.append(
+        "SUMMARY: %d marketplaces, %d plugins (%d not enabled), %d skills, "
+        "%d mcp servers, %d unreadable surfaces." % (
+            len(marketplaces), len(plugins), not_enabled, len(skills),
+            len(mcp_servers), len(unreadable)))
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI.
+# ---------------------------------------------------------------------------
+
+def _parse_argv(argv):
+    """Return (verb, home, root, error). `error` set means stop and report
+    a plain usage failure (exit 2, no "NO-DATA:" prefix: that prefix is
+    reserved for "could not determine the verdict", not "bad arguments")."""
+    args = list(argv)
+    verb = "inventory"
+    if args and not args[0].startswith("--"):
+        verb = args.pop(0)
+    if verb not in _VERBS:
+        return None, None, None, "bm_toolkit: unknown verb: %s" % verb
+
+    home = None
+    root = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--home":
+            if i + 1 >= len(args):
+                return None, None, None, "bm_toolkit: --home requires a value"
+            home = args[i + 1]
+            i += 2
+        elif arg == "--root":
+            if i + 1 >= len(args):
+                return None, None, None, "bm_toolkit: --root requires a value"
+            root = args[i + 1]
+            i += 2
+        else:
+            return None, None, None, "bm_toolkit: unknown argument: %s" % arg
+    return verb, home, root, None
+
+
+def _run(argv):
+    """The real body of main, split out so `main` can wrap the whole thing
+    in one try/except and guarantee NO-DATA on any unexpected exception."""
+    verb, home_arg, root_arg, err = _parse_argv(argv)
+    if err:
+        sys.stderr.write(err + "\n")
+        return 2
+
+    home, reason = resolve_home(home_arg)
+    if home is None:
+        sys.stdout.write("NO-DATA: %s\n" % reason)
+        return 2
+    root = resolve_root(root_arg)
+
+    data, overall_ok = build_inventory(home, root)
+    if not overall_ok:
+        sys.stdout.write(
+            "NO-DATA: every capability surface under %s was unreadable\n"
+            % home)
+        return 2
+
+    if verb == "json":
+        sys.stdout.write(json.dumps(data) + "\n")
+    else:
+        sys.stdout.write(render_inventory(data) + "\n")
+    return 0
+
+
+def main(argv):
+    try:
+        return _run(argv)
+    except Exception as exc:
+        sys.stdout.write("NO-DATA: %s: %s\n" % (type(exc).__name__, exc))
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

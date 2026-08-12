@@ -189,6 +189,12 @@ jobs:
       # than a healthy depth. An item nobody can start cannot rescue a night.
       - name: Run the idle and queue-depth suite
         run: python3 tools/test_bm_idle.py
+      # The Toolkit inventory suite, added 2026-08-12. Its load bearing test
+      # is the false-versus-null distinction on whether a plugin is enabled:
+      # one is a fact, the other is could-not-tell, and a conflict report
+      # that conflates them is confidently wrong rather than honestly silent.
+      - name: Run the toolkit inventory suite
+        run: python3 tools/test_bm_toolkit.py
       # The effect-class registry and its purity tests, added 2026-08-10. It
       # proves that a command declared pure_read changes zero bytes, and the
       # test that actually bites runs against a store one schema version
