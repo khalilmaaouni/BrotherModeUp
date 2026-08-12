@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -2213,13 +2213,30 @@ _TABLES_V18 = _TABLES_V17
 # An alias rather than a copy, so the two can never drift apart by editing.
 _TABLES_V19 = _TABLES_V18
 
+# Schema 20 (TK5a, F4 capability receipts plus R1.2 criterion-linked
+# verification, docs/plan/TOOLKIT-PLAN-2026-08-12.md sections 3 and 5)
+# adds ONE new table: capability_receipts, the nine-field normalization of
+# what an external capability did and whether BrotherMode's own rerun
+# verified it. The criterion_id column this same schema bump adds to the
+# EXISTING evidence table is not a new table, so it needs no entry here,
+# the same reasoning schema 18's tasks.phase entry states. Its own tuple
+# for the same reason every schema above got one: a healthy schema-19
+# store must be checked against schema 19's table list, or the version
+# check never runs and a store whose only fault is predating this upgrade
+# gets quarantined. The DDL text itself (_CAPABILITY_DDL) is defined
+# further down, after _split_ddl exists; this tuple only needs the table
+# NAME, which costs nothing to name this early.
+_TABLES_CAPABILITY = ("capability_receipts",)
+
+_TABLES_V20 = _TABLES_V19 + _TABLES_CAPABILITY
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
                       13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
                       16: _TABLES_V16, 17: _TABLES_V17,
-                      18: _TABLES_V18, 19: _TABLES_V19}
+                      18: _TABLES_V18, 19: _TABLES_V19, 20: _TABLES_V20}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -2773,6 +2790,26 @@ _PROJECTS_V19_COLUMNS = (
     ("kill_criteria", "TEXT NOT NULL DEFAULT '[]'"),
     ("non_goals", "TEXT NOT NULL DEFAULT '[]'"),
 )
+
+# Schema 20 (TK5a, R1.2 criterion-linked verification). ONE additive
+# column on evidence: criterion_id, naming WHICH entry of the subject
+# task's own acceptance_checks a piece of evidence satisfies.
+#
+# WHY IT EXISTS. Before this column, a task could say "checks ran" (the
+# evidence table already records that) without saying which acceptance
+# criterion each check actually covered, so a review had no way to tell
+# "all checks ran" apart from "the checks that ran happen to be the easy
+# ones". docs/plan/TOOLKIT-PLAN-2026-08-12.md section 3 (F4) calls this
+# the receipt's own backbone: a capability receipt's independent
+# verification is only as meaningful as the criterion it is checked
+# against.
+#
+# DEFAULT ''. An empty criterion_id means "not linked", which is honest
+# for every evidence row written before schema 20 and for any row filed
+# without naming a criterion afterwards: the same rule _TASKS_V18_COLUMN
+# and _PROJECTS_V19_COLUMNS state for their own defaults, nothing here is
+# backfilled or guessed for a link nobody actually made.
+_EVIDENCE_V20_COLUMN = ("criterion_id", "TEXT NOT NULL DEFAULT ''")
 
 # There is deliberately no second tuple of just these names here. The first
 # cut of R1.1 had one, because Project.LIST_FIELDS did not yet carry the two
@@ -3492,6 +3529,90 @@ CREATE INDEX IF NOT EXISTS views_project_kind_created_idx
 
 _VIEW_DDL_STATEMENTS = _split_ddl(_VIEW_DDL)
 _VIEW_INDEX_STATEMENTS = _split_ddl(_VIEW_INDEX_DDL)
+
+# Schema 20 (TK5a, F4 capability receipts,
+# docs/plan/TOOLKIT-PLAN-2026-08-12.md section 3). Beside the views block
+# for the same reason every schema addition sits beside the one before
+# it: one place to read the whole DDL history in order.
+#
+# APPEND ONLY, same discipline as insights and views: add_capability_receipt
+# never edits or removes a row, because a receipt records what a
+# capability claimed and what BrotherMode's own rerun found AT THE TIME,
+# and rewriting either in place would let a later, more flattering
+# verification quietly replace the one that actually happened.
+#
+# task_id is nullable (a receipt can belong to a project-level step that
+# has no task of its own) and carries no NOT NULL, unlike every other
+# identifier column on this table.
+#
+# verification_state carries the CHECK constraint by design (T5's own
+# words: "no_data is a first-class value, not a null"), so a row that
+# reaches the table at all is already one of the three honest states;
+# Store.add_capability_receipt below refuses a bad value BEFORE the
+# INSERT reaches this constraint, so the raised error names the field
+# rather than surfacing a bare sqlite3.IntegrityError.
+_CAPABILITY_DDL = """
+CREATE TABLE IF NOT EXISTS capability_receipts (
+  receipt_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(project_id),
+  task_id TEXT REFERENCES tasks(task_id),
+  capability_name TEXT NOT NULL,
+  capability_version TEXT NOT NULL,
+  executor_identity TEXT NOT NULL DEFAULT '',
+  task_description TEXT NOT NULL,
+  inputs TEXT NOT NULL DEFAULT '[]',
+  permissions_declared TEXT NOT NULL DEFAULT '[]',
+  claimed_output TEXT NOT NULL DEFAULT '',
+  changed_artifacts TEXT NOT NULL DEFAULT '[]',
+  raw_evidence TEXT NOT NULL DEFAULT '',
+  verification_state TEXT NOT NULL
+    CHECK(verification_state IN ('verified','failed','no_data')),
+  verification_evidence TEXT NOT NULL DEFAULT '',
+  omissions TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL
+);
+"""
+
+# Two indexes: one for "every receipt this project has", the read
+# list_capability_receipts always does, and one for "every receipt this
+# capability has across a project", the read a retention proposal (T7)
+# will do once it exists.
+_CAPABILITY_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS capability_receipts_project_idx
+  ON capability_receipts(project_id, created_at);
+CREATE INDEX IF NOT EXISTS capability_receipts_name_idx
+  ON capability_receipts(project_id, capability_name, created_at);
+"""
+
+_CAPABILITY_DDL_STATEMENTS = _split_ddl(_CAPABILITY_DDL)
+_CAPABILITY_INDEX_STATEMENTS = _split_ddl(_CAPABILITY_INDEX_DDL)
+
+# The three honest values verification_state may hold (T5's own words:
+# "no_data is a first-class value, not a null"). Read by
+# Store.add_capability_receipt to refuse a bad value before the INSERT
+# ever reaches the table's own CHECK constraint, so the raised error
+# names the field instead of surfacing a bare sqlite3.IntegrityError.
+_VERIFICATION_STATES = ("verified", "failed", "no_data")
+
+# Required fields for Store.add_capability_receipt, same discipline as
+# add_evidence's own `required` tuple just above it: capability_receipts
+# carries no schema.py Shape (same choice evidence and runtime_runs
+# already made for a table with no canonical five-object twin), so the
+# store itself is where the honesty checks live. capability_version and
+# task_id are deliberately absent from this list: capability_version's
+# own column comment says "'' when unknowable", so an empty string there
+# is a real, allowed value, and task_id is genuinely optional (a receipt
+# may describe project-level work with no task of its own).
+_CAPABILITY_RECEIPT_REQUIRED = ("receipt_id", "project_id", "capability_name",
+                                "task_description", "verification_state",
+                                "created_at")
+
+# The four JSON-list fields of a capability receipt (inputs field 3,
+# permissions_declared field 4, changed_artifacts field 6, omissions field
+# 9), decoded by list_capability_receipts the same way Forecast.LIST_FIELDS
+# is decoded by list_forecasts.
+_CAPABILITY_RECEIPT_LIST_FIELDS = ("inputs", "permissions_declared",
+                                   "changed_artifacts", "omissions")
 
 # The closed sets record_view refuses against, and the caller-settable
 # keys of its dict argument. Same discipline and same reason as
@@ -4707,6 +4828,57 @@ def _migrate_18_to_19(conn):
                          % (name, decl))
 
 
+def _migrate_19_to_20(conn):
+    """Schema 19 to 20 (TK5a, F4 capability receipts plus R1.2
+    criterion-linked verification, docs/plan/TOOLKIT-PLAN-2026-08-12.md
+    sections 3 and 5). ONE new table (capability_receipts) plus ONE
+    additive column on the existing evidence table (criterion_id).
+    ADDITIVE ONLY: no existing table gains, loses or changes a column
+    other than the one named here, and no existing index is dropped or
+    redefined.
+
+    The table half follows _migrate_16_to_17's own contract: every
+    statement in _CAPABILITY_DDL_STATEMENTS and
+    _CAPABILITY_INDEX_STATEMENTS is CREATE TABLE IF NOT EXISTS or CREATE
+    INDEX IF NOT EXISTS, safe whether this runs against a genuinely old
+    schema-19 store or, via _ensure_schema, against a brand new one that
+    already has the table.
+
+    The column half follows _migrate_18_to_19's own contract: GUARDED ON
+    PRAGMA table_info rather than assumed absent, for the same reason
+    _migrate_7_to_8 states, because this step also runs from
+    _ensure_schema for a brand new store, where the column may already be
+    in the CREATE TABLE text, and ADD COLUMN on an existing name is a
+    hard sqlite3 error that would refuse to open a fresh store.
+
+    Same contract as every migration before it: it runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open
+    a transaction of its own; that is also why it walks _split_ddl's
+    statement list instead of calling executescript, whose implicit
+    COMMIT would end the caller's transaction underneath it.
+
+    What this deliberately does NOT do: it does not backfill a receipt
+    for work that already happened, and it does not backfill a
+    criterion_id onto a single existing evidence row. There is no prior
+    judgement anywhere to backfill FROM, the same reasoning
+    _migrate_15_to_16 states for the insight ledger: a receipt records
+    what a capability DID and what BrotherMode verified, never a claim
+    invented after the fact, and a criterion link invented for evidence
+    filed before this loop would assert a review nobody actually did.
+    Every project that predates schema 20 therefore has an empty receipt
+    table and every evidence row filed before it carries an empty,
+    honestly unlinked criterion_id."""
+    for statement in _CAPABILITY_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _CAPABILITY_INDEX_STATEMENTS:
+        conn.execute(statement)
+    have = {r[1] for r in
+            conn.execute("PRAGMA table_info(evidence)").fetchall()}
+    name, decl = _EVIDENCE_V20_COLUMN
+    if name not in have:
+        conn.execute("ALTER TABLE evidence ADD COLUMN %s %s" % (name, decl))
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -4726,6 +4898,7 @@ _MIGRATIONS = {
     16: _migrate_16_to_17,
     17: _migrate_17_to_18,
     18: _migrate_18_to_19,
+    19: _migrate_19_to_20,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -4984,6 +5157,16 @@ _DUMP_SCRUB_ONLY_COLUMNS = frozenset((
     ("alerts", "category"),
     ("evidence", "kind"), ("evidence", "subject_type"),
     ("runtime_runs", "runtime"),
+    # Schema 20 (TK5a): capability_name, capability_version and
+    # executor_identity are free text a caller supplies (a plugin slug, a
+    # version string, an executor label), none carries an ENUMS entry, and
+    # withholding all three would make a capability receipt dump useless
+    # for the one question it exists to answer: which capability did the
+    # work. Same discipline as runtime_runs.runtime just above, the
+    # closest existing column of the same kind.
+    ("capability_receipts", "capability_name"),
+    ("capability_receipts", "capability_version"),
+    ("capability_receipts", "executor_identity"),
 ))
 
 # FIX-ROUND 11 (reported and reproduced): session ids were listed as
@@ -5416,6 +5599,12 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("evidence", "evidence_id"),
     ("evidence", "subject_id"),
     ("evidence", "created_at"),
+    # Schema 20 (TK5a, R1.2). criterion_id names ONE entry of the subject
+    # task's own acceptance_checks (see schema.criterion_id_for_check and
+    # Store._verify_criterion_id): a twelve-character hex id computed from
+    # the check's own text, structurally the same shape as evidence_id and
+    # subject_id right above it, never founder-typed free text.
+    ("evidence", "criterion_id"),
     ("runtime_runs", "run_id"),
     ("runtime_runs", "result"), ("runtime_runs", "started_at"),
     ("runtime_runs", "finished_at"),
@@ -5534,6 +5723,25 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("views", "created_at"), ("views", "kind"),
     ("views", "fingerprint"), ("views", "published_at"),
     ("views", "subject"),
+    # Schema 20 (TK5a, F4 capability receipts). Identifiers, the one true
+    # enum (verification_state carries a real CHECK constraint, exactly
+    # the reasoning tasks.status and alerts.severity are on this list
+    # for) and one timestamp.
+    #
+    # DELIBERATELY ABSENT, and therefore withheld: task_description,
+    # inputs, permissions_declared, claimed_output, changed_artifacts,
+    # raw_evidence, verification_evidence and omissions. Every one of
+    # those is prose or a JSON list of prose a capability or BrotherMode's
+    # own rerun produced, exactly the class of content records.evidence
+    # and every LIST_FIELDS column on projects/tasks already withholds; a
+    # dump proves a receipt EXISTS and what its verdict was, never what it
+    # says. capability_name, capability_version and executor_identity are
+    # legible but scrubbed, not safe: see _DUMP_SCRUB_ONLY_COLUMNS.
+    ("capability_receipts", "receipt_id"),
+    ("capability_receipts", "project_id"),
+    ("capability_receipts", "task_id"),
+    ("capability_receipts", "verification_state"),
+    ("capability_receipts", "created_at"),
 ))
 
 
@@ -6758,6 +6966,13 @@ class Store(object):
             # this migration alone, the same way schema 8's
             # notes.anchor_line_hash is.
             _migrate_18_to_19(self.conn)
+        if SCHEMA_VERSION >= 20:
+            # Same rule again. Every statement in _migrate_19_to_20 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, and
+            # its ALTER TABLE is guarded on PRAGMA table_info, so this call
+            # is safe on a store that was just created with the receipts
+            # table and the evidence column already present.
+            _migrate_19_to_20(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -12565,6 +12780,103 @@ class Store(object):
                                      action="add_forecast")
         return forecast.forecast_id
 
+    def add_capability_receipt(self, receipt_dict, actor):
+        """Append ONE capability receipt (F4, the nine-field
+        normalization of what an external capability did, T5), with its
+        attribution event ('capability_receipt.added'), in ONE
+        transaction. Append-only, same contract as add_forecast: this
+        never edits an existing capability_receipts row, because a
+        receipt records what a capability claimed and what BrotherMode's
+        own rerun found AT THE TIME, and a later edit would let a more
+        flattering verification quietly replace the one that actually
+        happened.
+
+        capability_receipts carries no schema.py Shape (the same choice
+        evidence and runtime_runs already made for a table with no
+        canonical five-object twin, per this loop's own file list), so
+        the honesty checks add_evidence's docstring describes for that
+        table live here instead of in a Shape.validate(): required fields
+        are checked by name (_CAPABILITY_RECEIPT_REQUIRED), and
+        verification_state is refused before it ever reaches the table's
+        own CHECK constraint, so the raised error names the field rather
+        than surfacing a bare sqlite3.IntegrityError. 'no_data' is a
+        first-class member of that check, never treated as a lesser
+        'verified': a capability that returned prose with nothing
+        runnable gets a receipt that says so, honestly, rather than one
+        that silently passes.
+
+        The project (and, when given, the task) this receipt names must
+        already exist, and a named task must belong to the named project,
+        the same subject-integrity check add_evidence's own
+        _verify_evidence_subject runs; either failure refuses with
+        nothing written."""
+        missing = [k for k in _CAPABILITY_RECEIPT_REQUIRED
+                   if not receipt_dict.get(k)]
+        if missing:
+            raise OwnershipRefused(
+                "bad-capability-receipt",
+                "capability receipt is missing required field(s): %s"
+                % ", ".join(missing))
+        state = receipt_dict["verification_state"]
+        if state not in _VERIFICATION_STATES:
+            raise OwnershipRefused(
+                "bad-verification-state",
+                "verification_state must be one of %s, got %r"
+                % (" | ".join(_VERIFICATION_STATES), state))
+        project_id = receipt_dict["project_id"]
+        task_id = receipt_dict.get("task_id") or None
+        with self._transaction():
+            row = _exec(self, "SELECT project_id FROM projects "
+                        "WHERE project_id=?", (project_id,)).fetchone()
+            if row is None:
+                raise OwnershipRefused(
+                    "not-found",
+                    "no project %r to attach a capability receipt to"
+                    % (project_id,))
+            if task_id is not None:
+                trow = _exec(self, "SELECT project_id FROM tasks "
+                            "WHERE task_id=?", (task_id,)).fetchone()
+                if trow is None:
+                    raise OwnershipRefused(
+                        "not-found",
+                        "no task %r to attach a capability receipt to"
+                        % (task_id,))
+                if trow["project_id"] != project_id:
+                    raise OwnershipRefused(
+                        "project-mismatch",
+                        "task %r belongs to project %r, not %r; a "
+                        "capability receipt must be filed under the "
+                        "task's own project"
+                        % (task_id, trow["project_id"], project_id))
+            _exec(self,
+                  "INSERT INTO capability_receipts (receipt_id, "
+                  "project_id, task_id, capability_name, "
+                  "capability_version, executor_identity, "
+                  "task_description, inputs, permissions_declared, "
+                  "claimed_output, changed_artifacts, raw_evidence, "
+                  "verification_state, verification_evidence, "
+                  "omissions, created_at) "
+                  "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (receipt_dict["receipt_id"], project_id, task_id,
+                   receipt_dict["capability_name"],
+                   receipt_dict.get("capability_version") or "",
+                   receipt_dict.get("executor_identity") or "",
+                   receipt_dict["task_description"],
+                   json.dumps(receipt_dict.get("inputs") or []),
+                   json.dumps(receipt_dict.get("permissions_declared")
+                              or []),
+                   receipt_dict.get("claimed_output") or "",
+                   json.dumps(receipt_dict.get("changed_artifacts") or []),
+                   receipt_dict.get("raw_evidence") or "",
+                   state,
+                   receipt_dict.get("verification_evidence") or "",
+                   json.dumps(receipt_dict.get("omissions") or []),
+                   receipt_dict["created_at"]))
+            self._write_attribution(project_id, task_id,
+                                     "capability_receipt.added", actor,
+                                     action="add_capability_receipt")
+        return receipt_dict["receipt_id"]
+
     def create_task(self, task_dict, actor):
         """Create ONE task, mirror its depends_on list into the
         dependencies table (the queryable truth; the tasks.depends_on
@@ -12747,6 +13059,48 @@ class Store(object):
                 "evidence subject_type must be 'project' or 'task', got %r"
                 % (subject_type,))
 
+    def _verify_criterion_id(self, evidence_dict, criterion_id):
+        """R1.2/T5 (criterion-linked verification): a non-empty
+        criterion_id must name a REAL entry of the subject task's own
+        acceptance_checks, computed the same way
+        schema.criterion_id_for_check computes it, or the write is
+        refused. Empty is always allowed and never reaches this method
+        (see _insert_evidence_row's own gate): 'not linked' is honest for
+        every evidence row filed before schema 20 and for any row filed
+        without naming a criterion afterwards. A caller that DOES claim a
+        link is held to it, the same way _verify_evidence_subject holds
+        subject_id to a real row rather than accepting any string.
+
+        Only a task subject can carry a criterion link: a Project has no
+        acceptance_checks to link to, so a project-subject row with a
+        non-empty criterion_id is refused by name rather than silently
+        accepted as unlinked. Called from inside the caller's own
+        transaction, so a refusal here rolls back whatever else that
+        transaction was about to write."""
+        if evidence_dict["subject_type"] != "task":
+            raise OwnershipRefused(
+                "bad-criterion",
+                "criterion_id may only be set on evidence for a task "
+                "subject, got subject_type=%r"
+                % (evidence_dict["subject_type"],))
+        row = _exec(self, "SELECT acceptance_checks FROM tasks "
+                    "WHERE task_id=?",
+                    (evidence_dict["subject_id"],)).fetchone()
+        try:
+            checks = json.loads(row["acceptance_checks"]) if row else []
+        except ValueError:
+            checks = []
+        if not isinstance(checks, list):
+            checks = []
+        S = _schema()
+        valid_ids = {S.criterion_id_for_check(c) for c in checks}
+        if criterion_id not in valid_ids:
+            raise OwnershipRefused(
+                "bad-criterion",
+                "criterion_id %r does not match any acceptance_checks "
+                "entry on task %r"
+                % (criterion_id, evidence_dict["subject_id"]))
+
     def _insert_evidence_row(self, evidence_dict, project_id, actor):
         """The body of add_evidence, assuming a transaction is ALREADY
         open (see _transition_task_row's docstring: review_task below
@@ -12759,15 +13113,19 @@ class Store(object):
                 "evidence is missing required field(s): %s"
                 % ", ".join(missing))
         self._verify_evidence_subject(evidence_dict, project_id)
+        criterion_id = evidence_dict.get("criterion_id") or ""
+        if criterion_id:
+            self._verify_criterion_id(evidence_dict, criterion_id)
         _exec(self,
               "INSERT INTO evidence (evidence_id, subject_type, "
-              "subject_id, kind, ref, note, created_at) "
-              "VALUES (?,?,?,?,?,?,?)",
+              "subject_id, kind, ref, note, criterion_id, created_at) "
+              "VALUES (?,?,?,?,?,?,?,?)",
               (evidence_dict["evidence_id"], evidence_dict["subject_type"],
                evidence_dict["subject_id"],
                evidence_dict.get("kind") or "",
                evidence_dict.get("ref") or "",
                evidence_dict.get("note") or "",
+               criterion_id,
                evidence_dict["created_at"]))
         task_id = (evidence_dict["subject_id"]
                    if evidence_dict["subject_type"] == "task" else None)
@@ -12789,7 +13147,16 @@ class Store(object):
         threaded through as the attribution row's task_id. The subject
         (project or task) must already exist, and a task subject must
         belong to `project_id`; either failure refuses via
-        _verify_evidence_subject with nothing written (C2/C3)."""
+        _verify_evidence_subject with nothing written (C2/C3).
+
+        evidence_dict may also carry 'criterion_id' (schema 20, R1.2): the
+        stable id of the acceptance_checks entry this evidence satisfies,
+        computed by schema.criterion_id_for_check. Omitted or empty means
+        not linked, a real and honest value, never guessed; a non-empty
+        value that does not match any entry on the subject task refuses
+        via _verify_criterion_id with nothing written, the same all-or-
+        nothing guarantee _verify_evidence_subject already gives the
+        subject itself."""
         with self._transaction():
             return self._insert_evidence_row(evidence_dict, project_id, actor)
 
@@ -13279,6 +13646,34 @@ class Store(object):
         return _export_row(self.conn, "forecasts", dict(row),
                             S.Forecast.LIST_FIELDS, raw=raw)
 
+    def list_capability_receipts(self, project_id, task_id=None,
+                                  capability_name=None, raw=False):
+        """Every capability receipt for `project_id`, oldest first: the
+        same D-2 read-accessor shape as list_forecasts just above it,
+        append-only per add_capability_receipt's own contract, so
+        oldest-first is that row's own history in the order it was made.
+
+        `task_id` and `capability_name` narrow the read the same way
+        list_tasks narrows on status: both optional, both exact match,
+        neither changes the base query when omitted, and both may be
+        combined with each other and with `project_id`."""
+        clauses = ["project_id=?"]
+        params = [project_id]
+        if task_id is not None:
+            clauses.append("task_id=?")
+            params.append(task_id)
+        if capability_name is not None:
+            clauses.append("capability_name=?")
+            params.append(capability_name)
+        rows = _exec(self,
+            "SELECT * FROM capability_receipts WHERE %s "
+            "ORDER BY created_at ASC, receipt_id ASC"
+            % " AND ".join(clauses),
+            tuple(params)).fetchall()
+        return [_export_row(self.conn, "capability_receipts", dict(r),
+                             _CAPABILITY_RECEIPT_LIST_FIELDS, raw=raw)
+                for r in rows]
+
     def list_alerts(self, resolved=None, raw=False):
         """Every alert, newest first (created_at DESC, alert_id tie
         break). `resolved` narrows the read: None (the default) for every
@@ -13302,14 +13697,30 @@ class Store(object):
         return [_export_row(self.conn, "alerts", dict(r), S.Alert.LIST_FIELDS,
                              raw=raw) for r in rows]
 
-    def list_evidence(self, subject_type, subject_id, raw=False):
+    def list_evidence(self, subject_type, subject_id, criterion_id=None,
+                       raw=False):
         """Every evidence row for ONE (subject_type, subject_id) pair,
         oldest first (created_at ASC, evidence_id tie break). Empty list
-        for a subject with no evidence."""
-        rows = _exec(self,
-            "SELECT * FROM evidence WHERE subject_type=? AND subject_id=? "
-            "ORDER BY created_at ASC, evidence_id ASC",
-            (subject_type, subject_id)).fetchall()
+        for a subject with no evidence.
+
+        `criterion_id` (schema 20, R1.2), when given, narrows to rows
+        whose own criterion_id equals it exactly. Passing '' on purpose
+        asks for the UNLINKED rows, a real and meaningful query ('what
+        ran that names no criterion at all'), which is why the default is
+        None (no filter) rather than ''; the two are deliberately not the
+        same value."""
+        if criterion_id is None:
+            rows = _exec(self,
+                "SELECT * FROM evidence WHERE subject_type=? "
+                "AND subject_id=? "
+                "ORDER BY created_at ASC, evidence_id ASC",
+                (subject_type, subject_id)).fetchall()
+        else:
+            rows = _exec(self,
+                "SELECT * FROM evidence WHERE subject_type=? "
+                "AND subject_id=? AND criterion_id=? "
+                "ORDER BY created_at ASC, evidence_id ASC",
+                (subject_type, subject_id, criterion_id)).fetchall()
         return [_export_row(self.conn, "evidence", dict(r), raw=raw)
                 for r in rows]
 
@@ -16740,11 +17151,19 @@ class ReadOnlyStore(object):
     def latest_forecast(self, project_id, raw=False):
         return Store.latest_forecast(self, project_id, raw=raw)
 
+    def list_capability_receipts(self, project_id, task_id=None,
+                                  capability_name=None, raw=False):
+        return Store.list_capability_receipts(
+            self, project_id, task_id=task_id,
+            capability_name=capability_name, raw=raw)
+
     def list_alerts(self, resolved=None, raw=False):
         return Store.list_alerts(self, resolved=resolved, raw=raw)
 
-    def list_evidence(self, subject_type, subject_id, raw=False):
-        return Store.list_evidence(self, subject_type, subject_id, raw=raw)
+    def list_evidence(self, subject_type, subject_id, criterion_id=None,
+                       raw=False):
+        return Store.list_evidence(self, subject_type, subject_id,
+                                    criterion_id=criterion_id, raw=raw)
 
     def list_attribution(self, project_id, limit=50, raw=False):
         return Store.list_attribution(self, project_id, limit=limit, raw=raw)

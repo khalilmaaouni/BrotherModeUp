@@ -26,6 +26,9 @@ Python 3.9, standard library only. No network. No subprocess. No files.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 
+import hashlib
+import json
+
 
 class SchemaError(ValueError):
     """A protocol object or stream violated the canonical protocol."""
@@ -315,6 +318,31 @@ class Task(_Shape):
             raise SchemaError(
                 "invalid Task: %s" % _state_error(self.status))
         return _Shape.validate(self)
+
+
+def criterion_id_for_check(check):
+    """A stable id for ONE entry of a Task's acceptance_checks list (T5,
+    criterion-linked verification, folded in with capability receipts
+    because a link to the acceptance criterion a check satisfies is the
+    receipt's own backbone).
+
+    acceptance_checks stays exactly the flat list schema 12 already gave
+    it: FIELDS unchanged, LIST_FIELDS unchanged, ADDITIVE ONLY, no
+    reshape, so an existing task's checks keep working completely
+    unchanged, plain strings and all. The id is derived from the entry's
+    own content rather than stored inside it or beside it, which is what
+    makes it stable without a new field on Task: the same check text
+    always yields the same id, on the first read as much as the
+    thousandth, with nothing new ever written to the task row itself.
+
+    `check` is ordinarily a plain string, the only shape acceptance_checks
+    entries have ever taken; a caller that stores a richer object per
+    entry still gets a stable id because the value is canonicalised
+    (JSON, sorted keys) before hashing. Twelve hex characters (48 bits) is
+    short enough to read and type back, and long enough that two distinct
+    checks on the same task colliding by accident is not a real risk."""
+    text = check if isinstance(check, str) else json.dumps(check, sort_keys=True)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 class AttributionEvent(_Shape):
