@@ -2390,6 +2390,26 @@ REFUSAL_HELP = {
         "the note carries no level, so nothing can decide whether to "
         "interrupt you with it",
         "Ask me to record it again and say how urgent it is."),
+    "bad-capability-receipt": (
+        "recording what another tool did for you",
+        "the record is missing something it cannot be filed without, like "
+        "which tool did the work or what it was asked to do",
+        "Ask me to file it again naming the tool, its version and the task."),
+    "bad-criterion": (
+        "linking a piece of proof to the thing it proves",
+        "the check it points at is not one of the acceptance checks on that "
+        "piece of work, so the link would claim something that was never "
+        "agreed",
+        "Ask to see the acceptance checks for that work, then link to one "
+        "of those."),
+    "bad-verification-state": (
+        "recording whether another tool's work was independently checked",
+        "the record has to say one of exactly three things: it was checked "
+        "and passed, it was checked and failed, or there was nothing here "
+        "that could be checked",
+        "Ask me to file it again saying which of those three happened. If "
+        "the tool only gave an opinion with nothing to re-run, the honest "
+        "answer is the third one."),
     "already-answered": (
         "answering a question BrotherMode had paused on",
         "that question already has your answer on record",
