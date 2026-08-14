@@ -69,7 +69,7 @@
   {
    "id": "TK3",
    "title": "T3 Capability records with static DECLARED reach derived from artifacts",
-   "state": "queued",
+   "state": "done",
    "clock": "agent",
    "forecast_minutes": 120,
    "files": [
