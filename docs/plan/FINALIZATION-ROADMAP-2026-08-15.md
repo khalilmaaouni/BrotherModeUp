@@ -118,6 +118,17 @@ and remote, scripts/release-smoke-install.sh PASS.
    decision on the board. Phases 1 and 2 may run as the two parallel lanes
    the law allows.
 
+## What decides success, imported 2026-08-15 from the the adopter team review
+
+This roadmap is judged by the three numbers in
+docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md section BM-A2 (external
+installs from filed transcripts, baseline zero; the named testers' cold
+install outcomes; felt-outcome scores from people other than the founder)
+and by nothing else. Gate verdicts, test counts and doctor scores are how
+the work is checked, not whether the plan worked. The named risk: every
+gate green while the install count stays zero means this plan failed, and
+the gates will say otherwise.
+
 ## What this roadmap deliberately does not do
 
 No new engine features outside the ratified Toolkit program. No multi-runtime
