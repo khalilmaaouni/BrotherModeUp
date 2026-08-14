@@ -310,5 +310,44 @@ class MalformedLineTests(unittest.TestCase):
             self.assertTrue(result.stdout.startswith("NO-DATA:"))
 
 
+class HelpTests(unittest.TestCase):
+    """The precedent (tools/bm_project.py's _parse) recognizes --help/-h at
+    every verb's flag position, never falling through to "unknown
+    argument". Before this fix, bm_forecast.py refused --help on every
+    verb with "unknown argument: --help" at exit 2."""
+
+    def test_bare_help_flag_exits_0_with_usage(self):
+        result = run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage:", result.stdout)
+
+    def test_no_args_exits_0_with_usage(self):
+        result = run_cli()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage:", result.stdout)
+
+    def test_record_help_flag_exits_0_with_usage(self):
+        result = run_cli("record", "--help")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage:", result.stdout)
+        self.assertIn("--likely-minutes", result.stdout)
+
+    def test_calibrate_help_flag_exits_0_with_usage(self):
+        result = run_cli("calibrate", "-h")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Usage:", result.stdout)
+
+    def test_check_help_flag_does_not_require_log(self):
+        # --help must win even though `check` normally needs --log/--root
+        # to resolve anything; a NO-DATA log-resolution failure here would
+        # mean --help fell through to the real command body. (The module
+        # docstring itself documents the "NO-DATA:" convention, so this
+        # checks the message does not START with it, rather than never
+        # containing the substring.)
+        result = run_cli("check", "--help")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(result.stdout.startswith("NO-DATA:"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -676,11 +676,16 @@ VERBS = ("record", "actual", "calibrate", "apply", "check", "list")
 def _parse_argv(argv):
     """Return (verb, opts, error). `error` set means stop and report a
     plain usage failure (exit 2, no "NO-DATA:" prefix: that prefix is
-    reserved for "could not determine the verdict", not "bad arguments")."""
+    reserved for "could not determine the verdict", not "bad arguments").
+
+    --help/-h is handled the way tools/bm_project.py's own _parse handles
+    it: recognized at the top level (bare `--help`, no verb) AND at every
+    verb's flag position, never falling through to "unknown argument" or
+    "unknown verb". opts["help"] is the signal _run checks before
+    dispatching to any cmd_* function."""
     args = list(argv)
-    if not args:
-        return None, None, "bm_forecast: a verb is required: %s" % (
-            ", ".join(VERBS))
+    if not args or args[0] in ("-h", "--help", "help"):
+        return "help", {"help": True}, None
     verb = args.pop(0)
     if verb not in VERBS:
         return None, None, "bm_forecast: unknown verb: %s" % verb
@@ -691,7 +696,7 @@ def _parse_argv(argv):
         "assumption": None, "source": None, "at": None,
         "minutes": None, "note": None,
         "max_open_hours": 12.0, "now": None,
-        "log": None, "root": None,
+        "log": None, "root": None, "help": False,
     }
 
     flag_to_key = {
@@ -714,6 +719,9 @@ def _parse_argv(argv):
     i = 0
     while i < len(args):
         arg = args[i]
+        if arg in ("--help", "-h"):
+            opts["help"] = True
+            return verb, opts, None
         if arg not in flag_to_key:
             return None, None, "bm_forecast: unknown argument: %s" % arg
         if i + 1 >= len(args):
@@ -738,6 +746,10 @@ def _run(argv):
     if err:
         sys.stderr.write(err + "\n")
         return 2
+
+    if opts.get("help"):
+        sys.stdout.write(__doc__.strip() + "\n")
+        return 0
 
     if verb == "record":
         return cmd_record(opts)

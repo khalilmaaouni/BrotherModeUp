@@ -58,6 +58,11 @@ prompt). Kill by PID after printing the target.
   `scripts/doctor.py` check 9 FAILing, and no test catches it.
 - Push policy: direct to main. Every gate (secret scan, dash scan, green
   tests, command verification) stays mandatory.
+- Merge-to-main default (founder order 2026-08-15): every session merges
+  its finished work to main before it ends; worktree agent deltas are
+  folded by the orchestrator, re-gated on the committed tree, and pushed.
+  Work that cannot merge yet is NAMED in the session's handover pack close
+  report at the exact step it stopped, never left silently in a worktree.
 
 ## The baton ceremony, both halves (ratified 2026-08-11)
 

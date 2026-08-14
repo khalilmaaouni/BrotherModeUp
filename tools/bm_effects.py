@@ -508,13 +508,19 @@ REGISTRY = {
     # and constructs no Store, same as every other verb here.
     # "conflicts" (TK2, 2026-08-15, declared late: TK3's builder caught the
     # omission the same day) is the same shape again: it reads the same
-    # inventory plus a class table and prints verdicts, constructing no
-    # Store.
+    # inventory plus a conflict-class table and writes only its own verdict
+    # report to stdout.
+    # "route" (TK4, 2026-08-15) is the same shape once more: it reads the
+    # same inventory plus a routing table (tools/toolkit_routes.json or the
+    # embedded default) and writes only its resolved-or-degraded report to
+    # stdout; presence is checked against the already-collected inventory,
+    # never by running the routed capability.
     "bm_toolkit.py": {
         "inventory": PURE_READ,
         "json": PURE_READ,
         "conflicts": PURE_READ,
         "capabilities": PURE_READ,
+        "route": PURE_READ,
     },
 
     # -- bm_idle.py -----------------------------------------------------
