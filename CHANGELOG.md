@@ -1,5 +1,46 @@
 # Changelog
 
+## 3.3.0, released 2026-08-15 (annotated tag v3.3.0, on the commit that alone carries VERSION 3.3.0 per rule 1)
+
+Bitbucket support, the competitive position stated with evidence, and the
+finalization roadmap. Engine unchanged: no schema migration, no new command,
+no new subsystem; the store remains at schema 20 where v3.2.1 left it.
+
+- Bitbucket Cloud support lands as code and documentation.
+  `bitbucket-pipelines.yml` runs the documented full gate on Python 3.9 and
+  the newest Python 3 with a full-depth clone; `docs/BITBUCKET.md` covers
+  install from a mirror (Claude Code's marketplace command accepts full git
+  URLs, per its own documentation), remotes, the pull request flow through
+  Bitbucket's REST API with Atlassian API tokens (app passwords were
+  removed by Atlassian on 2026-07-28), and continuous integration. The
+  engine needed no change because it speaks plain git; the page quotes the
+  command that proves it, and labels UNVERIFIED the three claims only a
+  live mirror can prove, because none exists yet.
+- The fair comparison and the road to finished:
+  `docs/plan/FINALIZATION-ROADMAP-2026-08-15.md` profiles the
+  orchestration-layer field as read live on 2026-08-15 (Ruflo, superpowers,
+  BMAD-METHOD, spec-kit and three smaller projects) and states the result
+  in both directions: no project in the category ships enforced per-file
+  ownership, a refusing handover ceremony, forecast calibration with a
+  NO-DATA floor, or a delivered progress page; every project in the
+  category beats this one on reach, and the recorded external install
+  count is zero. Five phases order the answer.
+- Still unproven, so still stated: nobody outside this machine has run the
+  two-command install; the tester pack exists to measure exactly that, and
+  `docs/KNOWN-LIMITS.md` continues to carry the open items this entry does
+  not re-argue.
+
+## 3.2.1, released 2026-08-12 (annotated tag v3.2.1, on the commit that alone carries VERSION 3.2.1 per rule 1)
+
+A release-identity fix, recorded here after the fact: this entry was added
+with 3.3.0 because 3.2.1 shipped without a changelog entry of its own.
+Content identical to 3.2.0 plus that day's landed work; the number moved
+because a history rewrite left the `v3.2.0` tag pointing at a commit that
+was no longer the one setting VERSION, the release-truth check went red,
+and moving a published tag was rejected in favor of cutting the next
+number. `docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md` carries
+the decision with its alternatives.
+
 ## 3.2.0, released 2026-08-12 (annotated tag v3.2.0, on the commit that alone carries VERSION 3.2.0 per rule 1)
 
 V3 Final. A repositioning release plus a surface cut plus two small
