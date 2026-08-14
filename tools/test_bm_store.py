@@ -15669,7 +15669,15 @@ class TestPurgeProject(unittest.TestCase):
                               # purge_project started removing them, which
                               # is the pin performing its designed
                               # function rather than an inconvenience.
-                              "views": 0})
+                              "views": 0,
+                              # T5: capability_receipts, schema 20. Same
+                              # rule again, and this one matters more than
+                              # the count alone says: the table carries a
+                              # REFERENCES projects(project_id) FK with
+                              # foreign_keys=ON, so an unpurged receipt
+                              # does not merely orphan, it refuses this
+                              # very purge's own DELETE FROM projects.
+                              "capability_receipts": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -22113,6 +22121,63 @@ class TestViewPurgeLeavesNoOrphans(unittest.TestCase):
                 self.assertEqual(
                     store.latest_view("p2", "PROJECT_VIEW",
                                       raw=True)["view_id"], kept)
+
+
+class TestCapabilityReceiptPurgeLeavesNoOrphans(unittest.TestCase):
+    """T5, schema 20, sibling of TestLeadPurgeLeavesNoOrphans and
+    TestViewPurgeLeavesNoOrphans above: purge_project must remove every
+    capability_receipts row, counted like every other table's, so no
+    orphan survives a purge. Disclosed out of scope by the T5 builder
+    (capability_receipts carries a REFERENCES projects(project_id) FK
+    with foreign_keys=ON, so an unpurged receipt would refuse the
+    project row's own DELETE, not merely leave an orphan behind)."""
+
+    def test_purge_removes_every_capability_receipt_row(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                actor = _actor()
+                store.add_capability_receipt(
+                    _capability_receipt("r1", pid="p1"), actor)
+                store.add_capability_receipt(
+                    _capability_receipt("r2", pid="p1",
+                                        capability_name="other-plugin"),
+                    actor)
+
+                for t in bs._TABLES_CAPABILITY:
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertGreater(count, 0,
+                                       "%s must be seeded before the purge "
+                                       "proves it empties" % t)
+
+                removed = store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_CAPABILITY:
+                    self.assertIn(t, removed)
+                    self.assertGreater(removed[t], 0)
+                    count = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertEqual(count, 0,
+                                     "%s still holds a row for a purged "
+                                     "project" % t)
+
+    def test_another_projects_capability_receipts_survive_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "p1")
+                _seed(store, "p2")
+                actor = _actor()
+                store.add_capability_receipt(
+                    _capability_receipt("r1", pid="p1"), actor)
+                store.add_capability_receipt(
+                    _capability_receipt("r2", pid="p2"), actor)
+                store.purge_project("p1", actor, "p1")
+                self.assertEqual(store.list_capability_receipts("p1"), [])
+                kept = store.list_capability_receipts("p2", raw=True)
+                self.assertEqual(len(kept), 1)
+                self.assertEqual(kept[0]["receipt_id"], "r2")
 
 
 class TestViewPathsAreContained(unittest.TestCase):
