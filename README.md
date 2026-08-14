@@ -336,7 +336,7 @@ source; uninstalling removes the plugin and leaves your project data and
 vault untouched.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.0
 claude plugin install brothermode@brothermode-marketplace
 ```
 
@@ -344,7 +344,7 @@ Already running v2? Uninstall it first (`claude plugin uninstall brotherme`). Th
 ids are different plugins to Claude Code and installing both leaves two
 hook chains wired at once.
 
-The `@v3.2.1` pins the marketplace add itself to the released tag rather
+The `@v3.3.0` pins the marketplace add itself to the released tag rather
 than the repository's moving default branch. Anthropic's plugin
 marketplace format resolves an `owner/repo@ref` source to that exact
 branch or tag on every add and every later update, per the CLI reference
@@ -407,7 +407,7 @@ future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v3.2.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact every

@@ -12,9 +12,11 @@ last edit.
 
 ## Where we stand
 
-v3.2.1 is the released version; re-checked in this session on 2026-08-15,
-the tag dereferences to 2002bc84 both locally and on the remote, and VERSION
-reads 3.2.1. The full battery verdict recorded at that commit by the closing
+v3.3.0 was cut on 2026-08-15 on the founder's recorded decision, taken the
+same day this page was written; it carries the Bitbucket lane and this
+page, on an unchanged engine. The prior release: v3.2.1, whose tag was
+re-checked this session and dereferences to 2002bc84 both locally and on
+the remote. The full battery verdict recorded at that commit by the closing
 session: 3136 tests across 35 suites, exit 0, doctor 11 of 11 (historical
 record bound to 2002bc84, quoted from the 2026-08-12 close report, not re-run
 here; this session runs its own gate before it pushes). Toolkit wave 1 landed
@@ -105,14 +107,16 @@ documented release steps (docs/RELEASE.md), and update the one-pager.
 Done-check: release-truth suite green, tag dereferences identically local
 and remote, scripts/release-smoke-install.sh PASS.
 
-## Waiting on the founder, highest stakes first
+## Founder decisions, answered 2026-08-15 through the question windows
 
-1. Bitbucket workspace and mirror creation, an account-holding step nobody
-   else can run (Phase 3, blocks the UNVERIFIED labels).
-2. Tester recruitment for Phase 2, the zero-installs number.
-3. Whether the finalization cut is v3.3.0 and whether Phase 1 must complete
-   before Phase 2 starts, or they run as the two parallel lanes the law
-   allows.
+1. Bitbucket workspace and mirror: the founder creates it now. The moment
+   it exists, Phase 3's verification loop runs and the UNVERIFIED labels
+   on docs/BITBUCKET.md close with quoted output.
+2. Testers: the analyst lead and the engineering lead, from the founder's own team. The tester pack
+   and install card are ready to hand them as they stand.
+3. The cut: v3.3.0, cut 2026-08-15, the same day, per the standing Friday
+   decision on the board. Phases 1 and 2 may run as the two parallel lanes
+   the law allows.
 
 ## What this roadmap deliberately does not do
 
