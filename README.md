@@ -442,6 +442,14 @@ The engine underneath (`tools/bm_*.py`, `scripts/install.py`,
 you want the moving tree rather than the fixed snapshot, use the development
 clone below instead.
 
+**Bitbucket.** The engine speaks plain git and never calls a GitHub API, so a
+project whose remote lives on Bitbucket Cloud gets the same fences, gates and
+ceremony. `docs/BITBUCKET.md` carries the full picture: install from a mirror
+(Claude Code's marketplace command accepts full git URLs, Bitbucket included),
+the pull request flow through Bitbucket's REST API now that app passwords are
+gone, a `bitbucket-pipelines.yml` mirroring the CI gate on Linux, and an
+honest list of what has not yet been executed against a live mirror.
+
 Working on BrotherMode's own code, rather than just using it? Use the separate
 development command instead, which tracks the moving `main` branch on purpose
 and installs into its own directory so the two can never be confused:
