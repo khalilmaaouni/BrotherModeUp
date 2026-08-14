@@ -392,5 +392,163 @@ class PurityTests(unittest.TestCase):
                          "tool must be provably read-only")
 
 
+class ConflictsFixturesFoundTests(unittest.TestCase):
+    """Test 12: the `conflicts` verb finds the 7 Stop-hook registrants and
+    the dual-version plugin fixture (docs/plan/TOOLKIT-PLAN-2026-08-12.md
+    section F2, measured 2026-08-12) by itself, from a synthetic inventory
+    built to match that measurement exactly."""
+
+    def test_seven_stop_hooks_and_dual_version_plugin_fire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            stop_hooks = {"Stop": []}
+            make_plugin(tmp, "brotherme-marketplace", "brotherme", "1.0.0",
+                        manifest={"name": "brotherme"}, hooks=stop_hooks)
+            make_plugin(tmp, "brothersbe", "brothersbe", "1.0.0-rc.1",
+                        manifest={"name": "brothersbe"}, hooks=stop_hooks)
+            make_plugin(tmp, "brothersbe", "brothersbe", "1.0.0-rc.38",
+                        manifest={"name": "brothersbe"}, hooks=stop_hooks)
+            make_plugin(tmp, "claude-plugins-official", "hookify", "1.0.0",
+                        manifest={"name": "hookify"}, hooks=stop_hooks)
+            make_plugin(tmp, "claude-plugins-official", "ralph-loop", "1.0.0",
+                        manifest={"name": "ralph-loop"}, hooks=stop_hooks)
+            make_plugin(tmp, "claude-plugins-official", "security-guidance",
+                        "1.0.0", manifest={"name": "security-guidance"},
+                        hooks=stop_hooks)
+            make_plugin(tmp, "claude-community", "slop-gate", "1.0.0",
+                        manifest={"name": "slop-gate"}, hooks=stop_hooks)
+            make_plugin(tmp, "claude-community", "ultrapowers", "1.0.0",
+                        manifest={"name": "ultrapowers"}, hooks=stop_hooks)
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn(
+            "[WARN] multi-stop-hook: More than one capability registers a "
+            "Stop hook (count=7 threshold=2)", out)
+        self.assertIn("brotherme@brotherme-marketplace", out)
+        self.assertIn(
+            "[FAIL] multi-version-cached: One capability is present at more "
+            "than one version (count=2 threshold=2)", out)
+        self.assertIn(
+            "brothersbe@brothersbe at 1.0.0-rc.1 and 1.0.0-rc.38", out)
+
+
+class ConflictsInstalledNotEnabledTests(unittest.TestCase):
+    """Test 13: installed-not-enabled fires on a cached-but-not-enabled
+    plugin, naming it by name@marketplace."""
+
+    def test_cached_not_enabled_plugin_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            make_plugin(tmp, "mkt", "dormant-plugin", "1.0.0",
+                        manifest={"name": "dormant-plugin"})
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("[INFO] installed-not-enabled", result.stdout)
+        self.assertIn("dormant-plugin@mkt", result.stdout)
+
+
+class ConflictsNoDataOnUnreadableSurfaceTests(unittest.TestCase):
+    """Test 14: `conflicts` fails NO-DATA the same way `json` and
+    `inventory` do when every core surface is unreadable; the conflict
+    layer never gets a chance to paper over an inventory that could not be
+    built."""
+
+    def test_every_surface_unreadable_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = os.path.join(tmp, ".claude", "plugins", "cache")
+            write_text(cache_path, "not a directory\n")
+            os.makedirs(os.path.join(tmp, ".claude", "settings.json"))
+            write_text(os.path.join(tmp, ".claude", "skills"), "nope\n")
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"), result.stdout)
+
+
+class ConflictsNoDetectorIsNamedNoDataTests(unittest.TestCase):
+    """Test 15: a class with no mechanical detector (its `detect` surface
+    is not part of the inventory) is reported as NO-DATA, named by id and
+    reason, never dropped and never read as a silent pass."""
+
+    def test_class_without_a_detector_is_named(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "duplicate-planning-workflow: no mechanical detector for this "
+            "class", result.stdout)
+
+
+class ConflictsClassesOverrideTests(unittest.TestCase):
+    """Test 16: a valid --classes JSON file REPLACES the shipped default
+    table entirely (decision 34: the defaults are a fallback, not a
+    floor), so only the override's own classes appear in the report."""
+
+    def test_valid_override_replaces_default_classes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            make_plugin(tmp, "mkt", "dormant-plugin", "1.0.0",
+                        manifest={"name": "dormant-plugin"})
+            override_path = write_json(os.path.join(tmp, "custom-classes.json"), {
+                "classes": [{
+                    "id": "installed-not-enabled",
+                    "title": "CUSTOM OVERRIDE TITLE MARKER",
+                    "severity": "warn",
+                    "detect": "test override",
+                    "threshold": 1,
+                }],
+            })
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp,
+                              "--classes", override_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("CUSTOM OVERRIDE TITLE MARKER", result.stdout)
+        self.assertNotIn("multi-stop-hook", result.stdout)
+        self.assertNotIn("OVERRIDE REFUSED", result.stdout)
+
+
+class ConflictsMalformedOverrideRefusedTests(unittest.TestCase):
+    """Test 17: a --classes file that is malformed JSON, or valid JSON with
+    the wrong shape, is refused BY NAME (path and reason printed) and the
+    run falls back to the shipped default classes rather than crashing or
+    going classless."""
+
+    def test_invalid_json_syntax_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            bad_path = write_text(os.path.join(tmp, "broken.json"),
+                                   "{ not valid json")
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp,
+                              "--classes", bad_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(bad_path, result.stdout)
+        # fallback to defaults: multi-stop-hook still shows up (clear, since
+        # this fixture has no plugins), proving the run did not go classless.
+        self.assertIn("multi-stop-hook (count=0 threshold=2)", result.stdout)
+
+    def test_wrong_shape_json_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            wrong_shape_path = write_json(
+                os.path.join(tmp, "wrong-shape.json"), {"not_classes": []})
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp,
+                              "--classes", wrong_shape_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(wrong_shape_path, result.stdout)
+        self.assertIn("multi-stop-hook (count=0 threshold=2)", result.stdout)
+
+    def test_missing_explicit_classes_path_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            missing_path = os.path.join(tmp, "does-not-exist.json")
+            result = run_cli("conflicts", "--home", tmp, "--root", tmp,
+                              "--classes", missing_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(missing_path, result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
