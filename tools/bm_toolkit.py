@@ -13,10 +13,31 @@ WHY THIS EXISTS
   .claude.json. What a tool registers is observable without running it.
 
 THE CONTRACT
-  Two verbs, `inventory` (human readable, the default) and `json` (one
+  Three verbs. `inventory` (human readable, the default) and `json` (one
   JSON object, schema 1, for later loops such as conflict detection to
   consume rather than re-parse). See the top-level JSON shape in the plan
   brief; `build_inventory()` below is the single place that shape is built.
+  `conflicts` (human readable) reads that same inventory plus a table of
+  conflict classes and emits verdicts, per docs/plan/TOOLKIT-PLAN-2026-08-12.md
+  section F2.
+
+CONFLICT CLASSES (F2)
+  Ten classes, defined once in DEFAULT_CONFLICT_CLASSES below (decision 34:
+  the shipped defaults live IN this file as a module constant, so a
+  packaged install is never classless). tools/toolkit_conflict_classes.json
+  next to this file is an OPTIONAL override: present and valid, it replaces
+  the defaults entirely; present and malformed, it is refused BY NAME (the
+  path and the reason are printed) and the defaults are used instead;
+  absent, that is not an error, only silence, same as every other optional
+  surface in this file.
+
+  Each class carries a `detect` description and a `threshold`. A class this
+  module knows how to check mechanically against the inventory fires when
+  its measured count reaches `threshold`, at the severity the class (or its
+  override) declares: info, warn, or fail, and nothing else. A class this
+  module has no mechanical detector for reports NO-DATA, named, rather than
+  going silent: silence would read as "checked, found nothing," which is
+  not true of a surface this file never looked at.
 
   Every surface that cannot be read (permission error, not-a-directory,
   invalid JSON) is appended to `unreadable` with its path and reason; it
@@ -48,10 +69,12 @@ Python 3.9, standard library only. No network. No subprocess.
 No em or en dashes anywhere in this file or its output.
 
 Usage:
-  python3 tools/bm_toolkit.py inventory [--home PATH] [--root PATH]
-  python3 tools/bm_toolkit.py json      [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py inventory  [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py json       [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py conflicts  [--home PATH] [--root PATH] [--classes PATH]
 
-`inventory` is also the default when no verb is given.
+`inventory` is also the default when no verb is given. `--classes` overrides
+the conflict class table for `conflicts` only; every other verb ignores it.
 """
 
 import json
@@ -60,7 +83,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-_VERBS = ("inventory", "json")
+_VERBS = ("inventory", "json", "conflicts")
 
 
 # ---------------------------------------------------------------------------
@@ -492,44 +515,403 @@ def render_inventory(data):
 
 
 # ---------------------------------------------------------------------------
+# Conflict detection (F2). See the module docstring's CONFLICT CLASSES
+# section for the override contract. The default table below is the exact
+# content of tools/toolkit_conflict_classes.json, embedded as JSON text and
+# parsed once at import time: decision 34 requires the shipped defaults to
+# live IN this file, and parsing the real JSON text (rather than hand
+# transcribing it into a Python literal) is the one way to guarantee the
+# two never drift apart by a typo.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_CONFLICT_CLASSES_JSON = r"""
+{
+  "schema": 1,
+  "_comment": "The conflict classes tools/bm_toolkit.py checks for, their severities, and a real fixture for each. FOUNDER-EDITABLE BY DESIGN (decision 6 of the toolkit ratification): severity is a judgement about how a particular team works, not a property of the code, so it lives here where a change is a one-line diff rather than an edit to a checker. Three severities and nothing else: info, warn, fail. A class whose surface cannot be read reports NO-DATA and is never silently omitted, because a check that cannot tell must not read as a pass. Every fixture below was MEASURED on the founder's machine on 2026-08-12 by walking ~/.claude/plugins/cache/*/*/*/hooks/hooks.json and ~/.claude/settings.json; none is invented, and a fixture that stops reproducing is a finding about the machine rather than a reason to delete the class.",
+  "severities": {
+    "info": "Worth knowing. Two capabilities overlap in a way that is usually deliberate.",
+    "warn": "Worth acting on. Two capabilities can produce different answers to the same question, and nothing decides which wins.",
+    "fail": "Worth stopping for. Two capabilities claim the same authority over state, so one of them is silently losing."
+  },
+  "classes": [
+    {
+      "id": "multi-stop-hook",
+      "title": "More than one capability registers a Stop hook",
+      "severity": "warn",
+      "why": "A Stop hook decides what happens when the model tries to finish. Several of them run, in an order nothing here documents, and each may block, warn, or rewrite the ending. A user who sees one of them fire has no way to know which capability spoke.",
+      "detect": "count distinct plugins whose hooks.json declares the Stop event",
+      "threshold": 2,
+      "fixture_2026_08_12": {
+        "count": 7,
+        "members": ["brotherme@brotherme-marketplace", "brothersbe@brothersbe", "hookify@claude-plugins-official", "ralph-loop@claude-plugins-official", "security-guidance@claude-plugins-official", "slop-gate@claude-community", "ultrapowers@claude-community"]
+      },
+      "remedy_shape": "claude plugin disable <plugin>@<marketplace>, for the ones whose Stop behaviour you do not want"
+    },
+    {
+      "id": "multi-pretooluse-blocker",
+      "title": "More than one capability can refuse a tool call",
+      "severity": "warn",
+      "why": "A PreToolUse hook can block. When several can, a refusal arrives with no indication of which one refused, and two of them disagreeing is undefined behaviour rather than a decision. This is the class where the machine-wide settings layer matters as much as the plugins: the founder's own spend guard and session cap sit here too, and they are meant to.",
+      "detect": "count plugin registrations of PreToolUse, plus hook commands under PreToolUse in every settings layer, and report the two counts separately",
+      "threshold": 2,
+      "fixture_2026_08_12": {
+        "plugin_registrations": 8,
+        "distinct_plugins": 7,
+        "settings_commands": 2,
+        "total_layers": 10,
+        "note": "8 registrations from 7 distinct plugins because brothersbe is cached at two versions; the 2 settings commands are the founder's spend guard and session cap, which are deliberate"
+      },
+      "remedy_shape": "read the layers in order and decide which are deliberate; the settings-layer ones usually are"
+    },
+    {
+      "id": "multi-version-cached",
+      "title": "One capability is present at more than one version",
+      "severity": "fail",
+      "why": "Version is part of identity. Two versions of one plugin cached together means any statement about what that plugin does is ambiguous, and a capability record describing one of them does not describe the other. This is the class behind the failure where a command line tool ran two major versions behind what was installed, and the missing command was reported as a product defect when it was an install defect.",
+      "detect": "group cached plugin directories by marketplace and plugin name; more than one version directory is a finding",
+      "threshold": 2,
+      "fixture_2026_08_12": {
+        "count": 1,
+        "members": ["brothersbe@brothersbe at 1.0.0-rc.1 and 1.0.0-rc.38"]
+      },
+      "remedy_shape": "remove the stale version directory, or reinstall to pin one"
+    },
+    {
+      "id": "multi-memory-authority",
+      "title": "More than one capability claims to be the memory",
+      "severity": "fail",
+      "why": "Two systems that both believe they hold the session's history will disagree, and nothing arbitrates. Worse, at least one known memory plugin documents assuming exclusive hook access, so its correctness depends on being alone. BrotherMode's own position is settled: the store is the sole authority for delivery state and the Obsidian vault is the knowledge backbone, so any other memory system is a guest that must be routed read-only.",
+      "detect": "capabilities registering three or more of SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd AND declaring a persistent store of their own",
+      "threshold": 2,
+      "known_members": ["claude-mem registers five hooks and keeps its own SQLite through a local worker service, and its documentation assumes exclusive hook access", "claude-cortex writes into the same per-project memory directory tree the harness's own auto-memory uses"],
+      "fixture_2026_08_12": {
+        "count": 0,
+        "note": "neither is installed on this machine today; the class ships with named members so it fires the day one arrives, rather than being written after the collision"
+      },
+      "remedy_shape": "pick one authority for delivery state and route the others read-only"
+    },
+    {
+      "id": "state-namespace-collision",
+      "title": "Two capabilities own overlapping project state directories",
+      "severity": "warn",
+      "why": "A capability that owns a directory of project state expects to be the only writer of it. Two of them in one repository produce a state file whose history has two authors and no merge rule.",
+      "detect": "compare each installed capability's declared state namespace against the others and against the project tree",
+      "threshold": 2,
+      "known_namespaces": {
+        "gsd": ".planning/ holding STATE.md, ROADMAP.md, REQUIREMENTS.md, plus .gsd-backups/",
+        "arc": ".arc/log.md and docs/arc/",
+        "compound-engineering": "docs/solutions/ and docs/plans/, relocatable",
+        "brothermode": ".brothermode/ and STATE.md",
+        "bmad": "UNCONFIRMED, which is why the route to it ships disabled until a repository-tree read settles it"
+      },
+      "remedy_shape": "relocate the movable one, or scope one capability to a different project"
+    },
+    {
+      "id": "definition-of-done-collision",
+      "title": "More than one capability defines when work is finished",
+      "severity": "warn",
+      "why": "This is the one that matters most to a delivery product, because it is the question BrotherMode exists to answer. Several installed capabilities carry their own completion rule, and a user following two of them can satisfy one while failing the other. BrotherMode's position is settled and is not a compromise: its own rerun after the last edit closes the work, and every other definition is recorded as claimed output.",
+      "detect": "count capabilities shipping a completion or verification gate",
+      "threshold": 2,
+      "fixture_2026_08_12": {
+        "count": 5,
+        "members": ["superpowers verification-before-completion", "ultrapowers verification-before-completion", "brothermode definition-of-done", "brothersbe evidence receipts", "slop-gate premature-completion detection"]
+      },
+      "remedy_shape": "none needed inside BrotherMode: its rerun is the closing authority and the others are recorded, not obeyed. The finding exists so a user knows why two tools disagree."
+    },
+    {
+      "id": "duplicate-planning-workflow",
+      "title": "Several capabilities offer a planning workflow",
+      "severity": "info",
+      "why": "Overlap here is usually deliberate and often useful; a person picks the planner that fits the work. It is info rather than warn because nothing breaks, and the cost is only a user wondering which to use.",
+      "detect": "count capabilities exposing a plan or spec authoring command",
+      "threshold": 3,
+      "fixture_2026_08_12": {
+        "count": 5,
+        "members": ["superpowers writing-plans", "ultrapowers planner", "ultraplan", "mattpocock to-spec", "feature-dev"]
+      },
+      "remedy_shape": "none; the routing table names which one a task class prefers"
+    },
+    {
+      "id": "installed-not-enabled",
+      "title": "A capability is cached but not enabled",
+      "severity": "info",
+      "why": "Its files are on disk and its hooks are not running. Harmless, and worth reporting because it is the most common explanation for a capability that somebody believes is active and is not.",
+      "detect": "a cached plugin directory whose name@marketplace is absent from enabledPlugins in the user settings",
+      "threshold": 1,
+      "remedy_shape": "claude plugin enable <plugin>@<marketplace>, or remove the cache directory"
+    },
+    {
+      "id": "scope-split",
+      "title": "The same capability is configured at more than one scope",
+      "severity": "warn",
+      "why": "A capability enabled globally and configured per project can behave differently depending on which directory a session started in, which is the hardest class of surprise to diagnose because the tool is behaving correctly in both.",
+      "detect": "compare capability presence across the user settings layer, the project settings layer, and the project local layer",
+      "threshold": 2,
+      "remedy_shape": "pick one scope; state which in the project README so a new person does not rediscover it"
+    },
+    {
+      "id": "undeclared-network-or-credential-reach",
+      "title": "A capability reaches the network or a credential without saying so",
+      "severity": "fail",
+      "why": "Two proven incidents on this machine: a local proxy defaulted to listening on every network interface with no authentication when its token was empty, which was the default; and a token-saving hook returned allow on everything it wrapped, which would have auto-approved reading any file including private keys and environment files. Neither was a bug. Each was a tool behaving as documented, trusted more than it had earned.",
+      "detect": "static scan of a capability's own scripts for network and credential-shaped references, compared against what its capability record declares",
+      "threshold": 1,
+      "limits": "DECLARED reach only. This class reads what a capability's files say, never what a running process does. It cannot see syscalls, traffic, or reads that leave no artifact, and any claim otherwise about this checker is wrong.",
+      "remedy_shape": "declare the reach in the capability record, or quarantine the capability until somebody does"
+    }
+  ]
+}
+"""
+
+DEFAULT_CONFLICT_DATA = json.loads(_DEFAULT_CONFLICT_CLASSES_JSON)
+DEFAULT_CONFLICT_CLASSES = DEFAULT_CONFLICT_DATA["classes"]
+
+_REQUIRED_CLASS_KEYS = ("id", "title", "severity", "detect", "threshold")
+_VALID_SEVERITIES = ("info", "warn", "fail")
+
+
+def _validate_classes_shape(data):
+    """(True, None) or (False, reason). Checked before an override JSON is
+    trusted: a malformed override must be refused BY NAME, never trusted
+    half-parsed and never silently substituted for a class this module
+    knows how to render."""
+    if not isinstance(data, dict):
+        return False, "root is not a JSON object"
+    classes = data.get("classes")
+    if not isinstance(classes, list) or not classes:
+        return False, '"classes" key is missing or not a non-empty list'
+    for entry in classes:
+        if not isinstance(entry, dict):
+            return False, "a classes entry is not a JSON object"
+        missing = [key for key in _REQUIRED_CLASS_KEYS if key not in entry]
+        if missing:
+            return False, "classes entry %r missing keys: %s" % (
+                entry.get("id", "?"), ", ".join(missing))
+        if entry["severity"] not in _VALID_SEVERITIES:
+            return False, "classes entry %s has unknown severity %r" % (
+                entry["id"], entry["severity"])
+    return True, None
+
+
+def load_conflict_classes(explicit_path):
+    """(classes, source, override_error). `source` is "default" or the path
+    actually used. An explicit --classes path that is missing or malformed
+    is refused BY NAME: `override_error` names the path and the reason, and
+    `classes` still falls back to DEFAULT_CONFLICT_CLASSES so the run never
+    goes classless (decision 34). The shipped override path
+    (tools/toolkit_conflict_classes.json next to this file) is optional:
+    its plain absence, with no explicit --classes given, is not an error,
+    only silence, same as every other optional surface in this module."""
+    path = explicit_path or os.path.join(HERE, "toolkit_conflict_classes.json")
+    if not os.path.isfile(path):
+        if explicit_path:
+            return DEFAULT_CONFLICT_CLASSES, "default", "%s: missing file" % path
+        return DEFAULT_CONFLICT_CLASSES, "default", None
+    data, err = _read_json_file(path)
+    if err:
+        return DEFAULT_CONFLICT_CLASSES, "default", "%s: %s" % (path, err)
+    ok, reason = _validate_classes_shape(data)
+    if not ok:
+        return DEFAULT_CONFLICT_CLASSES, "default", "%s: %s" % (path, reason)
+    return data["classes"], path, None
+
+
+# --- per-class detectors ----------------------------------------------------
+# Each detector takes (inventory_data, class_def) and returns
+# (count, detail, ok, reason). ok=False means the surface this class needs
+# could not be read (NO-DATA for this class alone, never the whole run);
+# `reason` names why. A class id with no entry in CLASS_DETECTORS below has
+# no mechanical detector at all (its `detect` field needs an artifact this
+# module does not inventory, e.g. a static code scan or cross-repository
+# state), which is also reported as NO-DATA, named, rather than dropped.
+
+def _detect_multi_stop_hook(data, cls):
+    members = sorted(set(
+        "%s@%s" % (p["name"], p["marketplace"])
+        for p in data["plugins"] if "Stop" in p["hook_events"]))
+    return len(members), {"members": members}, True, None
+
+
+def _detect_multi_pretooluse_blocker(data, cls):
+    registrants = [p for p in data["plugins"] if "PreToolUse" in p["hook_events"]]
+    plugin_registrations = len(registrants)
+    distinct_plugins = len(set(p["name"] for p in registrants))
+    settings_commands = data["user_hook_commands"].get("PreToolUse", 0)
+    detail = {
+        "plugin_registrations": plugin_registrations,
+        "distinct_plugins": distinct_plugins,
+        "settings_commands": settings_commands,
+        "members": sorted(set(
+            "%s@%s" % (p["name"], p["marketplace"]) for p in registrants)),
+    }
+    return plugin_registrations + settings_commands, detail, True, None
+
+
+def _detect_multi_version_cached(data, cls):
+    # `count` here is the WORST offender's version count (max versions
+    # cached for any one plugin), not the number of offending plugins: the
+    # class's own detect text ("more than one version directory is a
+    # finding") and its 2026-08-12 fixture (one offending plugin, severity
+    # fail, no "wait for a second one" language) both treat a single
+    # two-version plugin as already worth firing. Any offender therefore
+    # has at least 2 versions, so it reaches threshold 2 the moment it
+    # exists, matching that intent.
+    groups = {}
+    for p in data["plugins"]:
+        groups.setdefault((p["marketplace"], p["name"]), []).append(p["version"])
+    members = []
+    worst = 0
+    for (mkt, name), versions in sorted(groups.items()):
+        if len(versions) > 1:
+            members.append("%s@%s at %s" % (name, mkt, " and ".join(sorted(versions))))
+            worst = max(worst, len(versions))
+    return worst, {"members": members}, True, None
+
+
+def _detect_installed_not_enabled(data, cls):
+    members = sorted(
+        "%s@%s" % (p["name"], p["marketplace"])
+        for p in data["plugins"] if p["enabled"] is False)
+    return len(members), {"members": members}, True, None
+
+
+# ponytail: multi-memory-authority's own `detect` text needs "declaring a
+# persistent store of their own", which no surface in this inventory
+# records (nothing here reads what a plugin's code does with disk). A
+# hook-event-breadth stand-in was tried and dropped: on the real machine it
+# threw FAIL on five plugins that keep no store at all, and a wrong FAIL at
+# "worth stopping for" severity is worse than an honest NO-DATA. It falls
+# through to the no-detector path below on purpose. Upgrade path: TK3
+# capability records, if they end up declaring storage explicitly.
+
+CLASS_DETECTORS = {
+    "multi-stop-hook": _detect_multi_stop_hook,
+    "multi-pretooluse-blocker": _detect_multi_pretooluse_blocker,
+    "multi-version-cached": _detect_multi_version_cached,
+    "installed-not-enabled": _detect_installed_not_enabled,
+}
+
+
+def build_conflicts(inventory_data, classes):
+    """[result, ...], one per class in `classes`, in the given order.
+    Each result: {id, title, severity, status, count, threshold, detail,
+    reason}. status is one of "fired" (count >= threshold), "clear" (count
+    < threshold), or "no_data" (reason names why: either the detector
+    itself could not read its surface, or this class has no detector)."""
+    results = []
+    for cls in classes:
+        detector = CLASS_DETECTORS.get(cls.get("id"))
+        if detector is None:
+            results.append({
+                "id": cls.get("id"), "title": cls.get("title"),
+                "severity": cls.get("severity"), "status": "no_data",
+                "count": None, "threshold": cls.get("threshold"),
+                "detail": None,
+                "reason": "no mechanical detector for this class; detect: %s"
+                          % cls.get("detect", "(not stated)"),
+            })
+            continue
+        count, detail, ok, reason = detector(inventory_data, cls)
+        if not ok:
+            results.append({
+                "id": cls.get("id"), "title": cls.get("title"),
+                "severity": cls.get("severity"), "status": "no_data",
+                "count": None, "threshold": cls.get("threshold"),
+                "detail": None, "reason": reason,
+            })
+            continue
+        threshold = cls.get("threshold", 1)
+        status = "fired" if count >= threshold else "clear"
+        results.append({
+            "id": cls.get("id"), "title": cls.get("title"),
+            "severity": cls.get("severity"), "status": status,
+            "count": count, "threshold": threshold,
+            "detail": detail, "reason": None,
+        })
+    return results
+
+
+def render_conflicts(results):
+    fired = [r for r in results if r["status"] == "fired"]
+    clear = [r for r in results if r["status"] == "clear"]
+    no_data = [r for r in results if r["status"] == "no_data"]
+
+    lines = []
+    lines.append("CONFLICTS FOUND (%d)" % len(fired))
+    for r in fired:
+        lines.append("  [%s] %s: %s (count=%s threshold=%s)" % (
+            r["severity"].upper(), r["id"], r["title"], r["count"], r["threshold"]))
+        members = (r["detail"] or {}).get("members") or []
+        for member in members:
+            lines.append("    - %s" % member)
+
+    lines.append("")
+    lines.append("NO-DATA (%d)" % len(no_data))
+    for r in no_data:
+        lines.append("  %s: %s" % (r["id"], r["reason"]))
+
+    lines.append("")
+    lines.append("CLEAR (%d)" % len(clear))
+    for r in clear:
+        lines.append("  %s (count=%s threshold=%s)" % (
+            r["id"], r["count"], r["threshold"]))
+
+    lines.append("")
+    lines.append(
+        "SUMMARY: %d classes checked, %d fired, %d clear, %d no-data." % (
+            len(results), len(fired), len(clear), len(no_data)))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI.
 # ---------------------------------------------------------------------------
 
 def _parse_argv(argv):
-    """Return (verb, home, root, error). `error` set means stop and report
-    a plain usage failure (exit 2, no "NO-DATA:" prefix: that prefix is
-    reserved for "could not determine the verdict", not "bad arguments")."""
+    """Return (verb, home, root, classes, error). `error` set means stop
+    and report a plain usage failure (exit 2, no "NO-DATA:" prefix: that
+    prefix is reserved for "could not determine the verdict", not "bad
+    arguments"). `classes` (--classes PATH) is only consumed by the
+    `conflicts` verb; every other verb accepts and ignores it, the same as
+    it would any other unused-but-recognised flag."""
     args = list(argv)
     verb = "inventory"
     if args and not args[0].startswith("--"):
         verb = args.pop(0)
     if verb not in _VERBS:
-        return None, None, None, "bm_toolkit: unknown verb: %s" % verb
+        return None, None, None, None, "bm_toolkit: unknown verb: %s" % verb
 
     home = None
     root = None
+    classes = None
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--home":
             if i + 1 >= len(args):
-                return None, None, None, "bm_toolkit: --home requires a value"
+                return None, None, None, None, "bm_toolkit: --home requires a value"
             home = args[i + 1]
             i += 2
         elif arg == "--root":
             if i + 1 >= len(args):
-                return None, None, None, "bm_toolkit: --root requires a value"
+                return None, None, None, None, "bm_toolkit: --root requires a value"
             root = args[i + 1]
             i += 2
+        elif arg == "--classes":
+            if i + 1 >= len(args):
+                return None, None, None, None, "bm_toolkit: --classes requires a value"
+            classes = args[i + 1]
+            i += 2
         else:
-            return None, None, None, "bm_toolkit: unknown argument: %s" % arg
-    return verb, home, root, None
+            return None, None, None, None, "bm_toolkit: unknown argument: %s" % arg
+    return verb, home, root, classes, None
 
 
 def _run(argv):
     """The real body of main, split out so `main` can wrap the whole thing
     in one try/except and guarantee NO-DATA on any unexpected exception."""
-    verb, home_arg, root_arg, err = _parse_argv(argv)
+    verb, home_arg, root_arg, classes_arg, err = _parse_argv(argv)
     if err:
         sys.stderr.write(err + "\n")
         return 2
@@ -549,6 +931,17 @@ def _run(argv):
 
     if verb == "json":
         sys.stdout.write(json.dumps(data) + "\n")
+    elif verb == "conflicts":
+        classes, _source, override_error = load_conflict_classes(classes_arg)
+        results = build_conflicts(data, classes)
+        out = []
+        if override_error:
+            out.append(
+                "OVERRIDE REFUSED: %s (using shipped default classes)"
+                % override_error)
+            out.append("")
+        out.append(render_conflicts(results))
+        sys.stdout.write("\n".join(out) + "\n")
     else:
         sys.stdout.write(render_inventory(data) + "\n")
     return 0
