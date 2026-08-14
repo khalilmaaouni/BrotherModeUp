@@ -13,18 +13,37 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 <!-- bm-human:begin -->
 FINISHED
 
-The founder's three asks all landed and pushed at bf2380b: the fair
+The founder's three asks landed and pushed at bf2380b: the fair
 orchestration-layer comparison and the five-phase finalization roadmap
 (docs/plan/FINALIZATION-ROADMAP-2026-08-15.md), and Bitbucket support as
 code and docs (bitbucket-pipelines.yml, docs/BITBUCKET.md, README pointer),
 with the parts no mirror yet exists to prove labeled UNVERIFIED on the page
 itself rather than claimed.
 
-Done-check, run after the last edit on the clean tree at bf2380b:
-test_all: 3136 tests across 35 suites, 5 skipped, 640.0s wall. ALL GREEN,
-exit 0. Push verified: HEAD == origin/main == bf2380b after a fresh fetch.
+THE SESSION THEN CONTINUED on the founder's mid-session directive (finish
+all tasks, deploy subagents at the right tiers) and his three answers
+through the question windows. What landed after the first close, all
+pushed:
 
-What remains is founder-gated, not unfinished work: the Bitbucket workspace
-creation, the cold testers, and the v3.3.0 cut decision, all three on the
-command centre as decisions waiting.
+- v3.3.0 cut per the documented runbook: version moved on every shipping
+  surface, CHANGELOG entries for 3.3.0 and the missing 3.2.1,
+  verify-install PASSED 906 files, release-smoke-install PASSED at 3.3.0
+  with 6 hook groups, annotated tag pushed, remote tag peels to e795f78
+  identical to local.
+- docs/ECOSYSTEM.md gained section 7, the orchestration layers.
+- Three builder agents in isolated worktrees, folded and re-verified:
+  TK2 conflict detection (25 tests OK, real fixtures found), TK10 purge
+  fix (the disclosed orphan was actually a purge-crashing FK error;
+  1077 store tests OK), TK11 receipts CLI (60 project tests OK, effects
+  registry updated). Queue depth 29 to 26.
+- The installed skill clone synced v3.1.0 to v3.3.0; the schema-ahead
+  refusal at session start is gone, verified by a dashboard read.
+
+Final done-check, run after the last edit on the clean tree at e6f5198:
+test_all: 3156 tests across 35 suites, 5 skipped, 729.9s wall. ALL GREEN,
+exit 0. Push verified: HEAD == origin/main == e6f5198 after a fresh fetch.
+
+Remaining is founder-owned or next-session work: the Bitbucket workspace
+(he is creating it), handing the tester pack to Tung and Harry, TK3 next
+in the queue.
 <!-- bm-human:end -->
