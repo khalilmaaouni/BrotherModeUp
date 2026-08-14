@@ -57,7 +57,7 @@ So every command below reads `python3 <checkout>/tools/<tool> <command>`.
 
 `python3 <checkout>/tools/bm_project.py <command>` : the project lifecycle: start a project, see status, be told what is next, move tasks, forecast, review
 
-    commands: alert, deliver, export, forecast, next, purge, review, start, status, task
+    commands: alert, deliver, export, forecast, next, purge, receipt, review, start, status, task
 
 `python3 <checkout>/tools/bm_threads.py <command>` : thread mode: one persistent thread per feature, one chief coordinating
 
