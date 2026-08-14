@@ -13,14 +13,55 @@ WHY THIS EXISTS
   .claude.json. What a tool registers is observable without running it.
 
 THE CONTRACT
-  Four verbs. `inventory` (human readable, the default) and `json` (one
+  Five verbs. `inventory` (human readable, the default) and `json` (one
   JSON object, schema 1, for later loops such as conflict detection to
   consume rather than re-parse). See the top-level JSON shape in the plan
   brief; `build_inventory()` below is the single place that shape is built.
   `conflicts` (human readable) reads that same inventory plus a table of
   conflict classes and emits verdicts, per docs/plan/TOOLKIT-PLAN-2026-08-12.md
   section F2. `capabilities` (human readable) reads that same inventory and
-  emits capability records, per section F3 and section 4 below.
+  emits capability records, per section F3 and section 4 below. `route`
+  (human readable) reads that same inventory plus a routing table and names
+  the capability a task class should use, per section F3 below.
+
+ROUTING (F3, section 3 of the plan)
+  `route <task-class>` answers "which existing capability should do this
+  task", never which team member should do it (that is delegation, a
+  separate ladder, and routing composes with it rather than replacing it).
+  The table is DATA, not prose: ROUTES below is the module constant the
+  founder's own six examples are seeded into (decision 34's pattern,
+  identical in shape to DEFAULT_CONFLICT_CLASSES): TDD to Superpowers,
+  product strategy to Compound Engineering or BMAD, long phase planning to
+  a GSD-class capability, security check to Security Guidance, PR review to
+  Anthropic Code Review, historical recall to a claude-mem-class capability.
+  tools/toolkit_routes.json next to this file ships as a founder-editable
+  copy of that same table; present and valid it REPLACES the defaults
+  entirely, present and malformed it is refused BY NAME and the run falls
+  back to the shipped defaults, absent it is silence, never an error, the
+  same three-way contract load_conflict_classes already uses.
+
+  A task class carries one or more routes, tried in the order listed. Each
+  route names a `capability`, the `reason` it was chosen, its
+  `flip_condition` (what would change the choice), a `degrade_path` (what
+  to do when the capability is absent from THIS machine), and `enabled`.
+  A route with `enabled: false` is never silently hidden: the command
+  prints it under its own DISABLED status carrying its `disabled_reason`,
+  same visibility discipline as a HAND-ASSERTED capability record. The
+  BMAD route ships DISABLED with reason "on-disk footprint unconfirmed"
+  (section 5b of the plan) until somebody confirms it against a real
+  repository tree; that is a decision recorded in data, not commented out.
+
+  Presence is checked against `build_inventory()`, the exact same artifact
+  read every other verb uses, via each route's `match` ({"kind": "plugin"
+  or "skill" or "mcp_server", "name": "..."}); nothing here runs the
+  capability or asks it anything. A capability present in the inventory
+  resolves the route and prints its reason. A capability absent from the
+  inventory prints its `degrade_path` instead of guessing a substitute.
+  When the whole inventory could not be read, `route` reports NO-DATA at
+  exit 2, the same as every other verb: an absent capability is a real
+  answer, an unreadable inventory is not one. A task class this table does
+  not carry is refused BY NAME, listing every known class, never guessed
+  and never silently routed to the nearest string.
 
 CAPABILITY RECORDS (F3, section 4 of the plan)
   A capability record's reach is DECLARED, never measured by running
@@ -106,11 +147,14 @@ Usage:
   python3 tools/bm_toolkit.py json         [--home PATH] [--root PATH]
   python3 tools/bm_toolkit.py conflicts    [--home PATH] [--root PATH] [--classes PATH]
   python3 tools/bm_toolkit.py capabilities [--home PATH] [--root PATH] [--overrides PATH]
+  python3 tools/bm_toolkit.py route TASK-CLASS [--home PATH] [--root PATH] [--routes PATH]
 
 `inventory` is also the default when no verb is given. `--classes` overrides
 the conflict class table for `conflicts` only; `--overrides` names the
-hand-asserted capability record file for `capabilities` only; every other
-verb ignores whichever of the two it is not given.
+hand-asserted capability record file for `capabilities` only; `--routes`
+overrides the routing table for `route` only; every other verb ignores
+whichever of the three it is not given. `route` requires exactly one
+positional argument, the task class, given before any flags.
 """
 
 import json
@@ -119,7 +163,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-_VERBS = ("inventory", "json", "conflicts", "capabilities")
+_VERBS = ("inventory", "json", "conflicts", "capabilities", "route")
 
 
 # ---------------------------------------------------------------------------
@@ -1066,61 +1110,339 @@ def render_capabilities(records):
 
 
 # ---------------------------------------------------------------------------
+# Routing (F3). See the module docstring's ROUTING section for the shape
+# and the enabled/disabled/degrade contract. The default table below is the
+# exact content of tools/toolkit_routes.json, embedded as JSON text and
+# parsed once at import time, the identical decision-34 shape
+# DEFAULT_CONFLICT_CLASSES already uses above, for the same reason: parsing
+# the real JSON text is the one way to guarantee the shipped file and the
+# in-code fallback never drift apart by a typo.
+# ---------------------------------------------------------------------------
+
+_DEFAULT_ROUTES_JSON = r"""
+{
+  "schema": 1,
+  "_comment": "The routing table tools/bm_toolkit.py route reads: which existing capability does a task class, and what to do when it is absent from this machine. Seeded from the founder's own six examples (docs/plan/TOOLKIT-PLAN-2026-08-12.md section F3, ratified 2026-08-12). FOUNDER-EDITABLE BY DESIGN, decision 34's pattern: this file, present and valid, REPLACES the module's embedded default entirely; a change here is a one-line diff rather than an edit to the router. Every route names a reason and a flip condition so a later reader can see why the choice was made and what would change it, never a bare capability name. Routing composes with the delegation ladder rather than replacing it: this table picks the CAPABILITY, delegation still picks the TIER.",
+  "classes": [
+    {
+      "id": "tdd",
+      "title": "Test-driven implementation",
+      "routes": [
+        {
+          "capability": "Superpowers (TDD workflow)",
+          "match": {"kind": "plugin", "name": "superpowers"},
+          "reason": "Superpowers ships a red-green-refactor TDD skill. BrotherMode's own native floor is discipline plus the gate battery, deliberately not a TDD engine (decision 22), so TDD is routed rather than built.",
+          "flip_condition": "Routing friction against Superpowers is MEASURED, not felt (decision 22); only then does a minimal native TDD core get built.",
+          "degrade_path": "Fall back to the native floor: the project's own test-first law plus the gate battery (tools/test_all.py), with no automated red-green cycling.",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "product-strategy",
+      "title": "Product strategy and PRD elaboration",
+      "routes": [
+        {
+          "capability": "Compound Engineering",
+          "match": {"kind": "plugin", "name": "compound-engineering"},
+          "reason": "Compound Engineering's product-elaboration commands turn an idea into a PRD. BrotherMode absorbs only its compounding-learning ESSENCE (bm_learn plus the vault), never the tool itself.",
+          "flip_condition": "The plugin is removed from this machine, or its state namespace collides with another installed capability's (state-namespace-collision).",
+          "degrade_path": "Fall back to the native floor: the store's own goal, scope, success_criteria and non_goals fields, elaborated by hand.",
+          "enabled": true
+        },
+        {
+          "capability": "BMAD-METHOD",
+          "match": {"kind": "plugin", "name": "bmad"},
+          "reason": "BMAD's nine personas and PRD flow are a second route for the same task class, for when Compound Engineering is absent or a persona-driven flow fits the work better.",
+          "flip_condition": "Somebody confirms BMAD's on-disk state footprint against a real repository tree, per the state-namespace-collision conflict class.",
+          "degrade_path": "Fall back to Compound Engineering if present, otherwise the native floor: the store's own goal, scope, success_criteria and non_goals fields, elaborated by hand.",
+          "enabled": false,
+          "disabled_reason": "on-disk footprint unconfirmed"
+        }
+      ]
+    },
+    {
+      "id": "long-phase-planning",
+      "title": "Long, multi-phase project planning",
+      "routes": [
+        {
+          "capability": "GSD-class planning",
+          "match": {"kind": "plugin", "name": "gsd"},
+          "reason": "GSD owns .planning/ with machine-verifiable acceptance criteria per task. BrotherMode absorbs the essence, criterion-linked verification folded into T5, without absorbing the tool.",
+          "flip_condition": "GSD's .planning/ namespace collides with a project already using that path for something else.",
+          "degrade_path": "Fall back to the native floor: bm_project.py tasks with acceptance checks, the plan law of files plus done-checks.",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "security-check",
+      "title": "Security review of a change",
+      "routes": [
+        {
+          "capability": "Security Guidance",
+          "match": {"kind": "plugin", "name": "security-guidance"},
+          "reason": "Security Guidance provides review depth beyond the native floor's secret scan, dash scan and write-site inventory.",
+          "flip_condition": "The plugin is disabled or removed from this machine.",
+          "degrade_path": "Fall back to the native floor: secret scan, dash scan, write-site inventory and effect classes, all already in the gate.",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "pr-review",
+      "title": "Pull request or diff review",
+      "routes": [
+        {
+          "capability": "Anthropic Code Review",
+          "match": {"kind": "skill", "name": "code-review"},
+          "reason": "Code Review is the founder's own named example for this task class. BrotherMode's falsification-only review brief (PO-5) is borrowed into the native floor as its own core artifact (T6); review depth is routed.",
+          "flip_condition": "The skill is uninstalled, or superseded by a differently named review capability.",
+          "degrade_path": "Fall back to the native floor: the falsification-only review brief, PO-5, attacks executed and COULD NOT BREAK or findings stated.",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "historical-recall",
+      "title": "Recall of past session or project history",
+      "routes": [
+        {
+          "capability": "claude-mem-class memory",
+          "match": {"kind": "plugin", "name": "claude-mem"},
+          "reason": "A claude-mem-class capability gives episodic session recall. BrotherMode's own position is settled (decision 23): the store is the sole delivery-state authority and the Obsidian vault is the knowledge backbone, so this route is read-only and never authoritative.",
+          "flip_condition": "A claude-mem-class capability is found claiming exclusive hook access (multi-memory-authority conflict class); it is then quarantined rather than routed.",
+          "degrade_path": "Fall back to the native floor: the store for delivery state, the Obsidian vault for knowledge.",
+          "enabled": true
+        }
+      ]
+    }
+  ]
+}
+"""
+
+DEFAULT_ROUTES_DATA = json.loads(_DEFAULT_ROUTES_JSON)
+DEFAULT_ROUTES = DEFAULT_ROUTES_DATA["classes"]
+
+_REQUIRED_ROUTE_CLASS_KEYS = ("id", "title", "routes")
+_REQUIRED_ROUTE_KEYS = ("capability", "match", "reason", "flip_condition",
+                         "degrade_path", "enabled")
+
+
+def _validate_routes_shape(data):
+    """(True, None) or (False, reason). Same discipline as
+    _validate_classes_shape and _validate_overrides_shape: a malformed
+    routing table must be refused BY NAME, never trusted half-parsed."""
+    if not isinstance(data, dict):
+        return False, "root is not a JSON object"
+    classes = data.get("classes")
+    if not isinstance(classes, list) or not classes:
+        return False, '"classes" key is missing or not a non-empty list'
+    for entry in classes:
+        if not isinstance(entry, dict):
+            return False, "a classes entry is not a JSON object"
+        missing = [key for key in _REQUIRED_ROUTE_CLASS_KEYS if key not in entry]
+        if missing:
+            return False, "classes entry %r missing keys: %s" % (
+                entry.get("id", "?"), ", ".join(missing))
+        routes = entry.get("routes")
+        if not isinstance(routes, list) or not routes:
+            return False, "classes entry %s: \"routes\" is missing or not " \
+                          "a non-empty list" % entry["id"]
+        for route in routes:
+            if not isinstance(route, dict):
+                return False, "classes entry %s: a route is not a JSON " \
+                              "object" % entry["id"]
+            r_missing = [key for key in _REQUIRED_ROUTE_KEYS if key not in route]
+            if r_missing:
+                return False, "classes entry %s, route %r missing keys: " \
+                              "%s" % (entry["id"], route.get("capability", "?"),
+                                       ", ".join(r_missing))
+            if not isinstance(route.get("match"), dict):
+                return False, "classes entry %s, route %r: \"match\" is " \
+                              "not a JSON object" % (
+                                  entry["id"], route.get("capability"))
+    return True, None
+
+
+def load_routes(explicit_path):
+    """(classes, source, override_error). `source` is "default" or the path
+    actually used. An explicit --routes path that is missing or malformed
+    is refused BY NAME: `override_error` names the path and the reason, and
+    `classes` still falls back to DEFAULT_ROUTES so the run never goes
+    tableless (decision 34). The shipped file (tools/toolkit_routes.json
+    next to this file) is optional: its plain absence, with no explicit
+    --routes given, is not an error, only silence, same as every other
+    optional surface in this module."""
+    path = explicit_path or os.path.join(HERE, "toolkit_routes.json")
+    if not os.path.isfile(path):
+        if explicit_path:
+            return DEFAULT_ROUTES, "default", "%s: missing file" % path
+        return DEFAULT_ROUTES, "default", None
+    data, err = _read_json_file(path)
+    if err:
+        return DEFAULT_ROUTES, "default", "%s: %s" % (path, err)
+    ok, reason = _validate_routes_shape(data)
+    if not ok:
+        return DEFAULT_ROUTES, "default", "%s: %s" % (path, reason)
+    return data["classes"], path, None
+
+
+def find_route_class(classes, task_class):
+    """The classes entry whose id equals task_class, or None. Exact match
+    only: an unknown task class is refused by name, never fuzzy-matched to
+    the nearest string."""
+    for entry in classes:
+        if entry.get("id") == task_class:
+            return entry
+    return None
+
+
+def _capability_present(inventory_data, match):
+    """True if `match` ({"kind": ..., "name": ...}) names a capability this
+    machine's inventory actually carries. Reads ONLY the fields
+    build_inventory() already collected; it never runs the capability or
+    asks it anything. An unknown "kind", or a match missing "name", is
+    always absent: this function never guesses a surface to check."""
+    if not isinstance(match, dict):
+        return False
+    kind = match.get("kind")
+    name = match.get("name")
+    if not name:
+        return False
+    if kind == "plugin":
+        return any(p["name"] == name for p in inventory_data["plugins"])
+    if kind == "skill":
+        return any(s["name"] == name for s in inventory_data["skills"])
+    if kind == "mcp_server":
+        return any(m["name"] == name for m in inventory_data["mcp_servers"])
+    return False
+
+
+def render_route(task_class, class_entry, inventory_data):
+    """Human readable report for one resolved task class: every route in
+    declared order with its status (RESOLVED, DEGRADE or DISABLED), then a
+    SELECTED line naming the winner. DISABLED routes are always printed,
+    never hidden, per the module docstring's ROUTING section."""
+    lines = []
+    lines.append("TASK CLASS: %s" % task_class)
+    lines.append("TITLE: %s" % class_entry.get("title", ""))
+    lines.append("")
+
+    resolved = None
+    first_degrade = None
+    for route in class_entry.get("routes", []):
+        capability = route.get("capability")
+        if not route.get("enabled", True):
+            reason = route.get("disabled_reason") or route.get("reason") \
+                or "(no reason given)"
+            lines.append("  [DISABLED] %s: %s" % (capability, reason))
+            continue
+        if _capability_present(inventory_data, route.get("match")):
+            lines.append("  [RESOLVED] %s: %s" % (
+                capability, route.get("reason")))
+            if resolved is None:
+                resolved = route
+        else:
+            degrade = route.get("degrade_path") or "(no degrade path stated)"
+            lines.append(
+                "  [DEGRADE] %s: absent from this machine's inventory; "
+                "degrade path: %s" % (capability, degrade))
+            if first_degrade is None:
+                first_degrade = route
+
+    lines.append("")
+    if resolved is not None:
+        lines.append("SELECTED: %s (%s)" % (
+            resolved["capability"], resolved.get("reason")))
+    elif first_degrade is not None:
+        lines.append("SELECTED: none present on this machine; degrade "
+                      "path: %s" % first_degrade.get("degrade_path"))
+    else:
+        lines.append("SELECTED: none; every route for this task class is "
+                      "disabled")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI.
 # ---------------------------------------------------------------------------
 
 def _parse_argv(argv):
-    """Return (verb, home, root, classes, overrides, error). `error` set
-    means stop and report a plain usage failure (exit 2, no "NO-DATA:"
-    prefix: that prefix is reserved for "could not determine the verdict",
-    not "bad arguments"). `classes` (--classes PATH) is only consumed by
-    the `conflicts` verb; `overrides` (--overrides PATH) is only consumed
-    by the `capabilities` verb; every other verb accepts and ignores
-    whichever of the two it is not given, the same as it would any other
-    unused-but-recognised flag."""
+    """Return (verb, home, root, classes, overrides, routes, task_class,
+    error). `error` set means stop and report a plain usage failure (exit
+    2, no "NO-DATA:" prefix: that prefix is reserved for "could not
+    determine the verdict", not "bad arguments"). `classes` (--classes
+    PATH) is only consumed by the `conflicts` verb; `overrides`
+    (--overrides PATH) only by `capabilities`; `routes` (--routes PATH)
+    and `task_class` (the one positional argument) only by `route`; every
+    other verb accepts and ignores whichever of these it is not given, the
+    same as it would any other unused-but-recognised flag. `route` requires
+    its positional task_class BEFORE any flags, refused by name if absent."""
     args = list(argv)
     verb = "inventory"
     if args and not args[0].startswith("--"):
         verb = args.pop(0)
     if verb not in _VERBS:
-        return None, None, None, None, None, "bm_toolkit: unknown verb: %s" % verb
+        return None, None, None, None, None, None, None, \
+            "bm_toolkit: unknown verb: %s" % verb
+
+    task_class = None
+    if verb == "route":
+        if not args or args[0].startswith("--"):
+            return None, None, None, None, None, None, None, \
+                "bm_toolkit: route requires a task class argument"
+        task_class = args.pop(0)
 
     home = None
     root = None
     classes = None
     overrides = None
+    routes = None
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--home":
             if i + 1 >= len(args):
-                return None, None, None, None, None, "bm_toolkit: --home requires a value"
+                return None, None, None, None, None, None, None, \
+                    "bm_toolkit: --home requires a value"
             home = args[i + 1]
             i += 2
         elif arg == "--root":
             if i + 1 >= len(args):
-                return None, None, None, None, None, "bm_toolkit: --root requires a value"
+                return None, None, None, None, None, None, None, \
+                    "bm_toolkit: --root requires a value"
             root = args[i + 1]
             i += 2
         elif arg == "--classes":
             if i + 1 >= len(args):
-                return None, None, None, None, None, "bm_toolkit: --classes requires a value"
+                return None, None, None, None, None, None, None, \
+                    "bm_toolkit: --classes requires a value"
             classes = args[i + 1]
             i += 2
         elif arg == "--overrides":
             if i + 1 >= len(args):
-                return None, None, None, None, None, "bm_toolkit: --overrides requires a value"
+                return None, None, None, None, None, None, None, \
+                    "bm_toolkit: --overrides requires a value"
             overrides = args[i + 1]
             i += 2
+        elif arg == "--routes":
+            if i + 1 >= len(args):
+                return None, None, None, None, None, None, None, \
+                    "bm_toolkit: --routes requires a value"
+            routes = args[i + 1]
+            i += 2
         else:
-            return None, None, None, None, None, "bm_toolkit: unknown argument: %s" % arg
-    return verb, home, root, classes, overrides, None
+            return None, None, None, None, None, None, None, \
+                "bm_toolkit: unknown argument: %s" % arg
+    return verb, home, root, classes, overrides, routes, task_class, None
 
 
 def _run(argv):
     """The real body of main, split out so `main` can wrap the whole thing
     in one try/except and guarantee NO-DATA on any unexpected exception."""
-    verb, home_arg, root_arg, classes_arg, overrides_arg, err = _parse_argv(argv)
+    verb, home_arg, root_arg, classes_arg, overrides_arg, routes_arg, \
+        task_class, err = _parse_argv(argv)
     if err:
         sys.stderr.write(err + "\n")
         return 2
@@ -1162,6 +1484,22 @@ def _run(argv):
                 % override_error)
             out.append("")
         out.append(render_capabilities(records))
+        sys.stdout.write("\n".join(out) + "\n")
+    elif verb == "route":
+        classes, _source, override_error = load_routes(routes_arg)
+        out = []
+        if override_error:
+            out.append(
+                "OVERRIDE REFUSED: %s (using shipped default routes)"
+                % override_error)
+            out.append("")
+        class_entry = find_route_class(classes, task_class)
+        if class_entry is None:
+            known = sorted(c.get("id") for c in classes if c.get("id"))
+            out.append("UNKNOWN TASK CLASS: %s" % task_class)
+            out.append("KNOWN TASK CLASSES: %s" % ", ".join(known))
+        else:
+            out.append(render_route(task_class, class_entry, data))
         sys.stdout.write("\n".join(out) + "\n")
     else:
         sys.stdout.write(render_inventory(data) + "\n")

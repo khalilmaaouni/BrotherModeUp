@@ -616,5 +616,224 @@ class CapabilityRecordsHandAssertedMarkedTests(unittest.TestCase):
         self.assertIn("HAND-ASSERTED CAPABILITY RECORDS (0)", result.stdout)
 
 
+class RouteKnownResolvesTests(unittest.TestCase):
+    """Test 20 (TK4, load-bearing behavior 1): a known task class whose
+    route's capability IS present in the inventory prints RESOLVED with the
+    route's reason, and names it as SELECTED."""
+
+    def test_known_route_resolves_with_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            make_plugin(tmp, "superpowers-marketplace", "superpowers",
+                        "6.1.1", manifest={"name": "superpowers"})
+            routes_path = write_json(os.path.join(tmp, "routes.json"), {
+                "classes": [{
+                    "id": "tdd",
+                    "title": "Test-driven implementation",
+                    "routes": [{
+                        "capability": "Superpowers (TDD workflow)",
+                        "match": {"kind": "plugin", "name": "superpowers"},
+                        "reason": "TEST REASON MARKER",
+                        "flip_condition": "never",
+                        "degrade_path": "native test-first law",
+                        "enabled": True,
+                    }],
+                }],
+            })
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp,
+                              "--routes", routes_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("TASK CLASS: tdd", out)
+        self.assertIn("[RESOLVED] Superpowers (TDD workflow): TEST REASON MARKER", out)
+        self.assertIn("SELECTED: Superpowers (TDD workflow)", out)
+        self.assertNotIn("DEGRADE", out)
+
+
+class RouteAbsentCapabilityDegradesTests(unittest.TestCase):
+    """Test 21 (TK4, load-bearing behavior 2): a known task class whose
+    route's capability is ABSENT from the inventory prints DEGRADE with the
+    route's own degrade path, never a guessed substitute."""
+
+    def test_absent_capability_prints_degrade_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            routes_path = write_json(os.path.join(tmp, "routes.json"), {
+                "classes": [{
+                    "id": "pr-review",
+                    "title": "Pull request or diff review",
+                    "routes": [{
+                        "capability": "Anthropic Code Review",
+                        "match": {"kind": "skill", "name": "code-review"},
+                        "reason": "founder's own example",
+                        "flip_condition": "never",
+                        "degrade_path": "DEGRADE PATH MARKER",
+                        "enabled": True,
+                    }],
+                }],
+            })
+            result = run_cli("route", "pr-review", "--home", tmp, "--root", tmp,
+                              "--routes", routes_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn(
+            "[DEGRADE] Anthropic Code Review: absent from this machine's "
+            "inventory; degrade path: DEGRADE PATH MARKER", out)
+        self.assertIn("SELECTED: none present on this machine; degrade "
+                       "path: DEGRADE PATH MARKER", out)
+        self.assertNotIn("RESOLVED", out)
+
+
+class RouteDisabledPrintsReasonTests(unittest.TestCase):
+    """Test 22 (TK4, load-bearing behavior 3): a route with enabled false
+    (the BMAD shape) is never hidden: it prints under DISABLED with its own
+    disabled_reason, even though other routes for the same class resolve or
+    degrade normally."""
+
+    def test_disabled_route_prints_reason_not_hidden(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            routes_path = write_json(os.path.join(tmp, "routes.json"), {
+                "classes": [{
+                    "id": "product-strategy",
+                    "title": "Product strategy",
+                    "routes": [{
+                        "capability": "BMAD-METHOD",
+                        "match": {"kind": "plugin", "name": "bmad"},
+                        "reason": "persona-driven flow",
+                        "flip_condition": "footprint confirmed",
+                        "degrade_path": "native store fields",
+                        "enabled": False,
+                        "disabled_reason": "on-disk footprint unconfirmed",
+                    }],
+                }],
+            })
+            result = run_cli("route", "product-strategy", "--home", tmp,
+                              "--root", tmp, "--routes", routes_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn(
+            "[DISABLED] BMAD-METHOD: on-disk footprint unconfirmed", out)
+        self.assertIn(
+            "SELECTED: none; every route for this task class is disabled",
+            out)
+
+
+class RouteUnknownClassRefusedTests(unittest.TestCase):
+    """Test 23 (TK4, load-bearing behavior 4): a task class the routing
+    table does not carry is refused BY NAME, listing every known class,
+    never guessed and never silently routed to the nearest string."""
+
+    def test_unknown_task_class_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            routes_path = write_json(os.path.join(tmp, "routes.json"), {
+                "classes": [{
+                    "id": "tdd",
+                    "title": "Test-driven implementation",
+                    "routes": [{
+                        "capability": "Superpowers",
+                        "match": {"kind": "plugin", "name": "superpowers"},
+                        "reason": "r", "flip_condition": "f",
+                        "degrade_path": "d", "enabled": True,
+                    }],
+                }],
+            })
+            result = run_cli("route", "no-such-task-class", "--home", tmp,
+                              "--root", tmp, "--routes", routes_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("UNKNOWN TASK CLASS: no-such-task-class", out)
+        self.assertIn("KNOWN TASK CLASSES: tdd", out)
+
+
+class RouteMalformedOverrideRefusedTests(unittest.TestCase):
+    """Test 24 (TK4, load-bearing behavior 5): a --routes file that is
+    malformed JSON, or valid JSON with the wrong shape, is refused BY NAME
+    (path and reason printed) and the run falls back to the shipped default
+    routing table rather than crashing or going tableless."""
+
+    def test_invalid_json_syntax_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            bad_path = write_text(os.path.join(tmp, "broken-routes.json"),
+                                   "{ not valid json")
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp,
+                              "--routes", bad_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(bad_path, result.stdout)
+        # fallback to the shipped default table: tdd still resolves.
+        self.assertIn("TASK CLASS: tdd", result.stdout)
+
+    def test_wrong_shape_json_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            wrong_shape_path = write_json(
+                os.path.join(tmp, "wrong-shape-routes.json"),
+                {"not_classes": []})
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp,
+                              "--routes", wrong_shape_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(wrong_shape_path, result.stdout)
+        self.assertIn("TASK CLASS: tdd", result.stdout)
+
+    def test_route_missing_key_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            missing_key_path = write_json(
+                os.path.join(tmp, "missing-key-routes.json"), {
+                    "classes": [{
+                        "id": "tdd",
+                        "title": "Test-driven implementation",
+                        "routes": [{"capability": "Superpowers"}],
+                    }],
+                })
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp,
+                              "--routes", missing_key_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(missing_key_path, result.stdout)
+
+    def test_missing_explicit_routes_path_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            missing_path = os.path.join(tmp, "does-not-exist-routes.json")
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp,
+                              "--routes", missing_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(missing_path, result.stdout)
+
+
+class RouteNoDataOnUnreadableSurfaceTests(unittest.TestCase):
+    """Test 25: `route` fails NO-DATA the same way every other verb does
+    when every core surface is unreadable; presence can never be answered
+    off an inventory that could not be built."""
+
+    def test_every_surface_unreadable_is_no_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = os.path.join(tmp, ".claude", "plugins", "cache")
+            write_text(cache_path, "not a directory\n")
+            os.makedirs(os.path.join(tmp, ".claude", "settings.json"))
+            write_text(os.path.join(tmp, ".claude", "skills"), "nope\n")
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertTrue(result.stdout.startswith("NO-DATA:"), result.stdout)
+
+
+class RouteMissingTaskClassArgumentTests(unittest.TestCase):
+    """Test 26: `route` with no positional task class argument is a plain
+    usage failure (exit 2, no "NO-DATA:" prefix), same as any other bad
+    argument this CLI already refuses."""
+
+    def test_route_with_no_task_class_is_usage_error(self):
+        result = run_cli("route", "--home", "/nonexistent")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertFalse(result.stdout.startswith("NO-DATA:"), result.stdout)
+        self.assertIn("route requires a task class argument", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
