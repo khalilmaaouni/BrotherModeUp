@@ -43,7 +43,19 @@ Final done-check, run after the last edit on the clean tree at e6f5198:
 test_all: 3156 tests across 35 suites, 5 skipped, 729.9s wall. ALL GREEN,
 exit 0. Push verified: HEAD == origin/main == e6f5198 after a fresh fetch.
 
+NIGHT EXTENSION, same session, two more founder orders, both delivered
+and pushed at 322d98b with the gate ALL GREEN at 3159 tests, exit 0:
+
+- The weekend emergency plan (docs/plan/WEEKEND-EMERGENCY-PLAN-2026-08-15.md):
+  five cases, each with exact commands anyone can run.
+- The URRY review adapted to BrotherMode scope
+  (docs/plan/URRY-REVIEW-ADAPTATION-2026-08-15.md): boundary law PROPOSED
+  for SKILL.md, success pinned to three numbers with the install baseline
+  stated as ZERO, no new gates.
+- TK3 capability records landed and ticked; TK4 parked by recorded
+  decision under the founder's priority.
+
 Remaining is founder-owned or next-session work: the Bitbucket workspace
-(he is creating it), handing the tester pack to Tung and Harry, TK3 next
-in the queue.
+(he is creating it), handing the tester pack to Tung and Harry, TK4 then
+TK6 from the queue top.
 <!-- bm-human:end -->
