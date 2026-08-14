@@ -18,7 +18,7 @@ Two tools that do different jobs and are versioned separately.
 
 | Tool | Version | What it is for |
 |---|---|---|
-| BrotherMode | `v3.2.1` | one person's session: holds the goal, refuses to call work done without a check that actually ran |
+| BrotherMode | `v3.3.0` | one person's session: holds the goal, refuses to call work done without a check that actually ran |
 | BrotherSBE | `v3.1.0` | one change's passage between people: design before verification, gates that block on evidence |
 
 Write both numbers in your first daily note. If the numbers on your machine
@@ -39,7 +39,7 @@ plugins to Claude Code, and having both wires two hook chains at once.
 **BrotherMode:**
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.2.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.0
 ```
 
 ```bash
@@ -56,7 +56,7 @@ claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.2.1` and `@v3.1.0` matter. They pin each install to a released tag
+The `@v3.3.0` and `@v3.1.0` matter. They pin each install to a released tag
 instead of whatever happens to be on the default branch today. Two testers on
 different commits cannot tell a bug from a version difference, and that has
 cost this project real time before.

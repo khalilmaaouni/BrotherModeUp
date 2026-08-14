@@ -166,10 +166,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v3.2.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v3.2.1` checks out that exact tag, not a moving branch head. It
+`--branch v3.3.0` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
