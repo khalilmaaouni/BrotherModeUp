@@ -9,5 +9,6 @@ BROTHERMODE ACTIVE-LAWS DIGEST (mechanically injected; full law: SKILL.md at the
 - Waits: run-in-background or Monitor; sleep-and-check loops are a violation.
 - Nothing merges unverified; deliverables missing done-checks are rejected back; self-scores cap at 8 without external evidence.
 - Never-forget: safety invariants, founder gates (credentials never, releases and destructive ops confirmed), live fences, unmerged work, open founder asks.
+- Handovers deliver as ONE zip holding every file they refer to (start-here, references, progress page). Never the pack plus its parts side by side, never a document beside the zip that contains it. Founder directive 2026-08-15, no exceptions unless he asks for a loose file, and that exception covers only that request. [human]
 - Bad news first; calibrated claims; push back with the founder's own values, then execute their call.
 - After compaction or resume: re-read references/fences.md, references/context.md, references/mistakes.md, and STATE.md before acting.
