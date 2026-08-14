@@ -550,5 +550,71 @@ class ConflictsMalformedOverrideRefusedTests(unittest.TestCase):
         self.assertIn(missing_path, result.stdout)
 
 
+class CapabilityRecordsDerivedNameSourcesTests(unittest.TestCase):
+    """Test 18 (TK3, load-bearing behavior 1): a DERIVED capability record
+    names the artifact paths it was built from. A plugin with a manifest
+    and a hooks.json must list its version directory, its manifest path,
+    and its hooks.json path in source_files, and its declared_reach must
+    carry the hook events read from that exact file."""
+
+    def test_derived_plugin_record_names_its_source_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            version_dir = make_plugin(
+                tmp, "mkt", "traced-plugin", "1.0.0",
+                manifest={"name": "traced-plugin", "version": "1.0.0"},
+                hooks={"SessionStart": []})
+            result = run_cli("capabilities", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("DERIVED CAPABILITY RECORDS (1)", out)
+        self.assertIn("traced-plugin@mkt [plugin] declared_reach: "
+                       "hook_events=['SessionStart']", out)
+        self.assertIn(version_dir, out)
+        self.assertIn(
+            os.path.join(version_dir, ".claude-plugin", "plugin.json"), out)
+        self.assertIn(
+            os.path.join(version_dir, "hooks", "hooks.json"), out)
+        self.assertNotIn("[HAND-ASSERTED]", out)
+
+
+class CapabilityRecordsHandAssertedMarkedTests(unittest.TestCase):
+    """Test 19 (TK3, load-bearing behavior 2): a hand-asserted record,
+    typed by a human into an --overrides file, is visibly marked as such
+    and never mistaken for a derived record."""
+
+    def test_hand_asserted_record_is_visibly_marked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            overrides_path = write_json(
+                os.path.join(tmp, "custom-capabilities.json"), {
+                    "records": [{
+                        "name": "external-cli-tool",
+                        "kind": "cli",
+                        "declared_reach": {"network": "unknown"},
+                    }],
+                })
+            result = run_cli("capabilities", "--home", tmp, "--root", tmp,
+                              "--overrides", overrides_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("HAND-ASSERTED CAPABILITY RECORDS (1)", out)
+        self.assertIn("[HAND-ASSERTED] cli:external-cli-tool", out)
+        self.assertIn("DERIVED CAPABILITY RECORDS (0)", out)
+        self.assertNotIn("OVERRIDE REFUSED", out)
+
+    def test_malformed_overrides_file_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            bad_path = write_text(os.path.join(tmp, "bad-caps.json"),
+                                   "{ not valid json")
+            result = run_cli("capabilities", "--home", tmp, "--root", tmp,
+                              "--overrides", bad_path)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERRIDE REFUSED:", result.stdout)
+        self.assertIn(bad_path, result.stdout)
+        self.assertIn("HAND-ASSERTED CAPABILITY RECORDS (0)", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
