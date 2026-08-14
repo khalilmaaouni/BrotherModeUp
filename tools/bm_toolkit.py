@@ -13,13 +13,46 @@ WHY THIS EXISTS
   .claude.json. What a tool registers is observable without running it.
 
 THE CONTRACT
-  Three verbs. `inventory` (human readable, the default) and `json` (one
+  Four verbs. `inventory` (human readable, the default) and `json` (one
   JSON object, schema 1, for later loops such as conflict detection to
   consume rather than re-parse). See the top-level JSON shape in the plan
   brief; `build_inventory()` below is the single place that shape is built.
   `conflicts` (human readable) reads that same inventory plus a table of
   conflict classes and emits verdicts, per docs/plan/TOOLKIT-PLAN-2026-08-12.md
-  section F2.
+  section F2. `capabilities` (human readable) reads that same inventory and
+  emits capability records, per section F3 and section 4 below.
+
+CAPABILITY RECORDS (F3, section 4 of the plan)
+  A capability record's reach is DECLARED, never measured by running
+  anything: it is read from the same artifacts `build_inventory()` already
+  parses (a plugin manifest, its hooks.json, a skill's hooks.json, the
+  mcpServers key of .claude.json). Every DERIVED record names the exact
+  artifact paths it was built from in its `source_files` list, which is
+  never empty: the capability's own directory is always the first entry,
+  because a directory existing is itself an artifact, and the manifest or
+  hooks.json paths are appended when they were actually read.
+
+  A record can also be HAND-ASSERTED: typed by a human into an optional
+  override file (tools/toolkit_capability_overrides.json next to this
+  file, or an explicit --overrides PATH) for a capability this inventory
+  cannot derive from artifacts on its own, such as an external CLI. A
+  hand-asserted record carries `hand_asserted: true`, an empty
+  `source_files` (nothing was read to build it), and is rendered under its
+  own visibly separate heading with a [HAND-ASSERTED] marker on every line,
+  in `json` output and in the human-readable `capabilities` report alike,
+  so it can never be mistaken for something the inventory derived. The
+  override file is optional the same way the conflict classes override is:
+  absent is silence, not an error; present and malformed is refused BY
+  NAME (path and reason printed) and the run falls back to zero overrides,
+  never classless-versus-crash, matching decision 34's shape for conflict
+  classes.
+
+  No persistence: a capability record is built fresh from the inventory at
+  read time, on every run, and is never written to the store. The plan's
+  F3 done-check ("a record is DERIVED from artifacts; a hand-asserted
+  record is visibly marked") holds without a schema change, because the
+  inventory this file already reads IS the artifact evidence; storing a
+  second copy would just be a cache with its own staleness to manage.
 
 CONFLICT CLASSES (F2)
   Ten classes, defined once in DEFAULT_CONFLICT_CLASSES below (decision 34:
@@ -69,12 +102,15 @@ Python 3.9, standard library only. No network. No subprocess.
 No em or en dashes anywhere in this file or its output.
 
 Usage:
-  python3 tools/bm_toolkit.py inventory  [--home PATH] [--root PATH]
-  python3 tools/bm_toolkit.py json       [--home PATH] [--root PATH]
-  python3 tools/bm_toolkit.py conflicts  [--home PATH] [--root PATH] [--classes PATH]
+  python3 tools/bm_toolkit.py inventory    [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py json         [--home PATH] [--root PATH]
+  python3 tools/bm_toolkit.py conflicts    [--home PATH] [--root PATH] [--classes PATH]
+  python3 tools/bm_toolkit.py capabilities [--home PATH] [--root PATH] [--overrides PATH]
 
 `inventory` is also the default when no verb is given. `--classes` overrides
-the conflict class table for `conflicts` only; every other verb ignores it.
+the conflict class table for `conflicts` only; `--overrides` names the
+hand-asserted capability record file for `capabilities` only; every other
+verb ignores whichever of the two it is not given.
 """
 
 import json
@@ -83,7 +119,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-_VERBS = ("inventory", "json", "conflicts")
+_VERBS = ("inventory", "json", "conflicts", "capabilities")
 
 
 # ---------------------------------------------------------------------------
@@ -865,53 +901,226 @@ def render_conflicts(results):
 
 
 # ---------------------------------------------------------------------------
+# Capability records (F3). See the module docstring's CAPABILITY RECORDS
+# section for the shape and the derived-versus-hand-asserted contract.
+# ---------------------------------------------------------------------------
+
+_REQUIRED_OVERRIDE_KEYS = ("name", "kind")
+
+
+def _validate_overrides_shape(data):
+    """(True, None) or (False, reason). Checked before an override JSON is
+    trusted, same discipline as _validate_classes_shape: a malformed
+    override must be refused BY NAME, never trusted half-parsed."""
+    if not isinstance(data, dict):
+        return False, "root is not a JSON object"
+    entries = data.get("records")
+    if not isinstance(entries, list):
+        return False, '"records" key is missing or not a list'
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False, "a records entry is not a JSON object"
+        missing = [key for key in _REQUIRED_OVERRIDE_KEYS if key not in entry]
+        if missing:
+            return False, "records entry %r missing keys: %s" % (
+                entry.get("name", "?"), ", ".join(missing))
+    return True, None
+
+
+def load_capability_overrides(explicit_path):
+    """(overrides, source, override_error). `overrides` is the raw list of
+    dicts a human typed into tools/toolkit_capability_overrides.json (or an
+    explicit --overrides path): hand-asserted capability claims for
+    something this inventory cannot derive from artifacts on its own.
+    Unlike conflict classes there is no shipped default table here: a
+    hand-asserted record only exists when a human wrote one, so plain
+    absence (no explicit path given, the shipped path missing) is silence,
+    not an error, same as every other optional surface in this module. An
+    explicit --overrides path that is missing or malformed is refused BY
+    NAME and the run falls back to zero overrides, never crashes and never
+    trusts a half-parsed file."""
+    path = explicit_path or os.path.join(
+        HERE, "toolkit_capability_overrides.json")
+    if not os.path.isfile(path):
+        if explicit_path:
+            return [], "default", "%s: missing file" % path
+        return [], "default", None
+    data, err = _read_json_file(path)
+    if err:
+        return [], "default", "%s: %s" % (path, err)
+    ok, reason = _validate_overrides_shape(data)
+    if not ok:
+        return [], "default", "%s: %s" % (path, reason)
+    return data["records"], path, None
+
+
+def build_capability_records(data, overrides):
+    """[record, ...]: one DERIVED record per plugin, per skill, per MCP
+    server in `data` (built straight from the same fields build_inventory
+    already parsed, no new artifact reads), followed by one HAND-ASSERTED
+    record per entry in `overrides`. Each record: {id, kind, name,
+    marketplace, version, declared_reach, source_files, hand_asserted}.
+    `source_files` for a derived record is never empty: the capability's
+    own directory (or, for an MCP server, .claude.json) is always first.
+    `source_files` for a hand-asserted record is always empty: nothing was
+    read to build it, which is exactly what hand-asserted means."""
+    records = []
+
+    for p in data["plugins"]:
+        source_files = [p["path"]]
+        if p["manifest_present"]:
+            source_files.append(
+                os.path.join(p["path"], ".claude-plugin", "plugin.json"))
+        hooks_path = os.path.join(p["path"], "hooks", "hooks.json")
+        if os.path.isfile(hooks_path):
+            source_files.append(hooks_path)
+        records.append({
+            "id": "%s@%s" % (p["name"], p["marketplace"]),
+            "kind": "plugin",
+            "name": p["name"],
+            "marketplace": p["marketplace"],
+            "version": p["version"],
+            "declared_reach": {"hook_events": p["hook_events"]},
+            "source_files": source_files,
+            "hand_asserted": False,
+        })
+
+    for s in data["skills"]:
+        source_files = [s["path"]]
+        if s["has_skill_md"]:
+            source_files.append(os.path.join(s["path"], "SKILL.md"))
+        hooks_path = os.path.join(s["path"], "hooks", "hooks.json")
+        if os.path.isfile(hooks_path):
+            source_files.append(hooks_path)
+        records.append({
+            "id": "skill:%s" % s["name"],
+            "kind": "skill",
+            "name": s["name"],
+            "marketplace": None,
+            "version": None,
+            "declared_reach": {"hook_events": s["hook_events"]},
+            "source_files": source_files,
+            "hand_asserted": False,
+        })
+
+    if data["mcp_servers"]:
+        mcp_source = os.path.join(data["home"], ".claude.json")
+        for m in data["mcp_servers"]:
+            records.append({
+                "id": "mcp:%s" % m["name"],
+                "kind": "mcp_server",
+                "name": m["name"],
+                "marketplace": None,
+                "version": None,
+                "declared_reach": {"registered": True},
+                "source_files": [mcp_source],
+                "hand_asserted": False,
+            })
+
+    for entry in overrides:
+        kind = entry.get("kind")
+        name = entry.get("name")
+        records.append({
+            "id": entry.get("id") or "%s:%s" % (kind, name),
+            "kind": kind,
+            "name": name,
+            "marketplace": entry.get("marketplace"),
+            "version": entry.get("version"),
+            "declared_reach": entry.get("declared_reach") or {},
+            "source_files": [],
+            "hand_asserted": True,
+        })
+
+    return records
+
+
+def render_capabilities(records):
+    def _reach_text(record):
+        reach = record["declared_reach"] or {}
+        if not reach:
+            return "none"
+        return ", ".join(
+            "%s=%s" % (key, reach[key]) for key in sorted(reach))
+
+    derived = [r for r in records if not r["hand_asserted"]]
+    hand_asserted = [r for r in records if r["hand_asserted"]]
+
+    lines = []
+    lines.append("DERIVED CAPABILITY RECORDS (%d)" % len(derived))
+    for r in derived:
+        lines.append("  %s [%s] declared_reach: %s" % (
+            r["id"], r["kind"], _reach_text(r)))
+        lines.append("    source: %s" % ", ".join(r["source_files"]))
+
+    lines.append("")
+    lines.append("HAND-ASSERTED CAPABILITY RECORDS (%d)" % len(hand_asserted))
+    for r in hand_asserted:
+        lines.append("  [HAND-ASSERTED] %s [%s] declared_reach: %s" % (
+            r["id"], r["kind"], _reach_text(r)))
+
+    lines.append("")
+    lines.append(
+        "SUMMARY: %d records, %d derived, %d hand-asserted." % (
+            len(records), len(derived), len(hand_asserted)))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI.
 # ---------------------------------------------------------------------------
 
 def _parse_argv(argv):
-    """Return (verb, home, root, classes, error). `error` set means stop
-    and report a plain usage failure (exit 2, no "NO-DATA:" prefix: that
-    prefix is reserved for "could not determine the verdict", not "bad
-    arguments"). `classes` (--classes PATH) is only consumed by the
-    `conflicts` verb; every other verb accepts and ignores it, the same as
-    it would any other unused-but-recognised flag."""
+    """Return (verb, home, root, classes, overrides, error). `error` set
+    means stop and report a plain usage failure (exit 2, no "NO-DATA:"
+    prefix: that prefix is reserved for "could not determine the verdict",
+    not "bad arguments"). `classes` (--classes PATH) is only consumed by
+    the `conflicts` verb; `overrides` (--overrides PATH) is only consumed
+    by the `capabilities` verb; every other verb accepts and ignores
+    whichever of the two it is not given, the same as it would any other
+    unused-but-recognised flag."""
     args = list(argv)
     verb = "inventory"
     if args and not args[0].startswith("--"):
         verb = args.pop(0)
     if verb not in _VERBS:
-        return None, None, None, None, "bm_toolkit: unknown verb: %s" % verb
+        return None, None, None, None, None, "bm_toolkit: unknown verb: %s" % verb
 
     home = None
     root = None
     classes = None
+    overrides = None
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--home":
             if i + 1 >= len(args):
-                return None, None, None, None, "bm_toolkit: --home requires a value"
+                return None, None, None, None, None, "bm_toolkit: --home requires a value"
             home = args[i + 1]
             i += 2
         elif arg == "--root":
             if i + 1 >= len(args):
-                return None, None, None, None, "bm_toolkit: --root requires a value"
+                return None, None, None, None, None, "bm_toolkit: --root requires a value"
             root = args[i + 1]
             i += 2
         elif arg == "--classes":
             if i + 1 >= len(args):
-                return None, None, None, None, "bm_toolkit: --classes requires a value"
+                return None, None, None, None, None, "bm_toolkit: --classes requires a value"
             classes = args[i + 1]
             i += 2
+        elif arg == "--overrides":
+            if i + 1 >= len(args):
+                return None, None, None, None, None, "bm_toolkit: --overrides requires a value"
+            overrides = args[i + 1]
+            i += 2
         else:
-            return None, None, None, None, "bm_toolkit: unknown argument: %s" % arg
-    return verb, home, root, classes, None
+            return None, None, None, None, None, "bm_toolkit: unknown argument: %s" % arg
+    return verb, home, root, classes, overrides, None
 
 
 def _run(argv):
     """The real body of main, split out so `main` can wrap the whole thing
     in one try/except and guarantee NO-DATA on any unexpected exception."""
-    verb, home_arg, root_arg, classes_arg, err = _parse_argv(argv)
+    verb, home_arg, root_arg, classes_arg, overrides_arg, err = _parse_argv(argv)
     if err:
         sys.stderr.write(err + "\n")
         return 2
@@ -941,6 +1150,18 @@ def _run(argv):
                 % override_error)
             out.append("")
         out.append(render_conflicts(results))
+        sys.stdout.write("\n".join(out) + "\n")
+    elif verb == "capabilities":
+        overrides, _source, override_error = load_capability_overrides(
+            overrides_arg)
+        records = build_capability_records(data, overrides)
+        out = []
+        if override_error:
+            out.append(
+                "OVERRIDE REFUSED: %s (using zero hand-asserted records)"
+                % override_error)
+            out.append("")
+        out.append(render_capabilities(records))
         sys.stdout.write("\n".join(out) + "\n")
     else:
         sys.stdout.write(render_inventory(data) + "\n")

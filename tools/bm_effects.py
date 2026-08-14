@@ -502,9 +502,19 @@ REGISTRY = {
     # inventory it produces is the input every later toolkit verb consumes,
     # so a verb here that could mutate the machine it is describing would be
     # the wrong shape from the start.
+    # "capabilities" (TK3, 2026-08-15) is the same shape: it renders
+    # capability records built from the already-collected inventory data
+    # (derived) plus an optional hand-typed override file (hand-asserted),
+    # and constructs no Store, same as every other verb here.
+    # "conflicts" (TK2, 2026-08-15, declared late: TK3's builder caught the
+    # omission the same day) is the same shape again: it reads the same
+    # inventory plus a class table and prints verdicts, constructing no
+    # Store.
     "bm_toolkit.py": {
         "inventory": PURE_READ,
         "json": PURE_READ,
+        "conflicts": PURE_READ,
+        "capabilities": PURE_READ,
     },
 
     # -- bm_idle.py -----------------------------------------------------
