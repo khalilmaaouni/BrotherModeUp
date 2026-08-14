@@ -13486,6 +13486,20 @@ class Store(object):
                 self, "DELETE FROM views WHERE project_id=?",
                 (project_id,)).rowcount
 
+            # T5 extension (schema 20): capability_receipts carries a
+            # REFERENCES projects(project_id) FK, like every table above
+            # it, so a purge that stopped short of it would not merely
+            # leave an orphan behind, it would refuse this very method's
+            # own DELETE FROM projects below (foreign_keys=ON, see
+            # Store.__init__). Disclosed out of scope by the builder who
+            # added the table (T5) and closed here. Like every other
+            # table here, the attribution trail these rows left behind
+            # (capability_receipt.added) is KEPT: purge_project never
+            # touches attribution except to append.
+            removed["capability_receipts"] = _exec(
+                self, "DELETE FROM capability_receipts WHERE project_id=?",
+                (project_id,)).rowcount
+
             self._write_attribution(
                 project_id, None, "project.purged", actor,
                 action="purge_project",
