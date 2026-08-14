@@ -464,6 +464,8 @@ def _argv_for(fixture, module, verb):
         ("bm_controller.py", "status"): ["status", "--project", fixture.project_id],
         ("bm_lead.py", "status"): ["status", "--project-id", fixture.project_id],
         ("bm_lead.py", "decisions"): ["decisions", "--project-id", fixture.project_id],
+        ("bm_project.py", "receipt list"):
+            ["receipt", "list", "--project-id", fixture.project_id],
     }
     key = (module, verb)
     if key in overrides:

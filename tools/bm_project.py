@@ -56,11 +56,22 @@ SUBCOMMANDS
                           required
   alert list                unresolved alerts by default; --all for every
                           alert ever raised (read accessors only)
+  receipt add               thin wrapper over add_capability_receipt
+                          (F4, schema 20): files ONE capability receipt,
+                          refusing a bad verification_state by name
+                          before the store's own CHECK constraint would
+  receipt list               every capability receipt for a project, oldest
+                          first; --task-id and --capability-name narrow
+                          it (read accessors only); a project with none
+                          says so in plain words, never silence
   review <task_id>        records evidence and transitions the task, in
                           ONE atomic Store.review_task call (C1, release-
                           closure loop2 refuter fixes): a transition the
                           ten-state law refuses leaves no evidence behind
-                          either
+                          either; --criterion-id (schema 20, R1.2) links
+                          the evidence to one entry of the task's own
+                          acceptance_checks, refused by name when it
+                          matches none
   deliver                 generate DELIVERY-PACKET.md from rows; refuses
                           a project with zero tasks outright, and refuses
                           when any task is short of the terminal state
@@ -1276,14 +1287,16 @@ def cmd_forecast(argv):
 # ---------------------------------------------------------------------------
 
 _REVIEW_FLAGS = ("project-id", "kind", "ref", "note", "to", "reason",
-                 "out-json") + _ACTOR_FLAGS
+                 "criterion-id", "out-json") + _ACTOR_FLAGS
 
 
 def cmd_review(argv):
     pos, kv = _parse(argv, _REVIEW_FLAGS, wants_value=(
-        "project-id", "kind", "ref", "note", "to", "reason") + _ACTOR_FLAGS)
+        "project-id", "kind", "ref", "note", "to", "reason",
+        "criterion-id") + _ACTOR_FLAGS)
     usage = ("usage: review <task_id> --project-id ID [--kind K] [--ref R] "
              "[--note N] [--to STATE(default verified)] --reason R "
+             "[--criterion-id ID] "
              "[--actor-type human|model] --actor-name NAME "
              "[--session-id SID] [--out-json]")
     if not pos:
@@ -1302,6 +1315,13 @@ def cmd_review(argv):
         "kind": kv.get("kind") or "",
         "ref": kv.get("ref") or "",
         "note": kv.get("note") or "",
+        # Schema 20, R1.2: the stable id (schema.criterion_id_for_check)
+        # of the acceptance_checks entry this evidence satisfies. Omitted
+        # or empty means not linked, a real and honest value (see
+        # Store.add_evidence's own docstring); a value that names no real
+        # entry on this task is refused by Store._verify_criterion_id,
+        # never guessed at or silently dropped here.
+        "criterion_id": kv.get("criterion-id") or "",
         "created_at": bs.now_iso(),
     }
     store = _store()
@@ -1324,6 +1344,131 @@ def cmd_review(argv):
     _out("reviewed task %s: evidence %s recorded, task -> %s"
          % (task_id, evidence_id, status))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# receipt add / receipt list (TK11, F4 capability receipts, schema 20)
+# ---------------------------------------------------------------------------
+
+_RECEIPT_ADD_FLAGS = (
+    "project-id", "task-id", "receipt-id", "capability-name",
+    "capability-version", "executor-identity", "task-description",
+    "inputs", "permissions-declared", "claimed-output",
+    "changed-artifacts", "raw-evidence", "verification-state",
+    "verification-evidence", "omissions", "out-json") + _ACTOR_FLAGS
+
+
+def _receipt_add_usage():
+    return ("usage: receipt add --project-id ID --capability-name NAME "
+            "--task-description DESC "
+            "--verification-state verified|failed|no_data "
+            "[--task-id ID] [--capability-version V] "
+            "[--executor-identity E] [--inputs a,b] "
+            "[--permissions-declared a,b] [--claimed-output TEXT] "
+            "[--changed-artifacts a,b] [--raw-evidence TEXT] "
+            "[--verification-evidence TEXT] [--omissions a,b] "
+            "[--receipt-id ID] "
+            "[--actor-type human|model] --actor-name NAME "
+            "[--session-id SID] [--out-json]")
+
+
+def cmd_receipt_add(argv):
+    _pos, kv = _parse(argv, _RECEIPT_ADD_FLAGS, wants_value=(
+        "project-id", "task-id", "receipt-id", "capability-name",
+        "capability-version", "executor-identity", "task-description",
+        "inputs", "permissions-declared", "claimed-output",
+        "changed-artifacts", "raw-evidence", "verification-state",
+        "verification-evidence", "omissions") + _ACTOR_FLAGS)
+    usage = _receipt_add_usage()
+    project_id = _require(kv, "project-id", usage)
+    capability_name = _require(kv, "capability-name", usage)
+    task_description = _require(kv, "task-description", usage)
+    # Store.add_capability_receipt refuses a value outside the three
+    # honest states (T5: "no_data is a first-class value, not a null")
+    # before the INSERT reaches the table's own CHECK constraint; this
+    # file never restates that check, only requires the flag be given at
+    # all, the same house rule cmd_forecast_add follows for --confidence.
+    verification_state = _require(kv, "verification-state", usage)
+    actor = _actor(kv, usage)
+    receipt = {
+        "receipt_id": kv.get("receipt-id") or uuid.uuid4().hex,
+        "project_id": project_id,
+        "task_id": kv.get("task-id") or None,
+        "capability_name": capability_name,
+        "capability_version": kv.get("capability-version") or "",
+        "executor_identity": kv.get("executor-identity") or "",
+        "task_description": task_description,
+        "inputs": _csv(kv.get("inputs")),
+        "permissions_declared": _csv(kv.get("permissions-declared")),
+        "claimed_output": kv.get("claimed-output") or "",
+        "changed_artifacts": _csv(kv.get("changed-artifacts")),
+        "raw_evidence": kv.get("raw-evidence") or "",
+        "verification_state": verification_state,
+        "verification_evidence": kv.get("verification-evidence") or "",
+        "omissions": _csv(kv.get("omissions")),
+        "created_at": bs.now_iso(),
+    }
+    store = _store()
+    try:
+        receipt_id = store.add_capability_receipt(receipt, actor)
+    finally:
+        store.close()
+    if kv.get("out-json"):
+        _print_json({"receipt_id": receipt_id})
+        return 0
+    _out("added capability receipt %s" % receipt_id)
+    return 0
+
+
+def cmd_receipt_list(argv):
+    _pos, kv = _parse(argv, ("project-id", "task-id", "capability-name",
+                             "json", "raw"),
+                       wants_value=("project-id", "task-id",
+                                    "capability-name"))
+    usage = ("usage: receipt list --project-id ID [--task-id ID] "
+             "[--capability-name NAME] [--json] [--raw]")
+    project_id = _require(kv, "project-id", usage)
+    # Same raw/json split every other list/show command in this file
+    # uses: text output is local display (always raw=True); --json is the
+    # export surface and stays redacted unless --raw is also given (see
+    # this file's module docstring).
+    want_raw = True if not kv.get("json") else bool(kv.get("raw"))
+    store = _read_store()
+    try:
+        receipts = store.list_capability_receipts(
+            project_id, task_id=kv.get("task-id"),
+            capability_name=kv.get("capability-name"), raw=want_raw)
+    finally:
+        store.close()
+    if kv.get("json"):
+        _print_json({"receipts": receipts})
+        return 0
+    # House receipt discipline: a list on a project with no receipts says
+    # so in plain words, never silence.
+    if not receipts:
+        _out("no capability receipts recorded for project %s" % project_id)
+        return 0
+    _out("capability receipts for project %s (%d):"
+         % (project_id, len(receipts)))
+    for r in receipts:
+        _out("  - %s [%s] %s: %s"
+             % (r.get("receipt_id"), r.get("verification_state"),
+                r.get("capability_name"), r.get("task_description")))
+    return 0
+
+
+RECEIPT_COMMANDS = {
+    "add": cmd_receipt_add,
+    "list": cmd_receipt_list,
+}
+
+
+def cmd_receipt(argv):
+    if not argv or argv[0] not in RECEIPT_COMMANDS:
+        _err("usage: receipt <add|list> ... "
+             "(known: %s)" % ", ".join(sorted(RECEIPT_COMMANDS)))
+        return 2
+    return RECEIPT_COMMANDS[argv[0]](argv[1:])
 
 
 # ---------------------------------------------------------------------------
@@ -1670,6 +1815,7 @@ COMMANDS = {
     "task": cmd_task,
     "forecast": cmd_forecast,
     "alert": cmd_alert,
+    "receipt": cmd_receipt,
     "review": cmd_review,
     "deliver": cmd_deliver,
     "export": cmd_export,

@@ -1454,6 +1454,12 @@ class TestExportAndPurge(unittest.TestCase):
                           # moment purge_project started removing them.
                           "insights": 0,
                           "briefings": 0,
+                          # TK10 (schema 20) put capability_receipts under
+                          # the same purge. Same rule as every block above:
+                          # this fixture seeds none, so it is 0, and this
+                          # key turned the pin red the moment purge started
+                          # removing the table, which is the pin's job.
+                          "capability_receipts": 0,
                           # L05 (schema 17) put the generated views under
                           # the same purge. Same rule and same reason as
                           # the three blocks above: this fixture seeds
@@ -1664,6 +1670,232 @@ class TestOutcomeContractStartFlags(unittest.TestCase):
             r = _run(["start"], root)
             self.assertIn("--kill-criteria", r.stderr)
             self.assertIn("--non-goals", r.stderr)
+
+
+class TestCapabilityReceipts(unittest.TestCase):
+    """TK11 (docs/plan/QUEUE.json): `receipt add` and `receipt list`, the
+    CLI surface over Store.add_capability_receipt and
+    list_capability_receipts (F4, schema 20). A receipt can be filed and
+    listed from the command line without touching the store directly."""
+
+    def _started(self, root, project_id="proj1", name="Acme Rescue"):
+        _init(root)
+        r = _run(["start", "--project-id", project_id, "--name", name]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_receipt_list_on_a_project_with_none_states_that_plainly(self):
+        """House receipt discipline: no receipt is NO-DATA; an empty list
+        says so, never silence."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["receipt", "list", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("no capability receipts recorded", r.stdout)
+
+    def test_receipt_add_and_list_round_trip(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--capability-name", "grep-search",
+                      "--capability-version", "1.0",
+                      "--executor-identity", "claude-sonnet",
+                      "--task-description", "search the repo for TODO",
+                      "--inputs", "pattern=TODO,path=.",
+                      "--permissions-declared", "read",
+                      "--claimed-output", "17 matches found",
+                      "--changed-artifacts", "",
+                      "--verification-state", "verified",
+                      "--verification-evidence", "rerun matched 17 lines",
+                      "--omissions", "binary files skipped"]
+                     + list(ACTOR) + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            receipt_id = json.loads(r.stdout)["receipt_id"]
+            self.assertTrue(receipt_id)
+
+            raw = _raw_dump(root)
+            self.assertEqual(len(raw["capability_receipts"]), 1)
+            row = raw["capability_receipts"][0]
+            self.assertEqual(row["receipt_id"], receipt_id)
+            self.assertEqual(row["capability_name"], "grep-search")
+            self.assertEqual(row["verification_state"], "verified")
+            self.assertEqual(json.loads(row["inputs"]),
+                             ["pattern=TODO", "path=."])
+            self.assertEqual(json.loads(row["omissions"]),
+                             ["binary files skipped"])
+
+            r = _run(["receipt", "list", "--project-id", "proj1"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(receipt_id, r.stdout)
+            self.assertIn("grep-search", r.stdout)
+            self.assertIn("verified", r.stdout)
+
+            r = _run(["receipt", "list", "--project-id", "proj1", "--json"],
+                     root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(len(out["receipts"]), 1)
+            self.assertEqual(out["receipts"][0]["receipt_id"], receipt_id)
+
+    def test_receipt_add_records_no_data_as_a_first_class_state(self):
+        """T5's own words: 'no_data is a first-class value, not a null'.
+        A capability that returned prose with nothing runnable gets a
+        receipt that says so honestly, and this must not be refused."""
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--capability-name", "prose-only-tool",
+                      "--task-description", "summarize the design doc",
+                      "--verification-state", "no_data"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(raw["capability_receipts"][0]["verification_state"],
+                             "no_data")
+
+    def test_receipt_add_refuses_an_unknown_verification_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--capability-name", "grep-search",
+                      "--task-description", "search the repo",
+                      "--verification-state", "probably-fine"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("verification_state must be one of", r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(raw["capability_receipts"], [])
+
+    def test_receipt_add_requires_capability_name_and_task_description(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--verification-state", "verified"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("--capability-name", r.stderr)
+
+    def test_receipt_add_refuses_an_unknown_project(self):
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["receipt", "add", "--project-id", "nosuch",
+                      "--capability-name", "grep-search",
+                      "--task-description", "search the repo",
+                      "--verification-state", "verified"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("no project", r.stderr)
+
+    def test_receipt_list_narrows_by_task_id_and_capability_name(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            r = _run(["task", "add", "--project-id", "proj1",
+                      "--title", "Search task"] + list(ACTOR)
+                     + ["--out-json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            task_id = json.loads(r.stdout)["task_id"]
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--task-id", task_id,
+                      "--capability-name", "grep-search",
+                      "--task-description", "search the repo",
+                      "--verification-state", "verified"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["receipt", "add", "--project-id", "proj1",
+                      "--capability-name", "other-tool",
+                      "--task-description", "unrelated work",
+                      "--verification-state", "failed"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            r = _run(["receipt", "list", "--project-id", "proj1",
+                      "--task-id", task_id], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("grep-search", r.stdout)
+            self.assertNotIn("other-tool", r.stdout)
+
+            r = _run(["receipt", "list", "--project-id", "proj1",
+                      "--capability-name", "other-tool"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("other-tool", r.stdout)
+            self.assertNotIn("grep-search", r.stdout)
+
+
+class TestReviewCriterionId(unittest.TestCase):
+    """schema 20, R1.2: `review --criterion-id` links the filed evidence to
+    one entry of the reviewed task's own acceptance_checks."""
+
+    def _started(self, root, project_id="proj1", name="Acme Rescue"):
+        _init(root)
+        r = _run(["start", "--project-id", project_id, "--name", name]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def _task_with_checks(self, root, checks):
+        payload = os.path.join(root, "task.json")
+        with io.open(payload, "w", encoding="utf-8") as fh:
+            json.dump({"acceptance_checks": checks}, fh)
+        r = _run(["task", "add", "--project-id", "proj1",
+                  "--title", "Checked task", "--json", payload]
+                 + list(ACTOR) + ["--out-json"], root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        task_id = json.loads(r.stdout)["task_id"]
+        # planned -> ready -> active: the ten-state law admits 'active'
+        # only from 'ready' or 'blocked' (see cmd_task_start's own
+        # docstring), so a fresh task must pass through 'ready' first.
+        r = _run(["task", "transition", "--task-id", task_id,
+                  "--to", "ready", "--reason", "dependencies satisfied"]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "start", "--task-id", task_id,
+                  "--reason", "begin"] + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        # active -> awaiting review: `review`'s own default destination is
+        # 'verified', legal only from 'awaiting review' (LEGAL_TRANSITIONS,
+        # brotherme/core/schema.py), so a task must reach that state first.
+        r = _run(["task", "transition", "--task-id", task_id,
+                  "--to", "awaiting review", "--reason", "work is done"]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return task_id
+
+    def test_review_criterion_id_links_to_a_real_acceptance_check(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            task_id = self._task_with_checks(root, ["grep returns empty"])
+            cid = bs._schema().criterion_id_for_check("grep returns empty")
+            r = _run(["review", task_id, "--project-id", "proj1",
+                      "--criterion-id", cid, "--reason", "verified it"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            ev = [e for e in raw["evidence"] if e["subject_id"] == task_id][0]
+            self.assertEqual(ev["criterion_id"], cid)
+
+    def test_review_refuses_a_criterion_id_matching_no_check(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            task_id = self._task_with_checks(root, ["grep returns empty"])
+            r = _run(["review", task_id, "--project-id", "proj1",
+                      "--criterion-id", "not-a-real-id",
+                      "--reason", "verified it"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("criterion_id", r.stderr)
+            raw = _raw_dump(root)
+            self.assertEqual(
+                [e for e in raw["evidence"] if e["subject_id"] == task_id],
+                [], "a refused criterion_id must write no evidence row")
+
+    def test_review_without_criterion_id_leaves_evidence_unlinked(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._started(root)
+            task_id = self._task_with_checks(root, ["grep returns empty"])
+            r = _run(["review", task_id, "--project-id", "proj1",
+                      "--reason", "verified it"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            ev = [e for e in raw["evidence"] if e["subject_id"] == task_id][0]
+            self.assertEqual(ev["criterion_id"], "")
 
 
 if __name__ == "__main__":
