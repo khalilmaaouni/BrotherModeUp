@@ -1,0 +1,52 @@
+# Runs the BrotherMode gate on Bitbucket Pipelines, so a repository hosted on
+# Bitbucket Cloud (a mirror of this one, or a fork living there) carries
+# merge-time enforcement equivalent to .github/workflows/tests.yml.
+#
+# Differences from the GitHub workflow, stated rather than hidden:
+# - Linux only. Bitbucket Cloud's hosted runners are Linux Docker containers;
+#   there is no hosted macOS or Windows leg. The macOS and Windows evidence
+#   this project publishes still comes from the GitHub workflow, and
+#   docs/BITBUCKET.md says exactly that. A self-hosted Bitbucket runner on a
+#   Mac or Windows machine could close the gap; none is configured here.
+# - One step per Python version running the documented full gate
+#   (python3 tools/test_all.py) instead of one named step per suite. The gate
+#   command is the same one PROJECT.md documents for local runs, and
+#   test_all.py prints a per-suite verdict, so the per-suite evidence survives
+#   in the step log.
+#
+# clone depth full is load-bearing, not habit: the release-truth suite asserts
+# that the tag the install documentation pins actually resolves. A shallow
+# clone fetches no tags, so that assertion could only ever fail. The GitHub
+# workflow learned this the hard way (fetch-depth: 0, header note there).
+#
+# BROTHERMODE_SESSION_CAP=99 matches the documented gate invocation: the
+# session cap counts local Claude transcripts, which do not exist on a CI
+# runner, but matching the documented command keeps the two invocations
+# identical and costs nothing.
+
+clone:
+  depth: full
+
+definitions:
+  yaml-anchors:
+    - &gate-script
+      - git config --global user.email ci@example.com
+      - git config --global user.name ci
+      - BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
+
+pipelines:
+  default:
+    - parallel:
+        # Both ends of the supported range, mirroring the GitHub matrix: the
+        # floor pyproject declares (3.9) and the newest 3.x. A floor nothing
+        # tests is a claim, not a guarantee.
+        - step:
+            name: Full gate on Python 3.9
+            image: python:3.9
+            max-time: 60
+            script: *gate-script
+        - step:
+            name: Full gate on newest Python 3
+            image: python:3
+            max-time: 60
+            script: *gate-script
