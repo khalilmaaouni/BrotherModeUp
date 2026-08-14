@@ -131,6 +131,26 @@ hook can call the client's file-delivery tool on your behalf, so the delivery
 itself is discipline and this paragraph is that discipline. The check removes
 the excuse of not having noticed. It cannot remove the choice.
 
+ONE ZIP, NEVER LOOSE FILES. Every handover reaches the founder as a SINGLE
+archive holding everything it refers to: the start-here page, the reference
+material, the progress page, and any artifact the next session is told to open.
+Handing over the pack and its parts side by side, or a handover document beside
+the zip that already contains it, is the violation. Founder directive of
+2026-08-15, given after a session delivered three files at once: no separate
+files for handovers EVER unless he asks. The reason is a good one. A handover is
+one object he forwards, stores, or reopens weeks later, and a pile of files is
+three chances to carry the wrong one. If he asks for a loose file, that
+exception covers that request only, never the next handover.
+
+The zip is the DELIVERY, not the storage. The pack is still written to disk and
+still gets its durable copy outside any temporary directory, exactly as before.
+What changes is that only the archive is handed over.
+
+NOT ENFORCED, stated plainly: nothing computes whether a delivery was one file
+or several, so this is a stated discipline rather than a control. It lives here
+rather than in a reference file because a rule loaded only on demand would be
+missed at exactly the moment a session is closing.
+
 This contract changes register and surface only. It never weakens a gate, a
 fence, or the safety floor below.
 
