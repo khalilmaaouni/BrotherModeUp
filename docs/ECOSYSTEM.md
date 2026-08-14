@@ -343,6 +343,65 @@ SKILL.md-based plugin bundling its own hooks. superpowers is distributed
 the same way, through a plugin marketplace (`/plugin marketplace add`,
 then `/plugin install`).
 
+## 7. The orchestration layers
+
+The six tools above are coding agents and the skills that ride them. There
+is a closer category: multi-agent orchestration and process layers that,
+like BrotherMode, sit on top of a coding agent rather than replace it. This
+section was researched separately from the six-tool pass above: every
+number below was read live on 2026-08-15 from the GitHub API or the
+project's own repository pages, and carries that date rather than the
+page-level date at the bottom.
+
+- **Ruflo** ([github.com/ruvnet/ruflo](https://github.com/ruvnet/ruflo)),
+  formerly claude-flow, renamed around its v3.5 (reported by third-party
+  coverage; the rename is visible on the repository itself). 67,852 stars,
+  v3.38.9, releasing near daily as of 2026-08-15. Swarm topologies, vector
+  memory, a plugin catalog, multi-provider routing, and a cost-tracker
+  plugin. Where it beats BrotherMode: sheer feature surface, shipping
+  velocity, and reach. What its own release notes disclosed, quoted from
+  its releases feed on 2026-08-15: a memory search labeled HNSW had been
+  brute-force cosine similarity for an unspecified period, and explicit
+  provider configuration was being silently discarded on some execution
+  paths, both since fixed. No documented per-file ownership or conflict
+  mechanism was found in its README.
+- **BMAD-METHOD**
+  ([github.com/bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD),
+  the org renamed from bmadcode): 51,907 stars, v6.11.0. A full-lifecycle
+  role framework whose web bundles let non-technical people join planning
+  conversations. Its coordination is durable context passed between
+  sessions and human-mediated collaboration, deliberately not an enforced
+  mechanism.
+- **spec-kit** ([github.com/github/spec-kit](https://github.com/github/spec-kit)):
+  128,294 stars, v0.16.4, official GitHub backing, executable specs for a
+  whole organization. Its README does not document multi-session
+  coordination or concurrent-write handling.
+- **claude-task-master** and **affaan-m/claude-swarm** appear in
+  orchestration comparisons but were stale or dormant when read
+  (last releases 2026-03-31 and 2026-02-11 respectively); treating them as
+  active competitors would overstate the field. A related caution from the
+  same pass: parruda/claude-swarm and its successor repository both
+  returned 404 while RubyGems still listed them as live source links, so
+  any comparison built from package indexes rather than opened pages would
+  have profiled a ghost.
+- **metaswarm** ([github.com/dsifry/metaswarm](https://github.com/dsifry/metaswarm)):
+  392 stars, v0.12.0, a nine-phase TDD-gated workflow across three coding
+  CLIs, with coverage thresholds blocking before a pull request. No cost
+  controls documented.
+
+What none of them documented, checked project by project on 2026-08-15: an
+enforced one-writer-per-file mechanism (affaan-m/claude-swarm's pessimistic
+locks come closest, in a dormant project), a session handover ceremony with
+a close check that refuses hollow packs, forecast calibration from recorded
+history that refuses to guess below a data floor, or a progress page built
+for a non-engineer. Those are BrotherMode's actual differentiators in this
+category, and the honest counterweight from the same pass: every project
+above beats BrotherMode on adoption and reach, and BrotherMode's recorded
+external install count is zero. The comparison in both directions, with the
+full table, lives in docs/plan/FINALIZATION-ROADMAP-2026-08-15.md and the
+numbers decay like everything else on this page: re-read them before citing
+them.
+
 ## Using them together
 
 A single piece of work can move through several of these tools, and the
