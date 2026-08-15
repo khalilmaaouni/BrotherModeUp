@@ -5,6 +5,49 @@ file exists because an unstated gap is a failure even when it is small, and beca
 the single most useful thing a handover can contain is the list of things the last
 person was not sure about.
 
+## The install shape people actually use loads NONE of this product's own hooks (measured 2026-08-15)
+
+The largest gap on the list, and it makes several other entries here
+academic, because a control that never loads cannot fail either.
+
+MEASURED, on the founder's own machine, every line run rather than reasoned:
+
+    ~/.claude/plugins/installed_plugins.json     68 plugins, brothermode ABSENT
+                                                 (the sibling brothersbe IS present)
+    ~/.claude/skills/brothermode/hooks/hooks.json declares SIX events:
+                                                 SessionStart, SessionEnd, Stop,
+                                                 PreCompact, PreToolUse, PostToolUse
+    grep bm_fence_hook <every settings file>      ZERO hits
+    ~/.claude/agents/                             one file, and it is not ours
+
+BrotherMode is installed here as a DIRECTORY COPY under `~/.claude/skills/`.
+It carries `hooks/hooks.json` and a plugin manifest, and nothing reads either,
+because a skill copy is not a plugin install. Hooks are loaded from a settings
+file or from a registered plugin, and this product appears in neither.
+
+WHAT THAT MEANS, CONCRETELY. The one-writer fence hook is not running. During
+the session that measured this, a write WAS refused across a live claim, and
+that refusal came from `sbe_fence_hook.py`, the SIBLING's hook, which is a
+registered plugin. The protection was real and it was not ours. Any document
+of ours that credits the fence hook for a refusal observed on this machine is
+crediting the wrong product, and one of ours did until this entry was written.
+
+WHAT DOES RUN, so this entry is not read as "nothing works": the vault's own
+session-start and session-end scripts, `spend_guard.py`, and
+`bm_session_cap.py`, all wired individually in `~/.claude/settings.json`.
+The session-start digest arrives through that path, not through our manifest.
+
+WHAT IS NOT AFFECTED: every tool invoked directly on the command line
+(`bm_store.py`, `bm_project.py`, `bm_idle.py`, `bm_escalate.py` and the rest)
+runs exactly as documented, because a command is not a hook. The gate, the
+suites and the queue checks are all unaffected. It is the AUTOMATIC half,
+everything that was supposed to fire without being remembered, that is inert.
+
+FILED as M1 in docs/plan/QUEUE.json. Not fixed here on purpose: registering
+the plugin changes machine configuration that other live sessions depend on,
+and a config change belongs to the founder and to a session that is not
+sharing the machine with three others.
+
 ## rc.4 merge: what the merged tree does NOT prove
 
 - **A gate corpus is not bounded by your limit, and since 2026-07-30 (Loop 3) its

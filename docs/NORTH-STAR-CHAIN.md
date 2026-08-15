@@ -180,10 +180,19 @@ produce it, and each one produces a RECORD rather than a feeling.
    map is how that was noticed rather than merged over.
 
 2. CLAIMS, one writer per file. Before an agent or a session writes, it
-   claims the files it will touch. A hook refuses a write that another live
-   claim covers. This is not advice: in this session it refused an edit to
-   `tools/bm_effects.py` by name, because a different session held it, and
-   the work went into a delta instead of a collision.
+   claims the files it will touch, and a hook refuses a write that another
+   live claim covers. In this session such a refusal happened: an edit to
+   `tools/bm_effects.py` was blocked by name because a different session held
+   it, and the work went into a delta instead of a collision.
+
+   CORRECTED THE SAME DAY, and the correction matters more than the example.
+   That refusal came from the SIBLING's hook, `sbe_fence_hook.py`, which is a
+   registered plugin here. BrotherMode's own fence hook was not running at
+   all: `bm_fence_hook` appears zero times in every settings file on this
+   machine, and this product is absent from the 68 entries in
+   `installed_plugins.json`. So the mechanism described in this bullet is
+   real, and on the machine that wrote this page it was the other product
+   protecting the work. See docs/KNOWN-LIMITS.md, first entry, and M1.
 
 3. THE WORK RECORD, in one store rather than in chat. A project with a goal,
    scope, success criteria and non-goals. Tasks that walk a ten-state
