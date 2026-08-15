@@ -791,6 +791,32 @@ both timestamps on the change record and print median duration by tier,
 refusing under five samples per tier. Check: a fixture prints a median for T1
 and NO-DATA for T3.
 
+G9. THE ONE-WRITER CONTROL IS INERT IN THE ASSURANCE REPOSITORY ITSELF.
+Found while trying to use it, which is the only way this kind of thing gets
+found. Asked directly rather than grepped, `python3 tools/sbe_fence_hook.py
+fences` answers, about twenty times in a row:
+
+    STATE.md carries a live fence line with no readable `files:` scope, so
+    this hook cannot tell what it owns and did NOT enforce it.
+
+Every one of those lines is a legacy fence from July, and the hook fails open
+by design, which is right. The consequence is that BrotherSBE's own
+single-writer protection currently enforces nothing in its own tree, while
+STATE.md reads as though about twenty writers hold claims. The sibling
+product's equivalent hook, in the other repository, refused a write across a
+live fence during this very session, correctly and by name, so the mechanism
+works: it is the registry that has rotted. BrotherSBE. Smallest close: the
+hook already knows how to say a line is unreadable, so make an unreadable
+line a reported STALE with the command that clears it, and clear the July
+lines. Check: `fences` prints zero unenforceable lines on a clean tree, and
+one after a malformed line is added.
+
+This one is filed with a note about its own discovery: the drift check in
+this session refused a plan to answer the fence question with a grep, and
+insisted the control be asked. The grep would have listed twenty live fences
+and I would have believed them. Asking the control returned twenty refusals
+to enforce, which is the opposite conclusion.
+
 WHAT THE SAME PASS FOUND ADEQUATELY COVERED, which matters as much, because a
 gap hunt that reports gaps everywhere has not hunted: design (the eight
 artifacts, the decision record with real alternatives, the behaviour check
@@ -834,9 +860,14 @@ chapters are better than anything we had written on those subjects.
   system guesses. An unaddressed question waits longest, and the stated risk
   is what decides how fast somebody answers.
 
-All four are in `tools/bm_escalate.py` with 26 passing tests, including the
+All four are in `tools/bm_escalate.py` with 32 passing tests, including the
 discriminating pair that proves the truth-affecting flag is what moves the
-verdict rather than the wording of the root cause.
+verdict rather than the wording of the root cause, and six more that pin two
+defects an adversarial reviewer executed against the first version: a passing
+attempt used to clear an unresolved forcing condition, and punctuation used
+to manufacture distinct approaches and so a false escalation. Both fixed,
+both pinned, and the remaining ceiling pinned honestly beside them, which is
+that two different words for one root cause are still two root causes.
 
 ### Adopted as the target shape, with a cheaper first increment
 
@@ -904,14 +935,69 @@ reviewed was 1.0.0-rc.2. Read it as a strong architecture with an out-of-date
 picture of the estate, which is the same failure mode as the review itself,
 and for the same reason.
 
+## What the direction review changed in this plan
+
+An architecture review was run against both products' stated north stars,
+briefed to find drift rather than to agree. Four things came back that this
+plan had wrong or missing, and all four are folded in above or below.
+
+D1. THE ORDER HID A HALF-DEPLOYED STATE. The escalation capability was listed
+as built. It was four registrations out of six, and the suite that should
+notice cannot: the effects registry validates the entries it HAS, so an
+undeclared module is silent rather than red. Confirmed here by hoisting the
+dispatch table to make it discoverable, which turned the suite red
+immediately, then reverting because the registry file sits under another
+session's live fence. The honest state is in `docs/ESCALATION.md`.
+
+D2. P3 AS WRITTEN COLLIDES WITH A RATIFIED ADOPTION RULE. Solution 1 makes
+intake REFUSE without a clarify record. The assurance product's own direction
+says: paved road, not forced road, no intake before work, the pipeline
+reports and never blocks, and enforcement is something an estate turns on
+later after watching the reporter catch something true. The drift is not the
+control, it is the missing word: P3 solution 1 ships BEHIND AN ESTATE SWITCH,
+defaulting to report. That amendment is adopted here and P3 above should be
+read with it.
+
+D3. THE FLIP CONDITION ON THE DECLINED UNIFIED SURFACE WAS DECORATION. It
+said: flip if boundary confusion reaches the reviewers' top three. That
+conditions on an unprompted list, from a re-test with no date and no owner,
+about a category nobody will be asked about. Replaced with two observables
+that need nobody's opinion: flip when a person runs a verb against the wrong
+product twice in one change, or when the ported escalation ledger and its
+parent disagree about the same objective.
+
+D4. THREE NEW REFUSALS WERE PROPOSED AND NONE HAS AN EXCEPTION PATH. P3's
+gate, P6's strict mode and P7's failure all block, and the assurance
+product's own owned list includes exceptions with owners and expiry, while
+the orchestrator's guardrails track a false-refusal rate the north star may
+not be bought with. No false-refusal budget and no escape hatch was named for
+any of the three. Adopted as a precondition: none of those three ships
+without an exception carrying an owner and an expiry date.
+
+The same review confirmed one thing worth keeping: nine of the fourteen
+recommendations protect one of the five things the assurance product owns,
+and the four that touch the north star metric all do it the same way, by
+getting a non-founder to run the thing. That concentration is correct rather
+than a defect.
+
 ## The order, and the one next action
 
-Order by value per unit of work, which is not the same as by severity:
+Order by value per unit of work, which is not the same as by severity.
+Revised after the direction review, which pointed out that the previous
+version scheduled nothing for the two items that gate the north star metric
+and never scheduled the measurement that decides whether any of it worked:
 
-1. Ship 3.2.0 to the five reviewers and ask for a re-read of P9 and P14
-   (no engineering, closes or sharpens the two biggest findings).
-2. P8, the tier split (four lines and fixtures, removes a daily tax on
-   everybody).
+0. TAKE THE BASELINE FIRST, before anything else lands. G1's five queue
+   numbers, counted once, however crudely. The tier split has ALREADY
+   shipped, so part of the before-picture is gone; every further hour
+   without a baseline loses more of it. This is minutes of work and it is
+   the only thing here that cannot be done later.
+1. Push the work and cut a new version, then send the note. The public tag
+   does not contain the two answers, so there is nothing to re-read until
+   this happens. Founder decision, outward facing.
+2. P1, the Windows first run, which the previous order left out entirely
+   even though the primary metric requires a non-founder to run the thing
+   and the non-developer reviewer could not reach a command line.
 3. The escalation capability, BUILT THIS SESSION (`tools/bm_escalate.py`,
    26 tests green, `docs/ESCALATION.md`). Its registration into the five
    shared registries is NOT applied, because another session held live work
