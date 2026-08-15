@@ -1,6 +1,8 @@
-# Runs the BrotherMode gate on Azure Pipelines, the third leg of the
-# tri-host law (CLAUDE.md, founder order 2026-08-16): GitHub canonical,
-# Bitbucket for the the adopter team team, Azure Repos for the client estate.
+# Runs the BrotherMode gate on Azure Pipelines. DORMANT by founder
+# direction 2026-08-16: the target is GitHub or Bitbucket (the two-host
+# law in CLAUDE.md; PRODUCT-DIRECTION.md amendment). This file stays as
+# an executed-and-parseable record, not a promise; flip condition is the
+# founder naming a client on Azure.
 #
 # Same intent as bitbucket-pipelines.yml: the documented full gate
 # (PROJECT.md: BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py) on both

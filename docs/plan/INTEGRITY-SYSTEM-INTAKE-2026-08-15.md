@@ -5,7 +5,7 @@ Status: CURRENT.
 The founder delivered a 2041-line product vision
 (BROTHERMODE-INTEGRITY-SYSTEM(1).md, in Downloads; copy it into the repo
 before working from it) and ordered its enhancements folded into the long
-range plan, adapted for individual contributors and 12 to 15 person
+range plan, adapted for individual contributors and 2 to 15 person
 startups, with seamless BrotherMode and BrotherSBE workflow integration as
 the end state. This page is the intake and first-pass mapping, written at
 the end of a long session; the full adaptation is the NEXT session's first
@@ -37,14 +37,16 @@ Genuinely NEW, the long-range candidates to size and sequence:
    blocking gate without founder decision).
 4. Delivery manifest and tamper-evident receipts (sections 12, 13).
    Nearest seam: CHECKSUMS.sha256 and the evidence packet planned in TK6.
-5. Azure Repos as a third host (section 26): extend the Bitbucket page's
-   pattern; engine is already host-agnostic.
+5. Azure Repos as a third host (section 26): OVERTAKEN 2026-08-16, the
+   founder removed Azure from the target the day after this intake
+   (PRODUCT-DIRECTION.md amendment); the dormant page and CI file exist
+   and nothing further is scheduled.
 6. Public standard and DeliveryBench (sections 27, 28): category-defining
    moves; founder-gated scope decisions.
 
 ## The founder's fit constraints, binding on the adaptation
 
-Individual contributors and 12 to 15 person startups: every mechanism must
+Individual contributors and 2 to 15 person startups: every mechanism must
 pass the labour test imported in the the adopter team adaptation (it removes more
 typing than it adds, or it gets cut), and the boundary law (measure,
 reveal, remove labour; never add an obligation and call it a fix).

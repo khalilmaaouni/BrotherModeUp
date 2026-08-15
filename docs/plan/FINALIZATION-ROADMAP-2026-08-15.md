@@ -118,6 +118,18 @@ and remote, scripts/release-smoke-install.sh PASS.
    decision on the board. Phases 1 and 2 may run as the two parallel lanes
    the law allows.
 
+## Priority amendment, founder scoring of 2026-08-16
+
+The founder scored market proof 1 of 10 and named it more important than
+any feature. This reorders the phases above, recorded here rather than
+silently rewritten: Phase 2 (proof in other hands) now OUTRANKS Phase 1
+(Toolkit) whenever a tester is available; Toolkit work fills the gaps
+between tester-driven work, not the other way round. The sibling
+ownership overlap (queue item O23, from the parity map's first move) is
+second, and Bitbucket certification (blocked on the mirror account step)
+third. An Opus review verified the repository did not yet encode this
+order and this section is the fix.
+
 ## What decides success, imported 2026-08-15 from the the adopter team review
 
 This roadmap is judged by the three numbers in

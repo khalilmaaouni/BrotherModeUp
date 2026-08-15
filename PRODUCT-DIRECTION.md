@@ -24,7 +24,11 @@ priority order: market proof (1 of 10, the main weakness, ahead of any
 feature), the contract-and-evidence ownership overlap between the two
 products (the parity map in docs/plan/PARITY-READ-2026-08-15.md is the
 starting point), and Bitbucket certification (blocked only on the mirror
-account step).
+account step). Where any later section of this document gates the 2 to
+15 person team audience behind a future persona ladder or security
+review, this amendment supersedes that gating: the pair of products
+serves that audience now, with BrotherMode governing each person's
+session and BrotherSBE the passage between them.
 
 Purpose: Re-scope and finalize BrotherMode around a clear market position, a measurable north star, a small independent core, and a Toolkit Mode that composes trusted external skills, MCP servers, CLIs, and agent runtimes instead of duplicating them.
 
