@@ -357,5 +357,77 @@ class PurityTests(unittest.TestCase):
                          "tool must be provably read-only")
 
 
+class TestChainStage(unittest.TestCase):
+    """The north-star chain finding (docs/NORTH-STAR-CHAIN.md, founder
+    direction 2026-08-15): a queued item names the stage of the chain it
+    serves. The rule this suite pins is the ASYMMETRY, because it is the part
+    that would be easy to get backwards later: an absent stage is REPORTED
+    and changes nothing, an unrecognised stage is a HARD ERROR. One is work
+    nobody has classified yet; the other is a typo that would file work under
+    a stage nobody will ever look at."""
+
+    def _queue(self, items):
+        return {"schema": 1, "min_depth": 1, "idle_window_minutes": 25,
+                "watch_paths": ["watched"], "items": items}
+
+    def test_a_missing_stage_is_reported_and_the_verdict_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = write_queue(tmp, self._queue(
+                [item("Q1", "queued"), item("Q2", "queued")]))
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                             "--now", iso(NOW))
+            lines = result.stdout.strip().splitlines()
+            self.assertTrue(lines[0].startswith("OK: depth 2"), result.stdout)
+            self.assertIn("CHAIN: 2 queued item(s) name no stage", result.stdout)
+            self.assertEqual(0, result.returncode,
+                             "an unplaced item is a planning fact, never an exit code")
+
+    def test_a_staged_item_produces_no_finding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            one = item("Q1", "queued")
+            one["stage"] = "verified-reality"
+            two = item("Q2", "queued")
+            two["stage"] = "human-decision"
+            queue = write_queue(tmp, self._queue([one, two]))
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                             "--now", iso(NOW))
+            self.assertNotIn("CHAIN:", result.stdout, result.stdout)
+
+    def test_an_unrecognised_stage_is_a_hard_error_naming_the_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = item("Q1", "queued")
+            bad["stage"] = "verifed-reality"          # the typo, deliberately
+            queue = write_queue(tmp, self._queue([bad, item("Q2", "queued")]))
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                             "--now", iso(NOW))
+            self.assertIn("Q1", result.stdout + result.stderr)
+            self.assertIn("not on the chain", result.stdout + result.stderr)
+            self.assertNotEqual(0, result.returncode)
+
+    def test_only_queued_items_are_counted(self):
+        """A done or blocked item nobody classified is not a planning defect:
+        blocked work cannot be started and done work is finished."""
+        with tempfile.TemporaryDirectory() as tmp:
+            staged = item("Q1", "queued")
+            staged["stage"] = "risk"
+            queue = write_queue(tmp, self._queue(
+                [staged, item("D1", "done"), item("B1", "blocked")]))
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                             "--now", iso(NOW))
+            self.assertNotIn("CHAIN:", result.stdout, result.stdout)
+
+    def test_release_is_not_a_stage_any_item_may_claim(self):
+        """The host performs the release; both products stop at the pull
+        request. An item claiming to serve it is a scope error, so the same
+        hard path catches it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = item("Q1", "queued")
+            bad["stage"] = "release"
+            queue = write_queue(tmp, self._queue([bad, item("Q2", "queued")]))
+            result = run_cli("check", "--queue", queue, "--root", tmp,
+                             "--now", iso(NOW))
+            self.assertNotEqual(0, result.returncode)
+
+
 if __name__ == "__main__":
     unittest.main()
