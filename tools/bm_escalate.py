@@ -24,6 +24,8 @@ WHY THIS EXISTS
 WHAT IT DOES
   attempt   record one attempt against an objective (approach, observed root
             cause, verdict, evidence).
+  forcing   record a condition where guessing is the danger. No attempt is
+            required and none is counted: this escalates now.
   check     answer one question about an objective: CONTINUE or ESCALATE,
             with the trigger named. Pure read.
   packet    print the escalation packet in the checkpoint shape both products
