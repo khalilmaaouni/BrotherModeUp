@@ -11,11 +11,14 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton lies on BrotherSBE: 59 commits are ready and gated but
-NOT pushed, because commit 161b2a6 carries a forbidden Co-Authored-By trailer
-and is the oldest of them, so it cannot be amended in place. The founder
-decided the session that owns that repository removes it, and that session has
-been told, with the SHA and the scan results it does not need to repeat.
+UNFINISHED. The baton lies on the assurance repository, and it has moved once
+since this line was first written, so read the current state rather than the
+original. The blocker was a forbidden Co-Authored-By trailer in the oldest of
+its unpushed commits, which could not be amended in place. A peer session has
+since removed it: 62 commits rewritten (three more landed while it worked),
+zero attribution hits, an empty content diff against its own backup, 545 evals
+passed and the gate at exit 0. THE PUSH ITSELF REMAINS FOUNDER-GATED and had
+not happened when this pack was cut. Nothing else blocks it.
 Everything in this repository is finished, pushed and verified.
 
 WHAT WAS ASKED, AND WHAT CAME BACK
