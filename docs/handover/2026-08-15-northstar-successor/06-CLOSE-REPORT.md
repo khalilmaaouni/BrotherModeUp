@@ -53,7 +53,70 @@ a code region to that checker. 89a802d carries the fix.
       Ran 230 tests in 61.495s
       OK (skipped=1)
 
-FULL GATE OVER 89a802d: not yet recorded at the time this line was written.
+FULL GATE OVER a528fbd: NOT COMPLETED, and deliberately not reported as a
+verdict. This is the honest end state and the successor owes the run.
+
+What happened: 24 of 37 suites completed and every one was OK, including
+test_bm_docs.py, test_bm_store.py and test_bm_passport.py. The run then sat
+inside tools/test_install.py for over forty minutes against reference times of
+712s and 883.7s earlier the same night, and never returned.
+
+The cause was contention, found by listing processes rather than guessed. A
+concurrent BrotherMode session was running install suites at the same time:
+first `python3 -m unittest tools.test_install.TestInstallIdentityStampOnARealCheckout`
+and then the whole of `python3 tools/test_install.py`.
+
+ONE CORRECTION TO THAT SENTENCE, because the first version of this paragraph
+said those ran FROM THE SHARED TREE and that was wrong. The other session read
+the process cwd with lsof and it was
+`.claude/worktrees/agent-aa915dee66ac969c2`. Their isolation held on disk
+exactly as they had promised, and nothing of theirs could have reached this
+tree. The claim was corrected by the session that would have been blamed by it,
+which is worth noting.
+
+The contention was real anyway, and the true reason is sharper than the wrong
+one: test_install.py performs REAL checkout installs, so it competes for
+temporary space, git state and its install target no matter which working copy
+holds its source. WORKTREE ISOLATION ISOLATES FILES, NOT SIDE EFFECTS THAT
+REACH OUTSIDE THE TREE. This repository runs its suites serially for that
+reason, and its own test_all header records that two at once used to corrupt
+each other.
+
+NO SENTINEL WAS WRITTEN, checked rather than assumed, on the other session's
+prompting. `$SCRATCH/gate5.exit` does not exist, so there is no verdict here to
+misread as this run's answer. That matters because PO-1 exists in this
+repository after a stale sentinel once read as green while the real run was
+still going and finished nine minutes later at exit 1. Clearing the sentinel
+before launch is what makes its absence meaningful.
+
+So the run was void as evidence before it finished, in the same way M20 records
+a gate voided by a moving tree. It was killed rather than allowed to produce a
+number nobody could trust. Killing it by pattern also matched this session's
+own polling shell, because that shell's command text contained the pattern; the
+targets were printed before the kill, which is the only reason that is visible
+here rather than a mystery later. It is the "never pkill by pattern" hazard in
+a milder form and it is worth the reminder.
+
+THE COORDINATION LESSON, which is new and belongs in the ledger. The two
+sessions had an explicit fold protocol, agreed in advance and honoured by both.
+It covered WRITES. Neither of us thought about RESOURCES. We reasoned about who
+may change a file, when the hazard was who may consume a shared side effect,
+and a worktree answers the first question while answering nothing about the
+second. The rule that actually holds:
+
+    ONE INSTALL-CLASS SUITE AT A TIME ON THIS MACHINE, whoever runs it and
+    from wherever, worktree or not. A suite whose side effects leave its own
+    tree is not isolated by being launched from a worktree. Announce before
+    running one.
+
+Both sessions adopted it, and the other has put it in its agents' briefs with
+its W4 install done-check deferred until the machine is confirmed clear, and
+reported as OWED rather than skipped if it cannot run.
+
+WHAT THE SUCCESSOR OWES: one full gate on a quiet machine. Sample `uptime`
+first, confirm no other session is inside an install suite with
+`pgrep -lf test_install`, and only then launch. Everything in this pack is
+committed and pushed either way, so nothing is at risk while that waits.
 The machine was at 22 one minute across seven live sessions, with a 165 spike
 observed earlier, and this estate has a recorded incident of 47x wall clock
 plus phantom regressions from starved runs. Waiting for load is the correct
