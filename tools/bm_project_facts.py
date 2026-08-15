@@ -60,6 +60,7 @@ Usage:
   python3 tools/bm_project_facts.py --field version
 """
 
+import ast
 import io
 import json
 import os
@@ -152,6 +153,43 @@ def _tuple_strings(text, name, path):
     return items
 
 
+def _suites(text, path):
+    """The SUITES tuple in tools/test_all.py, parsed with ast rather than
+    re.findall over the raw source text.
+
+    SUITES carries prose comments beside each entry, and a plain
+    quote-to-quote regex over the source text reads every quote in those
+    comments too: a stray apostrophe opens a fake quoted region that
+    swallows real suite names. That is exactly what happened here before
+    this fix, which is why tools/test_all.py's own SUITES tuple carries
+    nine "NO APOSTROPHE ANYWHERE IN THIS COMMENT" warnings today, and why
+    this suite has already gone red once for exactly that. ast.parse only
+    ever sees the real syntax tree, so a comment's apostrophes never reach
+    it, and ast.literal_eval refuses anything that is not a literal, so a
+    computed suite name fails loudly here rather than being silently
+    dropped or swallowed.
+    """
+    tree = ast.parse(text, filename=path)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "SUITES"
+                   for t in node.targets):
+            continue
+        value = ast.literal_eval(node.value)
+        if not isinstance(value, tuple) or not all(
+                isinstance(v, str) for v in value):
+            raise FactError("%s: SUITES is not a tuple of string literals"
+                            % path)
+        if not value:
+            raise FactError("%s: SUITES holds no entries" % path)
+        return value
+    raise FactError(
+        "%s no longer states a module level SUITES = ( ... ) tuple in the "
+        "form this tool reads. Fix the pattern here rather than "
+        "hand-writing the fact into a page." % path)
+
+
 def _identity(root):
     """The two declared ids the plugin install command names.
 
@@ -205,7 +243,7 @@ def facts(root=ROOT):
                          "tools/bm_store.py", "SCHEMA_VERSION").group(1))
 
     all_src = _read(os.path.join(tools, "test_all.py"))
-    suites = _tuple_strings(all_src, "SUITES", "tools/test_all.py")
+    suites = _suites(all_src, "tools/test_all.py")
 
     install_src = _read(os.path.join(scripts, "install.py"))
     hooks = _tuple_strings(install_src, "HOOK_EVENTS", "scripts/install.py")

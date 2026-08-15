@@ -550,6 +550,41 @@ def _zip_content_fingerprint(zip_path):
         return None
 
 
+def _pack_secret_hits(entries):
+    """(arcname, [1-based line numbers]) pairs for every pack file that
+    carries a secret-shaped line inside a human block.
+
+    FIX SBE16. _zip_bytes writes raw file bytes with no content scan at
+    all; the containment gates above it (_contained_pack_dir,
+    _safe_pack_file) are PATH controls, not CONTENT controls. That matters
+    because the documented ceremony has a human fill every FILL-BY-HAND
+    block BY HAND, AFTER the redaction funnel already ran over the
+    generated parts of the file, and the archive this produces lands
+    outside the repository (see cmd_zip), past the commit-time secret
+    scan, in a folder that is commonly cloud synced.
+
+    Reuses bs.human_block_secret_hits, the exact detector every other
+    generated document in this project already uses for the same
+    question ("does this human paragraph contain something secret
+    shaped"), rather than inventing a second parser of the same
+    redaction pattern set. Every line OUTSIDE a human block already
+    passed through bs.redact_text when the pack was first written
+    (_write_generated_file, protect_human_blocks=True), so only
+    hand-typed text can still trip this.
+
+    Raises bs.RedactionUnavailable, like every other caller of
+    redact_text, rather than let "could not check" read as "nothing to
+    find"."""
+    hits = []
+    for f, full in entries:
+        with open(full, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        lines = bs.human_block_secret_hits(text)
+        if lines:
+            hits.append((f, lines))
+    return hits
+
+
 # ---------------------------------------------------------------------------
 # Store reads. Every one goes through a public bm_store.py function:
 # ReadOnlyStore.dump() and bs.verify(). No SQL of this file's own.
@@ -1342,6 +1377,20 @@ def cmd_zip(argv):
     # same containment gate (refuses a symlink escaping the project), and
     # a subdirectory is refused loudly rather than silently left out.
     entries = _pack_files_for_zip(root, pack_dir)
+
+    # FIX SBE16: refuse rather than package a pack that still carries a
+    # secret-shaped line in a human-filled block. Named by file and line
+    # so the founder can go straight to it and fix the pack file by hand.
+    hits = _pack_secret_hits(entries)
+    if hits:
+        named = "; ".join(
+            "%s line %d" % (f, ln) for f, lines in hits for ln in lines)
+        raise bs.OwnershipRefused(
+            "pack-secret",
+            "%s contains what looks like a secret (%s); edit the pack "
+            "file by hand to remove or replace it, then run `%s zip` "
+            "again" % (pack_dir, named, _inv()))
+
     data = _zip_bytes(dirname, entries)
 
     # Idempotence decided on content, not on the archive's bytes. Same

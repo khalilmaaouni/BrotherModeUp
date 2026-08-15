@@ -127,6 +127,18 @@ COPY_EXCLUDE_NAMES = (
 
 RECORD_NAME = "brothermode-install.json"
 
+# SBE1 (docs/plan, 2026-08-15): Claude Code runs the INSTALLED tree
+# (~/.claude/skills/brothermode), a separate clone from wherever a session
+# happens to be working. Measured the day this was added: a running tree was
+# 22 commits behind its source with real code differences, while VERSION and
+# the plugin manifest agreed inside BOTH trees, so doctor's version check
+# passed on both while the trees disagreed. A plain text file, not JSON: the
+# whole point is that a human (or doctor.py, without importing json for one
+# file) can `cat` it. Two lines: the 40 character commit id the SOURCE tree
+# was at when this install/upgrade ran (or the literal word "unknown"), then
+# the ISO date, so the stamp is self-describing without a schema.
+INSTALLED_FROM_NAME = "INSTALLED-FROM"
+
 
 def _out(text):
     sys.stdout.write(text + "\n")
@@ -618,6 +630,45 @@ def smoke_test(target):
     return problems
 
 
+def source_commit(source):
+    """Returns (commit_or_None, reason_if_None). Never raises: git being
+    absent, source not being a repository, and a timeout are each a reason
+    to write "unknown" rather than a crash or a guess."""
+    if shutil.which("git") is None:
+        return None, "git is not on PATH"
+    try:
+        r = subprocess.run(
+            ["git", "-C", source, "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, "git could not be run: %s" % exc
+    if r.returncode != 0:
+        return None, ("source is not a git repository: %s"
+                      % (r.stderr or "").strip()[:200])
+    commit = r.stdout.strip()
+    if len(commit) != 40:
+        return None, "git returned an unexpected commit id: %r" % commit
+    return commit, None
+
+
+def write_installed_from(target, source, dry_run):
+    """Stamps target/INSTALLED-FROM with the source tree's commit (or
+    "unknown" plus why) and the ISO date. Returns (path, commit, reason) so
+    the caller can report what it wrote without re-deriving it."""
+    commit, reason = source_commit(source)
+    date = time.strftime("%Y-%m-%dT%H:%M:%S")
+    if commit:
+        text = "%s\n%s\n" % (commit, date)
+    else:
+        text = "unknown\n%s\n%s\n" % (date, reason)
+    path = os.path.join(target, INSTALLED_FROM_NAME)
+    if not dry_run:
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    return path, commit, reason
+
+
 def write_record(path, data, dry_run):
     if dry_run:
         return
@@ -766,6 +817,18 @@ def main(argv):
             _out("%sfiles: an upgrade ADDS and OVERWRITES; it never deletes. A "
                  "file removed upstream since your last install is still there. "
                  "scripts/verify-install.sh reports those as EXTRA." % prefix)
+
+    # --- identity stamp (SBE1): so the installed tree can tell later whether
+    # it still matches the source it came from.
+    stamp_path, stamp_commit, stamp_reason = write_installed_from(target, source, dry)
+    if stamp_commit:
+        _out("%sidentity: %s %s (source commit %s)"
+             % (prefix, "would be written to" if dry else "written to",
+                stamp_path, stamp_commit[:12]))
+    else:
+        _out("%sidentity: %s %s as unknown (%s)"
+             % (prefix, "would be stamped" if dry else "stamped",
+                stamp_path, stamp_reason))
 
     # --- hooks
     if args.no_hooks:

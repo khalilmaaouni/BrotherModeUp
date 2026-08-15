@@ -143,6 +143,25 @@ RAW LOCAL DISPLAY VERSUS REDACTED EXPORT (loop2 redaction-policy fix)
   purpose (a task title that happens to contain something secret-shaped is
   still caught there even though raw=True populated the content).
 
+  SBE15 (2026-08-16): DELIVERY-PACKET.md is a shareable artifact by name,
+  and redact_text is the ONLY guard on this raw=True path (a sibling lane
+  is fixing a defect where content can disable that guard). Every
+  founder-typed prose field render_canvas/render_delivery_packet place into
+  either document (name, goal, user_outcome, a task title, an evidence ref,
+  an attribution actor name, and list fields like risks or scope) now
+  passes through the local _prose() helper, which runs it through
+  tools/bm_learning.py's safe_display, the same control-character
+  containment tools/bm_packs.py runs store text through before a screen or
+  a page. This is a SECOND, independent layer, not a fix for redact_text's
+  own defect: safe_display strips control characters and caps length, it
+  does not recognize a secret. What it buys: even if redact_text is
+  defeated by content, a founder-typed field can no longer forge a fake
+  markdown heading or an extra section in the generated document by
+  embedding a newline plus markdown syntax. What it does not buy: it does
+  not stop a secret-shaped string, in ordinary prose with no control
+  characters, from reaching the page if redact_text itself is bypassed;
+  closing that is the sibling lane's job, not this file's.
+
 Python 3.9, standard library only. No network. No subprocess.
 
 No em or en dashes anywhere in this file, its comments, or its output.
@@ -171,6 +190,21 @@ def _load(name):
 
 
 bs = _load("bm_store")
+# SBE15 (2026-08-16): safe_display, the same control-character containment
+# tools/bm_packs.py runs store text through before it reaches a screen or a
+# generated page. render_canvas/render_delivery_packet below read raw=True
+# (see WHY create=False EVERYWHERE... no, see RAW LOCAL DISPLAY VERSUS
+# REDACTED EXPORT in this file's module docstring) and DELIVERY-PACKET.md is
+# a shareable artifact by name; redact_text (bs.write_generated_document's
+# funnel) is the only guard on that path today, and a sibling lane is fixing
+# a defect where content can disable it. safe_display is not a substitute
+# for that redaction guard (it strips control characters and caps length; it
+# does not recognize a secret), so it adds a second, independent layer
+# rather than closing the sibling lane's gap: even if redact_text is
+# defeated by content, a founder-typed field can no longer forge a fake
+# heading or an extra section in the generated document by embedding a
+# newline plus markdown syntax.
+L = _load("bm_learning")
 # THE SAME schema module OBJECT bm_store.py's own service methods raise
 # against, not a second independent load of brotherme/core/schema.py.
 # importlib.util.module_from_spec + exec_module never registers a module
@@ -460,14 +494,27 @@ def _packet_filename(store, project_id):
     return "DELIVERY-PACKET.md"
 
 
+_PROSE_LIMIT = 300   # short founder-typed fields: name, title, actor, ref
+_LONG_PROSE_LIMIT = 4000   # multi-sentence fields: goal, user_outcome
+
+
+def _prose(value, limit=_PROSE_LIMIT):
+    """A founder-typed prose value as SBE15 wants it shown in a generated
+    document: control characters stripped so it cannot forge a fake heading
+    or an extra section (see the L = _load(...) comment above), never
+    truncating ordinary content in practice (the limit is far past anything
+    a real name, title, or reference runs to)."""
+    return L.safe_display(value or "", limit)
+
+
 def _fmt_list(value):
     """A LIST_FIELDS value as the accessor actually returned it: a real
     list once redaction allows it to decode, or (today, by default) the
     withheld marker string it still is when it cannot. Never assumes
     either shape."""
     if isinstance(value, list):
-        return ", ".join(str(v) for v in value) if value else "(none)"
-    return str(value) if value else "(none)"
+        return ", ".join(_prose(str(v)) for v in value) if value else "(none)"
+    return _prose(str(value)) if value else "(none)"
 
 
 def _tasks_by_state(store, project_id, raw=False):
@@ -503,17 +550,17 @@ def render_canvas(store, project_id):
         lines.append("")
         lines.append(CANVAS_END)
         return "\n".join(lines)
-    lines.append("# Project Canvas: %s" % project.get("name"))
+    lines.append("# Project Canvas: %s" % _prose(project.get("name")))
     lines.append("")
     lines.append("project_id: %s" % project.get("project_id"))
     lines.append("status: %s" % (project.get("status") or "(none)"))
     lines.append("phase: %s" % (project.get("phase") or "(none)"))
     lines.append("")
     lines.append("## Outcome")
-    lines.append(project.get("goal") or "(none)")
+    lines.append(_prose(project.get("goal"), _LONG_PROSE_LIMIT) or "(none)")
     lines.append("")
     lines.append("## User")
-    lines.append(project.get("user_outcome") or "(none)")
+    lines.append(_prose(project.get("user_outcome"), _LONG_PROSE_LIMIT) or "(none)")
     lines.append("")
     lines.append("## Included")
     lines.append(_fmt_list(project.get("scope_in")))
@@ -551,7 +598,7 @@ def render_canvas(store, project_id):
             continue
         lines.append("- %s (%d):" % (state, len(tasks)))
         for t in tasks:
-            lines.append("  - %s: %s" % (t.get("task_id"), t.get("title")))
+            lines.append("  - %s: %s" % (t.get("task_id"), _prose(t.get("title"))))
     lines.append("")
     lines.append("## Latest forecast")
     forecast = store.latest_forecast(project_id, raw=True)
@@ -583,7 +630,7 @@ def render_delivery_packet(store, project_id):
         lines.append("")
         lines.append(DELIVERY_END)
         return "\n".join(lines)
-    lines.append("# Delivery Packet: %s" % project.get("name"))
+    lines.append("# Delivery Packet: %s" % _prose(project.get("name")))
     lines.append("")
     lines.append("project_id: %s" % project.get("project_id"))
     lines.append("")
@@ -592,13 +639,13 @@ def render_delivery_packet(store, project_id):
     for state in S.STATES:
         for t in by_state[state]:
             lines.append("### %s (%s)" % (t.get("task_id"), state))
-            lines.append(t.get("title") or "(no title)")
+            lines.append(_prose(t.get("title")) or "(no title)")
             evidence = store.list_evidence("task", t.get("task_id"), raw=True)
             if evidence:
                 for ev in evidence:
                     lines.append("  - evidence %s: kind=%s ref=%s"
                                  % (ev.get("evidence_id"), ev.get("kind"),
-                                    ev.get("ref")))
+                                    _prose(ev.get("ref"))))
             else:
                 lines.append("  - (no evidence recorded)")
     lines.append("")
@@ -619,7 +666,7 @@ def render_delivery_packet(store, project_id):
     for a in attributions:
         lines.append("- %s: %s by %s (%s)"
                      % (a.get("timestamp"), a.get("event_type"),
-                        a.get("actor_name"), a.get("actor_type")))
+                        _prose(a.get("actor_name")), a.get("actor_type")))
     lines.append("")
     lines.append(DELIVERY_END)
     return "\n".join(lines)
