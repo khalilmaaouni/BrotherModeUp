@@ -285,9 +285,9 @@
   <h1>The North Star Push</h1>
   <p class="standfirst">Connect the two products at one seam, get the install into other people's hands, and close the loop after the merge. Everything else waits.</p>
   <div class="stamp">
-    Refreshed 2026-08-15 21:45 JST by the Opus 5 planning session, holding the baton.<br>
+    Refreshed 2026-08-16 00:20 JST by the Opus 5 successor session, holding the baton.<br>
     TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages count records, never impressions.<br>
-    STATUS: RATIFIED. Eight decisions answered 2026-08-15 and recorded in the store against work record e082b639. Build started the same night.
+    STATUS: RATIFIED and BUILDING. Eight decisions answered 2026-08-15 and recorded in the store against work record e082b639. The first build item is landed, gated and pushed: main is 586a20d, full gate ALL GREEN, 3257 tests across 37 suites, 1624.7s.
   </div>
 </header>
 
@@ -301,23 +301,23 @@
 <div class="glance">
   <div>
     <span class="k">Now</span>
-    <span class="v">Build the passport producer</span>
-    <span class="sub">The consumer is already written in the sibling repo. Only our half is missing, and it unlocks the tester's list of what nobody checked.</span>
+    <span class="v">The seam runs, both halves</span>
+    <span class="sub">The producer is built, gated and pushed, and a real deposit was read by the real consumer. In this tree with our deposit present it reads 4 of 5 fields carried; in the BrotherSBE tree with no deposit the same consumer reads 2 of 5. Both true where measured, neither true of the seam.</span>
   </div>
   <div>
     <span class="k">Waiting on Khalil</span>
     <span class="v hold">Bitbucket seats</span>
-    <span class="sub">All eight decisions are answered. One task is left that only you can do: clear the workspace to five seats, which unblocks every Bitbucket check on this board.</span>
+    <span class="sub">Still the one task only you can do: clear the workspace to five seats. You ruled on 15 Aug that until then every Bitbucket check is BLOCKED, not unverified, and is worked around rather than retried.</span>
   </div>
   <div>
     <span class="k">Risk watch</span>
     <span class="v warn">Zero external installs</span>
-    <span class="sub">You scored market proof 1 of 10. Nothing in the last fortnight moved that number off zero.</span>
+    <span class="sub">You scored market proof 1 of 10 and nothing has moved it off zero. The install that would move it is now blocked behind a red pull request in the sibling repo, not behind our code.</span>
   </div>
   <div>
     <span class="k">Forecast</span>
     <span class="v">Moves A and B by Sun 23</span>
-    <span class="sub">Medium confidence. Assumes the P0 defects hold to one day each and that no tester slips. Move C by Sun 30, low confidence, it depends on your answers.</span>
+    <span class="sub">Medium confidence, unchanged. Move A is materially ahead of plan: W1 closed the night it started and W3's core done-check is already met. Move B is now gated on someone else's CI going green. Move C by Sun 30, low confidence.</span>
   </div>
 </div>
 
@@ -484,8 +484,26 @@
   </div>
 </div>
 
-<h2>Risk management, insights and alerts <span class="count">5</span></h2>
+<h2>Risk management, insights and alerts <span class="count">7</span></h2>
 <div class="risks">
+  <div class="riskitem">
+    <div class="t">Both products leave private state where a routine command would commit it</div>
+    <dl>
+      <dt>What</dt><dd>BrotherSBE writes <code>.sbe/</code> into a repository and BrotherMode writes <code>.brothermode/</code>, and neither product ships the ignore rule for its own directory. Found on their side first, then the same question turned back on ours and it was true here too. Our store holds session ids, objectives, claimed file paths, and your recorded decisions with their alternatives and flip conditions.</dd>
+      <dt>Why</dt><dd>Neither tracked nor ignored is the worse of the two states, because tracked would at least have been a visible decision. A user running <code>git add -A</code> commits their own working notes, and in our case your reasoning, into a repository we told them to trust us in. The reason it went unseen for so long is that each product wrote the ignore line in its own repository, for itself, and never carried it to anyone else.</dd>
+      <dt>Action</dt><dd>Closed for <code>.sbe/</code> in this repository tonight, verified by <code>git check-ignore</code>, and BrotherSBE closed the same hole on their side. The consumer half, making the install carry the rule to a user's machine, is FILED NOT PATCHED on purpose: it changes a shipped setup path on behalf of machines nobody here can see, at the end of a session. Done-check written: install into a scratch repository, open one claim, and assert <code>git status --porcelain</code> lists nothing under the marker directory.</dd>
+      <dt>When</dt><dd>Week one, under adoption rather than controls, because a new user meets it in their first hour. Marked ineligible for the cut list: a trust boundary is not traded away when time runs short.</dd>
+    </dl>
+  </div>
+  <div class="riskitem">
+    <div class="t">One failure class landed three times in four hours, twice against sessions hunting for it</div>
+    <dl>
+      <dt>What</dt><dd>A property measured in one place and reported as a property of the thing. Instance one, a chain node called unshipped after a check at one repository root. Instance two, the seam number: 4 of 5 fields carried here with our deposit present, 2 of 5 in the sibling tree with none, quoted as a property of the seam until a peer session corrected it. Instance three, the ignore rule above, verified in the one directory where it happened to hold.</dd>
+      <dt>Why</dt><dd>It is already in the vault index, and it still landed three more times in one night. That means the existing form of the lesson does not survive contact with a tired session, which is the actual finding.</dd>
+      <dt>Action</dt><dd>The practical form, agreed across both sessions and written where neither has to remember it: <strong>a measurement is quoted with its tree and its revision beside it, or it is not quoted.</strong> Applied on this board already: every number above names where it was measured.</dd>
+      <dt>When</dt><dd>In force now. Goes into the mistakes ledger with the M21 entry.</dd>
+    </dl>
+  </div>
   <div class="riskitem">
     <div class="t">The assurance product has never been switched on in this repository</div>
     <dl>
@@ -592,10 +610,10 @@ The agent's own run of the same suite, 38.699s, happened inside its worktree BEF
   </div>
   <div class="boxes">
     <div class="box">
-      <div class="tick">&#9633;</div>
-      <div class="what"><strong>W1. The passport producer.</strong> A new tool writing the three fields execution owns: who did it by name, the method named and not judged, and what execution knows was left undone.</div>
-      <div class="meta">stage: change passport &middot; tier: sonnet builds, strongest reviews &middot; files: tools/bm_passport.py, tools/test_bm_passport.py, the suite registry</div>
-      <div class="check">check: sbe_passport.py --root . --json reads 5 of 5 carried, and field 4 no longer says field 2 is not established</div>
+      <div class="tick">&#9745;</div>
+      <div class="what"><strong>W1. The passport producer.</strong> DONE, and the review is what made it worth having. A new tool writing the three fields execution owns: who did it by name, the method named and not judged, and what execution knows was left undone. An independent strongest-tier reviewer returned NOT SOUND on the first build and its Critical was real: the tool answered "who did it" from ACTIVE records only and dropped every finished one in silence, which on this store is 183 records, while field 4 reported nothing missing. A session deposits at close, exactly when its own record has already closed, so it could name a concurrent unrelated session as the author and look clean doing it. Fixed, with a regression suite whose Critical test was falsified by deleting the fix from a copy and watching it fail.</div>
+      <div class="meta">stage: change passport &middot; tier: sonnet built, strongest reviewed, and the two were different contexts &middot; files: tools/bm_passport.py, tools/test_bm_passport.py, plus four registries the tool had to join</div>
+      <div class="check">check ran after the last edit, on the committed tree at 586a20d: <code>test_all: 3257 tests across 37 suites, 5 skipped, 1624.7s wall. ALL GREEN</code> and the seam read end to end: <code>SEAM STATE: 4 of 5 fields carried, 1 NO-DATA</code> in this tree with our deposit present. The planned check said 5 of 5; that target was wrong, because field 3 is owed by assurance from its own receipts and the consumer correctly reports it as NO-DATA rather than carrying it.</div>
     </div>
     <div class="box">
       <div class="tick">&#9633;</div>
