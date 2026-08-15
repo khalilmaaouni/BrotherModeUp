@@ -51,6 +51,28 @@ pre-existing failure on that tree, a template-marker case in
 `templates/dossier`, confirmed pre-existing by stashing the change and
 reproducing it. It is not caused by this patch and it is not fixed by it.
 
+### sbe-gate-provenance-and-owed-checks.patch
+
+Closes P6 and the open half of P7, both in `tools/sbe_gate.py` plus its test
+files, which is why they were one lane rather than two.
+
+P6, provenance: a receipt records its producer, and a new strict flag accepts
+only receipts a build system produced. A receipt with NO producer field is
+NO-DATA rather than a pass or a failure, because it predates the field and an
+unknown must never read as either.
+
+P7, the owed checks: the behaviour table is the plan, so the gate now compares
+the checks a receipt carries against the checks the table's Proof column
+named. It imports the existing parser rather than writing a second one, which
+was an explicit instruction: two parsers of one format drifting apart is a
+recorded failure here.
+
+NOT FOLDED and NOT FULLY VERIFIED BY ME. The lane was still finishing when
+this was written, so this patch is a snapshot of its worktree taken to make
+sure the work survived, not a completed hand-off. Whoever folds it runs the
+lane's own done-checks (`tools/test_sbe_evidence.py` and `tools/test_sbe.py`)
+on the merged tree before trusting any of the above.
+
 ### sbe-staleness-clock.patch
 
 Closes the smallest increment of P10: a design dossier now records the commit

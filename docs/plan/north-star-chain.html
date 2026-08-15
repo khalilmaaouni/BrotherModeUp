@@ -1,0 +1,250 @@
+<title>Intent to Verified Reality</title>
+<style>
+  :root {
+    --paper: #F7F8F6;
+    --surface: #FFFFFF;
+    --ink: #141B22;
+    --ink-soft: #4A5560;
+    --ink-faint: #7C8791;
+    --rule: #DFE3DE;
+    --petrol: #0E7A6F;
+    --petrol-wash: #E7F1EF;
+    --missing: #9B3A2F;
+    --missing-wash: #F6E9E6;
+    --partial: #8A6410;
+    --partial-wash: #F5EEDC;
+    --human: #2C4A7C;
+    --human-wash: #E6ECF5;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Seravek, "Gill Sans Nova", Avenir, "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #101720; --surface: #16202A; --ink: #E8ECE9; --ink-soft: #AEB8C0;
+      --ink-faint: #7E8A94; --rule: #26323D;
+      --petrol: #3AA893; --petrol-wash: #10302C;
+      --missing: #E0806F; --missing-wash: #341E1A;
+      --partial: #D6A94A; --partial-wash: #2E2716;
+      --human: #8FB0E0; --human-wash: #17233A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101720; --surface: #16202A; --ink: #E8ECE9; --ink-soft: #AEB8C0;
+    --ink-faint: #7E8A94; --rule: #26323D;
+    --petrol: #3AA893; --petrol-wash: #10302C;
+    --missing: #E0806F; --missing-wash: #341E1A;
+    --partial: #D6A94A; --partial-wash: #2E2716;
+    --human: #8FB0E0; --human-wash: #17233A;
+  }
+
+  body {
+    background: var(--paper); color: var(--ink); font-family: var(--body);
+    font-size: 17px; line-height: 1.6; margin: 0; padding: 0 5vw 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 58rem; margin: 0 auto; }
+  header { padding: 4rem 0 2rem; border-bottom: 2px solid var(--ink); display: grid; gap: 0.8rem; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--petrol);
+  }
+  h1 {
+    font-family: var(--display); font-weight: 400; margin: 0;
+    font-size: clamp(2.3rem, 6vw, 3.6rem); line-height: 1.06;
+    letter-spacing: -0.015em; text-wrap: balance;
+  }
+  .standfirst { font-size: 1.1rem; color: var(--ink-soft); max-width: 42rem; margin: 0; }
+  h2 {
+    font-family: var(--display); font-weight: 400; font-size: 1.55rem;
+    margin: 3.2rem 0 0.5rem; text-wrap: balance;
+  }
+  p { max-width: 44rem; }
+
+  .chain { display: grid; gap: 0; margin: 2.5rem 0 1rem; }
+  .stage {
+    display: grid; grid-template-columns: 12rem 1fr; gap: 0 1.5rem;
+    align-items: start; padding: 1rem 1.2rem;
+    background: var(--surface); border: 1px solid var(--rule);
+  }
+  .arrow {
+    font-family: var(--mono); color: var(--ink-faint); font-size: 1.1rem;
+    line-height: 1; padding: 0.35rem 0; text-align: center;
+  }
+  .stage .name { font-family: var(--display); font-size: 1.15rem; line-height: 1.25; }
+  .stage .what { margin: 0; color: var(--ink-soft); font-size: 0.97rem; }
+  .state {
+    display: inline-block; margin-top: 0.35rem;
+    font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+    text-transform: uppercase; padding: 0.22rem 0.45rem;
+    border: 1px solid currentColor; line-height: 1.2;
+  }
+  .s-good { color: var(--petrol); background: var(--petrol-wash); }
+  .s-part { color: var(--partial); background: var(--partial-wash); }
+  .s-none { color: var(--missing); background: var(--missing-wash); }
+  .s-host { color: var(--ink-faint); background: transparent; }
+  .stage.human { border-color: var(--human); border-width: 2px; background: var(--human-wash); }
+  .stage.human .name { color: var(--human); }
+  .s-human { color: var(--human); background: transparent; }
+
+  .methods { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+  .methods span {
+    font-family: var(--mono); font-size: 0.72rem; padding: 0.2rem 0.5rem;
+    border: 1px dashed var(--rule); color: var(--ink-soft);
+  }
+  .concerns {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.35rem; margin-top: 0.6rem;
+  }
+  .concerns span {
+    font-family: var(--mono); font-size: 0.72rem; padding: 0.28rem 0.45rem;
+    border-left: 3px solid var(--rule); color: var(--ink-soft);
+  }
+  .concerns span.good { border-left-color: var(--petrol); }
+  .concerns span.part { border-left-color: var(--partial); }
+  .concerns span.none { border-left-color: var(--missing); color: var(--missing); }
+
+  .rules { display: grid; gap: 1rem; margin-top: 1.5rem; }
+  .rule {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--petrol); padding: 1.1rem 1.3rem;
+    display: grid; gap: 0.4rem;
+  }
+  .rule h3 {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--petrol); margin: 0; font-weight: 400;
+  }
+  .rule p { margin: 0; }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; margin-top: 0.6rem; }
+  th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--ink-faint); border-bottom: 1px solid var(--ink-soft);
+  }
+  td:first-child { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.3rem; border-top: 2px solid var(--ink);
+    font-size: 0.9rem; color: var(--ink-faint); max-width: 44rem;
+  }
+  footer p { max-width: 44rem; }
+  a { color: var(--petrol); }
+  a:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+  @media (max-width: 640px) {
+    .stage { grid-template-columns: 1fr; gap: 0.5rem; }
+  }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">The operating model</div>
+  <h1>Intent to Verified Reality</h1>
+  <p class="standfirst">One chain, eight stages, and a human decision that no automation may remove. This is the north star for what gets built and how it gets built.</p>
+</header>
+
+<p>The colour on each stage is where that stage stands today, not where it is meant to end up. Four of the last five do not exist yet, and saying so is the point: a diagram that only draws the finished shape hides the work.</p>
+
+<div class="chain">
+
+  <div class="stage">
+    <div><div class="name">Human intent</div><span class="state s-part">Partial</span></div>
+    <div><p class="what">A person wants something. The only stage no software may originate. Today nothing enforces or records that the intent was explored before planning started.</p></div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Development method</div><span class="state s-good">Working</span></div>
+    <div><p class="what">However the team already works. Interchangeable on purpose: neither product owns a method, competes with one, or requires one.</p>
+      <div class="methods"><span>Claude native</span><span>GSD</span><span>BMAD</span><span>Superpowers</span><span>whatever is next</span></div>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">BrotherMode</div><span class="state s-part">One hole</span></div>
+    <div><p class="what"><strong>Execution provenance.</strong> What actually happened while the work was carried out: which file each session wrote, under which claim, verified by which command run after which edit, and what was left unfinished. Not process compliance. The record as it really occurred, including the parts that went badly.</p></div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Change passport</div><span class="state s-none">Does not exist</span></div>
+    <div><p class="what">The one object that travels from execution to assurance, and the only seam between the two products. Defined now, before either side grows half of it: what was carried out, who did it, what was run, <strong>what was not established</strong>, and which method it came from. The fourth field may never be empty.</p></div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">BrotherSBE</div><span class="state s-part">Five of eight</span></div>
+    <div><p class="what"><strong>Assurance.</strong> Eight concerns, each coloured by what exists today.</p>
+      <div class="concerns">
+        <span class="good">behaviour</span>
+        <span class="none">business impact</span>
+        <span class="good">risk</span>
+        <span class="good">required proof</span>
+        <span class="part">evidence integrity</span>
+        <span class="part">accountability</span>
+        <span class="none">release readiness</span>
+        <span class="none">production observation</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage human">
+    <div><div class="name">Human decision</div><span class="state s-human">Unconditional</span></div>
+    <div><p class="what">A person decides to release, or not. This node may never be removed, shortened to a rubber stamp, or pre-approved. The system&rsquo;s job is to make the decision cheap and well informed, never to make it unnecessary. Today there is still no record of an acceptance ever happening.</p></div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Release</div><span class="state s-host">The host does this</span></div>
+    <div><p class="what">The change reaches the world. Both products stop at the pull request by design, so no piece of work may claim this stage as its own.</p></div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Verified reality</div><span class="state s-none">Does not exist</span></div>
+    <div><p class="what">Whether it actually worked, observed rather than asserted. The terminal state, and deliberately not &ldquo;the gate went green&rdquo;. A green gate is a claim about proof. Verified reality is a claim about the world. Nothing computes it today, and the agreed success measure cannot even be recomputed.</p></div>
+  </div>
+
+</div>
+
+<h2>The two rules this imposes on everything</h2>
+<div class="rules">
+  <div class="rule">
+    <h3>Rule one: the human loop is never optimised away</h3>
+    <p>Humans stay in the loop at four points: the intent that starts the chain, any forcing condition where guessing is the danger, the release decision, and the acceptance that closes it. A change that removes, bypasses or silently pre-answers one of those is refused, whatever it saves.</p>
+    <p>This is a mechanism, not an intention. A stuck run now converts itself into a named decision for a person, with a recommendation and a default action, on four triggers: a danger where guessing is the risk, three distinct approaches failed, two failures sharing one root cause, or a spent budget. It never answers the question itself and never decides on anyone&rsquo;s behalf.</p>
+  </div>
+  <div class="rule">
+    <h3>Rule two: every item of work names its stage</h3>
+    <p>Work that cannot name the stage it serves goes to the parking lot, not the backlog. This is now checked rather than remembered: the queue knows the fourteen stage names, an item naming one that does not exist fails hard and names the item, and an item naming none is reported on every run without breaking anything. Today 37 queued items name no stage, and the check says so out loud.</p>
+  </div>
+</div>
+
+<h2>Where the gaps came from, which is the part worth trusting</h2>
+<p>Nine holes were found earlier the same day by walking the lifecycle and asking what has no tool at all, before this chain was written down. Five of the nine turned out to be one hole seen five times: <strong>the system is complete up to the merge and blind after it.</strong></p>
+<p>This chain names that same hole from the opposite direction. Its last four stages are exactly the four that do not exist. The gaps are not scattered debt, they are the unbuilt half of the model, and two independent passes reached it within an hour of each other.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Hole found</th><th>Stage it belongs to</th></tr></thead>
+  <tbody>
+    <tr><td>H1 nothing computes the success measure</td><td>verified reality</td></tr>
+    <tr><td>H2 no accepted state</td><td>human decision</td></tr>
+    <tr><td>H3 evidence binds to a commit, not to what runs</td><td>production observation</td></tr>
+    <tr><td>H4 a defect cannot be entered as a defect</td><td>the return edge, reality back to intent</td></tr>
+    <tr><td>H5 nothing recorded after merge</td><td>verified reality</td></tr>
+    <tr><td>H6 a requirement discovered mid-build tells nobody</td><td>intent, re-entering mid-chain</td></tr>
+    <tr><td>H7 reviewer concentration invisible</td><td>accountability</td></tr>
+    <tr><td>H8 no opened-at and closed-at pair</td><td>business impact</td></tr>
+    <tr><td>H9 the one-writer control is inert</td><td>execution provenance</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p><strong>How the states on this page were decided, since a coloured chip is a claim.</strong> Verified directly, by running or reading the code on 15 August 2026: behaviour, risk, evidence integrity, the queue rule, and the inert one-writer control. Taken from a lifecycle pass that read the files and named them: the absence of an acceptance record, of a deployed reference, and of any post-merge outcome. Not independently re-checked here, and marked this way rather than presented as one uniform verification.</p>
+  <p>The four stages marked as not existing are marked that way on purpose. Naming what is missing is the only version of this diagram worth keeping.</p>
+</footer>
+</div>
