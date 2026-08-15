@@ -166,6 +166,216 @@ This is the terminal state of the chain, and it is deliberately NOT "the gate
 went green". A green gate is a claim about proof. Verified reality is a claim
 about the world.
 
+## Inside BrotherMode: what execution provenance actually means
+
+"Provenance" is one word for a plain idea: an account of what happened that
+somebody else can check. Not a diary, and not a compliance report. Six things
+produce it, and each one produces a RECORD rather than a feeling.
+
+1. THE GROUND MAP, before anything is written. `git status` first. Files
+   somebody else changed mean coordinate, never overwrite. This is the
+   cheapest step and it is the one that catches the expensive mistake:
+   during the session that wrote this page, seven files changed underneath it
+   because another session was working the same repository, and the ground
+   map is how that was noticed rather than merged over.
+
+2. CLAIMS, one writer per file. Before an agent or a session writes, it
+   claims the files it will touch. A hook refuses a write that another live
+   claim covers. This is not advice: in this session it refused an edit to
+   `tools/bm_effects.py` by name, because a different session held it, and
+   the work went into a delta instead of a collision.
+
+3. THE WORK RECORD, in one store rather than in chat. A project with a goal,
+   scope, success criteria and non-goals. Tasks that walk a ten-state
+   lifecycle (planned, ready, active, blocked, awaiting review, verified,
+   accepted, delivered, monitored, closed) and may not skip a stage. Every
+   move records who made it, when, and why. Evidence rows attach to the task
+   they belong to.
+
+4. THE DONE-CHECK RULE. Nothing is called done without a verifying command
+   run AFTER the last edit, with its output quoted. This is the single rule
+   that separates a report from a claim, and it is why every status line in
+   this document names what was run.
+
+5. HANDOVER, so a session ending is not work lost. When context fills or a
+   session closes, a pack is produced that the next session reads in a stated
+   order: what is finished, what is in flight and at which exact step, what
+   was never started, which claims are still held, and what the founder was
+   asked and has not answered. A ceremony refuses a hollow pack, a missing
+   status line and any session still holding unparked claims.
+
+6. ESCALATION, so a stuck run reaches a person instead of quietly stopping.
+   Four mechanical triggers: a named danger where guessing is the risk, three
+   distinct approaches failed, two failures sharing one root cause, or a
+   declared budget spent with nothing passing. It produces a decision packet,
+   never an answer.
+
+WHAT BROTHERMODE DELIBERATELY DOES NOT DO, because the boundary is the point:
+it does not decide whether a change is safe, does not classify risk, does not
+own review, and does not judge the work. It records what happened accurately
+enough that somebody else can judge it. A product that both does the work and
+grades it is grading itself.
+
+## The change passport, in full
+
+THE PROBLEM IT SOLVES. Two products need to hand work between them. Without a
+defined object, each one reaches into the other's internals: the assurance
+side starts reading execution state it does not own, the execution side starts
+guessing what assurance will want. Both drift, and neither can be replaced.
+One defined object means either side can be swapped for something better as
+long as it can fill in or read the same five fields.
+
+WHAT IT CARRIES, and nothing else:
+
+1. WHAT WAS DONE. The change identity, the range of commits, the files
+   touched. The facts a reviewer needs to find the work.
+2. WHO DID IT. Which sessions and agents wrote, which claims they held, and
+   the human accountable for the result. Accountability is a name, never a
+   role.
+3. WHAT WAS RUN. Every verification executed after the last edit, its result,
+   and where it came from: a build system or somebody's laptop. Provenance of
+   evidence is part of the evidence.
+4. WHAT WAS NOT ESTABLISHED. The executing side's own list of what it did not
+   check. MANDATORY, and it may never be empty, because a passport claiming
+   nothing is unexamined is the exact lie this whole chain exists to prevent.
+   Regression, performance, cross-device, interface behaviour and translated
+   copy belong here by default unless something actually examined them.
+5. WHERE IT CAME FROM. The development method used, named and not judged.
+
+DIRECTION OF TRAVEL. BrotherMode produces it. BrotherSBE consumes it. It never
+travels back. If the assurance side needs something the passport does not
+carry, that is a defect in the passport, not permission to reach into
+execution state.
+
+A WORKED EXAMPLE, so the shape is unambiguous:
+
+    what was done      add an optional "fax_account_id" field, pulled from
+                       the CMS through the API to the client. 4 commits,
+                       6 files.
+    who did it         one session, holding claims on those 6 files; the
+                       accountable human is the engineer who opened it.
+    what was run       the unit suite (green, on the build system, run 47812);
+                       the type check (green, on the build system).
+    what was NOT       no regression pass, no cross-device check, no
+    established        performance measurement, no interface review, and the
+                       translated strings were not read by anyone who speaks
+                       the language.
+    method             the team's own specification-first flow.
+
+That fourth field is what makes the passport worth carrying. A reviewer
+reading it knows in one line where to spend their attention, and the QC lead
+who finds interface problems nobody wrote down is being handed the exact list
+of places nobody looked.
+
+STATUS: the passport does not exist yet. This section is the specification
+for it, written before either side grows half of one.
+
+## Release, and why both products stop before it
+
+WHAT HAPPENS. The change reaches the world: a merge, a deploy, a published
+package. The host does this, meaning GitHub, Bitbucket, or whatever pipeline
+the team already runs.
+
+WHY NEITHER PRODUCT PERFORMS IT. Two reasons, and the second is the real one.
+The first is scope: a deployment platform is a different product and doing it
+badly would be worse than not doing it. The second is that a system which can
+both approve and release has no gap in it for a person to stand in. The
+release is the last point where a human can still say no, and the products
+stay on the near side of that line so the node cannot be optimised away by
+convenience.
+
+WHAT MUST BE TRUE BEFORE IT. The human decision node is recorded: who
+accepted, when, and against what. Today that record does not exist, which is
+finding H2, and it means the current answer to "who accepted this" is nobody
+knows.
+
+WHAT CROSSES THE LINE. Nothing automated. Both products stop at the pull
+request. A queue item may not claim `release` as its stage, and the queue
+check refuses one that tries.
+
+## Verified reality, and why a green gate is not it
+
+THE DEFINITION. Whether the change actually worked, observed rather than
+asserted. It is the only stage that reports on the world instead of on the
+work.
+
+THE DISTINCTION THAT MATTERS MOST IN THIS WHOLE DOCUMENT. A green gate is a
+claim about PROOF: the checks that were run, passed. Verified reality is a
+claim about the WORLD: the thing does what somebody needed. The two come
+apart constantly, and the team review this work came from named exactly how:
+a green result systematically under-represents how much checking remains,
+because acceptance criteria are core functions and the problems a good tester
+finds are interface behaviour, misunderstandings, and text a translator wrote
+without context. Every one of those can sit inside a fully green change.
+
+WHAT WOULD ACTUALLY COUNT, four observables rather than opinions:
+
+- the change is not reopened for material rework within seven days;
+- no rollback, incident or emergency fix is recorded against it;
+- the acceptance held: the person who accepted it did not come back;
+- the team's own queue numbers moved, or did not.
+
+The seven-day test already exists in the ratified delivery definition, which
+means the north star metric was already reaching for this stage before the
+chain was drawn.
+
+STATUS: nothing computes any of the four. There is no post-merge record at
+all, so a tier cannot be compared with its real outcome and the success
+measure cannot even be recomputed. Findings H1, H3 and H5, and they are one
+hole: the system is complete up to the merge and blind after it.
+
+## Who does what, stage by stage
+
+The short version of the whole document. "The human" column is the one that
+may never be automated away.
+
+| Stage | BrotherMode does | BrotherSBE does | The human does |
+|---|---|---|---|
+| Human intent | records the goal, scope and success criteria as a project | nothing | states what they actually want |
+| Development method | fills the stage when nothing else is installed, steps aside when something is | nothing | picks a method, or has none and is carried anyway |
+| Execution | claims files, records the work, enforces the done-check, hands over, escalates | nothing | decides at any forcing condition |
+| Change passport | produces it | consumes it | nothing |
+| Assurance | nothing | risk, required proof, evidence integrity, behaviour, accountability, readiness | answers what only a person can answer |
+| Human decision | presents the decision with a recommendation and a default | supplies what is proven and what is not | decides, and is named for it |
+| Release | stops here | stops here | releases |
+| Verified reality | should record the outcome (does not yet) | should compare outcome against tier (does not yet) | says whether it actually worked |
+
+## The same chain, walked four ways
+
+The chain is one shape, and it should feel different depending on who you are.
+If it feels identical for all four, it is too heavy for the first and too
+light for the last.
+
+ONE PERSON, ONE SMALL CHANGE. Intent is a sentence. The method is whatever
+they already do. Provenance is the claim, the record and the done-check, which
+cost seconds. The passport is thin and its fourth field is honest: nothing was
+checked but the unit suite. Assurance is the lowest tier, which requires two
+artifacts rather than seven. The human decision is the same person, and the
+system says so rather than pretending a review happened. This path must stay
+fast or it will be skipped, and a skipped path records nothing.
+
+A TEAM, A RISKY MIGRATION. Intent is a specification. Assurance is the highest
+tier: both legs of the migration proven against a restore, real row counts,
+an approval signed by somebody other than the author, and evidence produced by
+the build system rather than a laptop. The passport's fourth field is long and
+it is the most valuable page in the change. The human decision is a named
+person who is accountable, and release waits for them.
+
+SOMEBODY WHO DOES NOT WRITE CODE. A business analyst or a tester. They meet
+the chain at three points only: stating intent, writing what the software must
+do under stated conditions, and deciding whether what came back is right. They
+should never meet a claim, a fence, a tier or a receipt. The measure of
+whether this product works for them is whether the first hour is spent on the
+work or on installing prerequisites, which today it is not, and that is
+finding P1.
+
+A CONSULTANCY PROVING DILIGENCE. The chain is the deliverable. Every stage
+leaves a record a client can read: what was intended, what was decided and
+why, what was proven, what was honestly not proven, who accepted it, and what
+happened afterwards. The fourth passport field is what makes this credible
+rather than a marketing document, because a report that lists only what went
+well is read as one.
+
 ## The two rules this chain imposes on everything
 
 RULE ONE, THE HUMAN LOOP IS NEVER OPTIMISED AWAY. Humans stay in the loop at

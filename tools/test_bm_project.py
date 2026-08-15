@@ -237,6 +237,69 @@ class TestRefusals(unittest.TestCase):
             tasks = {t["task_id"]: t for t in raw["tasks"]}
             self.assertEqual(tasks["task1"]["status"], "planned")
 
+    def test_a_task_cannot_be_born_past_the_start_of_the_lifecycle(self):
+        """M4, and the reason it matters is M2.
+
+        REPRODUCED before this test existed, in a throwaway root, three
+        commands and nothing else:
+
+            task add --project-id px --task-id t1 --title "do thing" \\
+                     --status closed          -> "added task t1"
+            deliver  --project-id px          -> "delivered px: all 1
+                                                  task(s) closed", exit 0
+
+        No goal, no acceptance check, no build, no review, no evidence, and
+        the product reports a delivered project. The transition law was never
+        the hole: planned to verified is refused correctly, and this test's
+        sibling above proves it. The hole is that `--status` chose the state a
+        task was BORN in, so a task could start past every gate rather than
+        walk through them.
+
+        The guard is on BIRTH, one place all callers route through, rather
+        than a second gate inside deliver: deliver's own rule (every task at
+        the terminal state) was doing its job on the evidence it had.
+        """
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "px", "--name", "Probe"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for illegal in ("closed", "verified", "delivered", "accepted",
+                            "monitored", "active", "awaiting review"):
+                r = _run(["task", "add", "--project-id", "px",
+                          "--task-id", "t-" + illegal.replace(" ", "-"),
+                          "--title", "do thing", "--status", illegal]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 1,
+                                 "birth in %r was accepted: %s" % (illegal, r.stdout))
+                self.assertIn("cannot be created in", r.stderr, illegal)
+                self.assertIn(illegal, r.stderr, illegal)
+            raw = _raw_dump(root)
+            self.assertEqual([], raw["tasks"],
+                             "a refused birth still wrote a task row")
+
+    def test_the_two_legal_birth_states_still_work(self):
+        """The other half, so the guard cannot be tightened into a wall.
+        `planned` is the default and `ready` is the state the guided flow
+        needs, because `next` serves only ready tasks."""
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            _run(["start", "--project-id", "px", "--name", "Probe"]
+                 + list(ACTOR), root)
+            for legal in ("planned", "ready"):
+                r = _run(["task", "add", "--project-id", "px",
+                          "--task-id", "ok-" + legal, "--title", "do thing",
+                          "--status", legal] + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "add", "--project-id", "px",
+                      "--task-id", "default", "--title", "do thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            raw = _raw_dump(root)
+            got = {t["task_id"]: t["status"] for t in raw["tasks"]}
+            self.assertEqual({"ok-planned": "planned", "ok-ready": "ready",
+                              "default": "planned"}, got)
+
     def test_done_state_is_refused_by_name(self):
         with tempfile.TemporaryDirectory() as root:
             self._task_in_planned(root)
