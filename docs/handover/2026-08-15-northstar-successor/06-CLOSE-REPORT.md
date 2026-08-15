@@ -123,6 +123,40 @@ plus phantom regressions from starved runs. Waiting for load is the correct
 call and racing it is not. IF NO VERDICT APPEARS UNDER THIS PARAGRAPH, 89a802d
 has no full-gate verdict and the successor owes one.
 
+ASSURANCE PASS, run on the founder's instruction to verify periodically, with
+`sbe verify` over this tree at a clean checkout:
+
+  design checks   artifacts, adr, datamodel, diagrams, placeholder all PASS
+  four hard gates numbers, migration, approval, ran all NO-DATA, which is
+                  correct: this change class presents no decision figure, no
+                  migration, no money or partner path and no SQL
+  silent-failure-lints  FAIL, gate severity, 172 hit(s) in 97 file(s). Every
+                  named hit is in benchmark/ or scripts/bench_*, none of them
+                  touched tonight, so this is pre-existing debt rather than new
+  cache-economy   FAIL, soft, 3 of 76 sessions below the 90 percent warm-read
+                  floor
+
+`sbe status --json` reports missingEvidence 0 and one nextAction: review the
+forced disposition on task passport-producer-fold before merging. That is the
+assurance side working exactly as designed. A FORCED close is never read as
+clean, and it wants a human to look. It is a founder decision, not something a
+session should clear for itself.
+
+THE FINDING UNDERNEATH THAT PASS, and it is new. The checks repeatedly reported
+that they could not see large parts of this repository: "42 pruned
+director(y/ies) hold file(s) this check reads and were NOT examined", and the
+design check exhausted its 4000-directory inspection budget. Every directory
+named is a `.claude/worktrees/agent-*` nested checkout. The concurrent session
+counted 48 worktrees, 39 of them dirty, holding 920 MB.
+
+So the worktree accumulation is no longer only a disk question: it is degrading
+the assurance checks into PARTIAL verdicts. A partial verdict printed beside a
+PASS is the same class as this night's mute-control finding, one layer out. The
+checks are honest about it, which is why it is visible at all, but nobody was
+reading that clause. Nothing was deleted: the founder's standing rule is that
+nothing is cleaned up unless he names it, so this is a decision for him with
+the numbers attached.
+
 BROTHERSBE PULL REQUEST 48: improved, still red, handed back to its stream.
 The dossier landed as 7b12715 and consumer-checks went from fail to PASS. A
 second blocker sits behind the first: 13 failures in the honesty meta-test,
