@@ -2402,6 +2402,14 @@ REFUSAL_HELP = {
         "agreed",
         "Ask to see the acceptance checks for that work, then link to one "
         "of those."),
+    "unproved-verification": (
+        "recording that another tool's work was independently checked",
+        "the record says the work was checked and passed, but it does not "
+        "say who or what did the checking, or point at anything that could "
+        "be run again, so the word checked would be carrying no weight",
+        "Ask me to file it again naming what did the check and what it "
+        "produced. If nothing was actually re-run, the honest answer is "
+        "that there was nothing here that could be checked."),
     "bad-verification-state": (
         "recording whether another tool's work was independently checked",
         "the record has to say one of exactly three things: it was checked "
