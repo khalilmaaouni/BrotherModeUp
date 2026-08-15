@@ -122,10 +122,23 @@ FORCING_CONDITIONS = (
 
 
 def norm(text):
-    """Lower-cased, whitespace-collapsed. Used to decide whether two
-    approaches or two root causes are the SAME one, so "retry the import" and
-    "Retry  the import" cannot look like two methods tried."""
-    return " ".join(str(text or "").split()).lower()
+    """Lower-cased, whitespace-collapsed, punctuation dropped. Used to decide
+    whether two approaches or two root causes are the SAME one, so "retry the
+    import" and "Retry  the import" cannot look like two methods tried.
+
+    PUNCTUATION WAS ADDED AFTER AN ATTACK, not by foresight: an adversarial
+    reviewer fed "retry the import", "retry the import," and "retry  the
+    import;" as three approaches and got approaches_exhausted, a false
+    escalation whose reason line confidently named three distinct methods.
+    Case and whitespace alone did not deliver the guarantee this docstring
+    already claimed. It still only collapses SPELLING: "DB timeout" and "db
+    timed out" remain two root causes here, and no normaliser fixes that. The
+    honest ceiling is that this compares strings, so the person recording
+    attempts has to reuse their own wording, and the failure direction when
+    they do not is a MISSED escalation rather than a false one.
+    """
+    kept = [c if (c.isalnum() or c.isspace()) else " " for c in str(text or "")]
+    return " ".join("".join(kept).split()).lower()
 
 
 def resolve_root(start=None):
@@ -209,21 +222,32 @@ def decide_verdict(records, objective):
     if not rows:
         return CONTINUE, None, "nothing recorded for %r yet" % objective
 
-    # ONE clearing rule over ALL record kinds, rather than a separate one per
-    # kind: a passing attempt and a resolve both mean "everything before this
-    # is spent news". Written once because the first draft had two of them and
-    # a forcing condition recorded before a resolve survived it.
-    clear_at = 0
+    # TWO clearing rules, because the two events do not mean the same thing,
+    # and collapsing them into one was a real defect an adversarial reviewer
+    # executed: with a single rule, `[forcing(credentials unavailable),
+    # attempt(passed)]` returned CONTINUE. Credentials do not become available
+    # because something else passed.
+    #   A RESOLVE clears everything before it. A human engaged and answered.
+    #   A PASSING ATTEMPT clears prior ATTEMPTS only. It is evidence about the
+    #   work, and it says nothing about a danger somebody named.
+    # So a forcing condition survives any amount of unrelated success and is
+    # closed only by `resolve`, which is the point of naming one.
+    resolved_at = 0
     for i, r in enumerate(rows):
-        if r.get("kind") == "resolve" or (r.get("kind") == "attempt"
-                                          and r.get("verdict") == PASSED):
-            clear_at = i + 1
-    live = rows[clear_at:]
+        if r.get("kind") == "resolve":
+            resolved_at = i + 1
+    after_resolve = rows[resolved_at:]
+
+    passed_at = 0
+    for i, r in enumerate(after_resolve):
+        if r.get("kind") == "attempt" and r.get("verdict") == PASSED:
+            passed_at = i + 1
+    live = [r for i, r in enumerate(after_resolve)
+            if i >= passed_at or r.get("kind") == "forcing"]
     if not live:
         return (CONTINUE, None,
                 "cleared by the last %s; %d record(s) in total"
-                % ("resolve" if rows[clear_at - 1].get("kind") == "resolve" else "passing attempt",
-                   len(rows)))
+                % ("resolve" if resolved_at == len(rows) else "passing attempt", len(rows)))
 
     attempts = [r for r in live if r.get("kind") == "attempt"]
     failed = [r for r in attempts if r.get("verdict") == FAILED]
@@ -490,6 +514,14 @@ def main(argv=None):
     if root is None:
         print("REFUSED: no project here (no .brothermode/ and no .git above %s)" % os.getcwd())
         return EXIT_REFUSED
+    # Inline rather than a module-level table, and the reason is worth the
+    # comment: a module-level dispatch dict IS discoverable by
+    # tools/bm_effects.py's completeness scan, and a discovered module that
+    # carries no REGISTRY entry FAILs that suite rather than reporting
+    # NO-DATA. Measured on 2026-08-15: hoisting this table turned the effects
+    # suite red in one run. The REGISTRY entry belongs in tools/bm_effects.py,
+    # which another session holds under a live fence, so the pair lands
+    # together in that lane and this table is hoisted then, never before.
     return {"attempt": cmd_attempt, "forcing": cmd_forcing, "check": cmd_check,
             "packet": cmd_packet, "resolve": cmd_resolve, "open": cmd_open}[args.verb](args, root)
 

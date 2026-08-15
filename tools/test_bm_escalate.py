@@ -101,6 +101,57 @@ class TestTheTwoTriggersThatIgnoreTheCount(unittest.TestCase):
         self.assertEqual(ES.CONTINUE, ES.decide_verdict(rows, "X")[0])
 
 
+class TestTheAttacksThatLanded(unittest.TestCase):
+    """Both of these were executed against this module by an adversarial
+    reviewer briefed to REFUTE it, and both were real. They are kept as tests
+    rather than as a note, because a defect nobody can re-run is a story."""
+
+    def test_a_passing_attempt_does_not_clear_a_forcing_condition(self):
+        """The attack, verbatim in shape: a forcing condition, then an
+        unrelated approach passes, and the tool went quiet. Credentials do not
+        become available because something else passed."""
+        rows = [{"kind": "forcing", "objective": "ship",
+                 "forcing_condition": "credentials-unavailable", "at": 1},
+                attempt("ship", "an unrelated approach", "", verdict=ES.PASSED)]
+        verdict, trigger, _ = ES.decide_verdict(rows, "ship")
+        self.assertEqual(ES.ESCALATE, verdict)
+        self.assertEqual("forcing_condition", trigger)
+
+    def test_only_a_resolve_closes_a_forcing_condition(self):
+        rows = [{"kind": "forcing", "objective": "ship",
+                 "forcing_condition": "credentials-unavailable", "at": 1},
+                {"kind": "resolve", "objective": "ship", "outcome": "answered", "at": 2}]
+        self.assertEqual(ES.CONTINUE, ES.decide_verdict(rows, "ship")[0])
+
+    def test_a_passing_attempt_still_clears_prior_failed_attempts(self):
+        """The other half of the split rule, so the fix cannot silently make
+        every past failure permanent."""
+        rows = [attempt("X", "one", "c"), attempt("X", "two", "c"),
+                attempt("X", "three", "", verdict=ES.PASSED)]
+        self.assertEqual(ES.CONTINUE, ES.decide_verdict(rows, "X")[0])
+
+    def test_punctuation_does_not_manufacture_a_distinct_approach(self):
+        """The attack: three spellings of one approach reported as three
+        distinct methods, which is a FALSE escalation, the worse direction."""
+        rows = [attempt("X", "retry the import", "cause a"),
+                attempt("X", "retry the import,", "cause b"),
+                attempt("X", "retry  the import;", "cause c")]
+        verdict, trigger, _ = ES.decide_verdict(rows, "X")
+        self.assertEqual(ES.CONTINUE, verdict, "three spellings of one approach are one approach")
+        self.assertIsNone(trigger)
+
+    def test_punctuation_does_not_hide_a_repeated_root_cause(self):
+        rows = [attempt("X", "one", "the API returns 403."),
+                attempt("X", "two", "the API returns 403")]
+        self.assertEqual("no_new_information", ES.decide_verdict(rows, "X")[1])
+
+    def test_the_stated_ceiling_is_real_and_named(self):
+        """Not a bug, a limit this suite pins so nobody later mistakes it for
+        one: different WORDS for one root cause stay two root causes."""
+        rows = [attempt("X", "one", "DB timeout"), attempt("X", "two", "db timed out")]
+        self.assertEqual(ES.CONTINUE, ES.decide_verdict(rows, "X")[0])
+
+
 class TestTheFloor(unittest.TestCase):
     def test_one_failure_is_a_result_not_a_wall(self):
         verdict, trigger, _ = ES.decide_verdict([attempt("X", "one", "cause a")], "X")
