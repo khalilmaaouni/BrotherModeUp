@@ -11,7 +11,7 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton lies at BrotherSBE pull request 48, at the step "write the 8 artifacts of design/release-blockers, then re-run its two done-checks". Everything needed to take that step is in 01-HANDOVER.md, including the proof that one root cause explains all six red checks and that the defect predates the pull request.
+UNFINISHED. The baton lies in the BrotherMode lane, at "run the full gate over this state and record its verdict here". BrotherSBE pull request 48 is deliberately NOT the baton: it is handed back to its own stream, improved but still red, with the whole diagnosis in 01-HANDOVER.md so nobody re-derives it.
 
 WHAT THIS SESSION FINISHED, with the command that proves it.
 
@@ -30,7 +30,44 @@ including this pack is the last thing this session runs. IF NO GATE VERDICT
 APPEARS BELOW THIS LINE, that gate did not complete and 13814a6 has no
 bindable verdict.
 
-FULL GATE OVER THE FINAL STATE: not yet recorded.
+FULL GATE OVER 0a496a7: RED, and the cause was mine.
+
+    test_all: 3257 tests across 37 suites, 5 skipped, 1052.6s wall.
+    1 SUITE(S) FAILED
+    test_bm_docs.py FAIL 230 tests
+
+I committed the handover pack without re-running the docs suite over it. The
+pack used `BrotherModeUp` as the PRODUCT name in prose eleven times across
+four files, which the identity contract forbids: BrotherMode is the product,
+`BrotherModeUp` is a repository slug legal only in a code region or a
+repository path. Writing that sentence broke the same rule twice, at these
+very lines, until both mentions were wrapped as code: a page about a naming
+hazard is exactly where the hazard reappears, because the natural way to state
+it is to spell it. Name the token, never use it.
+
+Fixed by meaning rather than by replace, and one command block that was
+indented rather than fenced needed fencing, because a four space indent is not
+a code region to that checker. 89a802d carries the fix.
+
+    python3 tools/test_bm_docs.py
+      Ran 230 tests in 61.495s
+      OK (skipped=1)
+
+FULL GATE OVER 89a802d: not yet recorded at the time this line was written.
+The machine was at 22 one minute across seven live sessions, with a 165 spike
+observed earlier, and this estate has a recorded incident of 47x wall clock
+plus phantom regressions from starved runs. Waiting for load is the correct
+call and racing it is not. IF NO VERDICT APPEARS UNDER THIS PARAGRAPH, 89a802d
+has no full-gate verdict and the successor owes one.
+
+BROTHERSBE PULL REQUEST 48: improved, still red, handed back to its stream.
+The dossier landed as 7b12715 and consumer-checks went from fail to PASS. A
+second blocker sits behind the first: 13 failures in the honesty meta-test,
+measured as identical at 20fad2e (before my commit) and ZERO on main, so they
+belong to that pull request rather than to this work. Three of the 13 are the
+artifacts check's own worked-example fixture, and editing a check's worked
+example at 4am in another product's control plane to make a gate pass is the
+quality drop the founder told me to stop for. Stopped on that judgment.
 
 WHAT THIS SESSION GOT WRONG, kept because the correction is the evidence.
 
