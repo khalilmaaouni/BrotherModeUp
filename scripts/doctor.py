@@ -87,6 +87,11 @@ EXIT_UNSUPPORTED = 3
 FENCE_BASENAME = "bm_fence_hook.py"
 WRITE_TOOL_NAMES = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
+# Mirrors scripts/install.py's own INSTALLED_FROM_NAME. Duplicated rather
+# than imported, same rule as FENCE_BASENAME above: each script in this
+# directory is self-contained on purpose.
+INSTALLED_FROM_NAME = "INSTALLED-FROM"
+
 #: The tool_input shape each simulated write tool sends, keyed by tool name.
 #: The path key differs per tool (NotebookEdit carries notebook_path, not
 #: file_path), and a hook that reads only one of them gates only one of them,
@@ -501,6 +506,7 @@ CHECK_TITLES = collections.OrderedDict((
     ("mode_wiring", "hook wiring matches installation_mode"),
     ("checksums", "CHECKSUMS.sha256 self-check"),
     ("settings_json", "settings.json is valid JSON"),
+    ("install_identity", "this tree matches the commit it was installed from"),
     ("data_locations", "where your data lives, in plain language"),
 ))
 
@@ -889,6 +895,96 @@ def _git_tree_state(root):
     return "dirty" if r.stdout.strip() else "clean"
 
 
+def _git_head_commit(root):
+    """Returns (commit, None) or (None, reason). Same GIT_* stripping as
+    _git_tree_state above and for the same reason: an inherited GIT_DIR or
+    GIT_WORK_TREE would report another repository's HEAD as this tree's own."""
+    if shutil.which("git") is None:
+        return None, "git is not on PATH"
+    dot_git = os.path.join(root, ".git")
+    if not (os.path.isdir(dot_git) or os.path.isfile(dot_git)):
+        return None, "%s is not a git working tree" % _mask_home(root)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    try:
+        r = subprocess.run(
+            ["git", "-C", root, "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, "git could not be run: %s" % exc
+    if r.returncode != 0:
+        return None, ("git could not read HEAD: %s"
+                      % (r.stderr or "").strip()[:200])
+    commit = r.stdout.strip()
+    if len(commit) != 40:
+        return None, "git returned an unexpected commit id: %r" % commit
+    return commit, None
+
+
+def check_install_identity(root):
+    """SBE1: Claude Code runs the INSTALLED tree, a separate clone from
+    wherever a session happens to be working. This check answers a question
+    check_version_identity cannot: it compares the commit this tree was
+    STAMPED with at install time (scripts/install.py writes INSTALLED-FROM
+    from the SOURCE tree's own git HEAD) against the commit this tree
+    itself is at right now, per git run IN THIS tree. VERSION-vs-manifest
+    is compared inside one tree and agrees even when two trees have
+    diverged real source, which is exactly the gap measured 2026-08-15: a
+    tree 22 commits behind still reported the same VERSION as its source.
+    A check that cannot tell (no stamp, an "unknown" stamp, or no git here)
+    must never read as a pass, so every such case is SKIP, never PASS."""
+    stamp_path = os.path.join(root, INSTALLED_FROM_NAME)
+    if not os.path.isfile(stamp_path):
+        return _result(
+            "install_identity", STATUS_SKIP,
+            "SKIP: no %s at %s. Either this install predates the stamp, or "
+            "it was set up by hand instead of scripts/install.py, so there "
+            "is nothing to compare this tree's commit against. Run: python3 "
+            "scripts/install.py --upgrade to add one." % (
+                INSTALLED_FROM_NAME, _mask_home(stamp_path)))
+    try:
+        text = io.open(stamp_path, encoding="utf-8").read()
+    except (IOError, OSError) as exc:
+        return _result("install_identity", STATUS_FAIL,
+                       "FAIL: %s could not be read: %s"
+                       % (_mask_home(stamp_path), exc))
+    lines = text.splitlines()
+    stamped_commit = lines[0].strip() if lines else ""
+    if not stamped_commit or stamped_commit == "unknown":
+        reason = lines[2].strip() if len(lines) > 2 else "not recorded at install time"
+        return _result(
+            "install_identity", STATUS_SKIP,
+            "SKIP: %s records the source commit as unknown (%s), so this "
+            "tree's identity cannot be checked against it." % (
+                _mask_home(stamp_path), reason))
+    if len(stamped_commit) != 40:
+        return _result(
+            "install_identity", STATUS_FAIL,
+            "FAIL: %s does not hold a 40 character commit id (got %r). "
+            "Re-run: python3 scripts/install.py --upgrade"
+            % (_mask_home(stamp_path), stamped_commit[:80]))
+    running_commit, err = _git_head_commit(root)
+    if running_commit is None:
+        return _result(
+            "install_identity", STATUS_SKIP,
+            "SKIP: this tree's own commit could not be determined (%s), so "
+            "it cannot be compared against the %s stamp (%s)."
+            % (err, INSTALLED_FROM_NAME, stamped_commit[:12]))
+    if running_commit == stamped_commit:
+        return _result(
+            "install_identity", STATUS_PASS,
+            "PASS: this tree is running the same commit (%s) it was "
+            "installed from." % stamped_commit[:12])
+    return _result(
+        "install_identity", STATUS_FAIL,
+        "FAIL: this tree is at commit %s but %s says it was installed from "
+        "%s. The running tree and the code that wired its hooks have "
+        "drifted apart. Resync: from an up-to-date source checkout, run "
+        "python3 scripts/install.py --upgrade --target %s"
+        % (running_commit[:12], _mask_home(stamp_path), stamped_commit[:12],
+           _mask_home(root)))
+
+
 def check_checksums(root):
     manifest_path = os.path.join(root, "CHECKSUMS.sha256")
     if not os.path.isfile(manifest_path):
@@ -984,6 +1080,7 @@ def run_all_checks(settings_path):
                    settings_for_scan, settings_err, settings_path, root),
         _run_check("checksums", check_checksums, root),
         _run_check("settings_json", check_settings_json, settings_path),
+        _run_check("install_identity", check_install_identity, root),
         _run_check("data_locations", check_data_locations),
     ]
 

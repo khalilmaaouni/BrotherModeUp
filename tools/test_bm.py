@@ -4017,12 +4017,27 @@ class TestLoop12PairedArtifactsAreRedacted(unittest.TestCase):
                              "an aws-key-shaped path segment was written verbatim")
             rec = json.loads(body.splitlines()[0])
             self.assertTrue(rec.get("artifacts"), "the pairing field disappeared")
-            self.assertIn("[REDACTED]", rec["artifacts"][0])
             self.assertEqual(rec.get("artifact_redactions"), 2,
                              "the count must show the artifacts were touched")
-            # The non-secret part of the path survives, or the field would be
-            # useless for judging the pairing.
-            self.assertIn("notes.txt", rec["artifacts"][0])
+            # TIGHTENED 2026-08-16 (SBE17). This test used to assert that the
+            # harmless tail, notes.txt, SURVIVED beside the [REDACTED] secret
+            # segments, on the reasoning that the pairing field would be
+            # useless without it. That encoded the weaker privacy model a
+            # security review then named: whenever no secret-shaped substring
+            # happened to be present, the whole absolute path went to the
+            # ledger verbatim, revealing directory and client structure. The
+            # fix pairs mask_absolute_paths with redact(), exactly as
+            # bs.export_column already did, and masking replaces the WHOLE
+            # matched path including its tail. So the assertion inverts: what
+            # must be true now is that no part of the absolute path reaches
+            # the file, and the pairing is judged by the redaction count and
+            # the withheld marker instead.
+            self.assertNotIn("notes.txt", rec["artifacts"][0],
+                             "the path tail must not survive masking")
+            self.assertTrue(
+                "[PATH WITHHELD]" in rec["artifacts"][0]
+                or "[REDACTED]" in rec["artifacts"][0],
+                "the artifact must still be visibly accounted for")
 
 
 class TestLoop12LearningCliPrivacy(unittest.TestCase):

@@ -694,6 +694,7 @@ def scan_corrections(sid, project, user_texts):
             arts, ared = [], 0
             for art in list(paired["artifacts"])[:PAIRED_ARTIFACTS]:
                 clean_art, k = redact(art)
+                clean_art = _mask_paths(clean_art)
                 arts.append(clean_art)
                 ared += k
             rec["artifacts"] = arts
@@ -1730,6 +1731,31 @@ def _get_bm_store():
     if not _bm_store_cache:
         _bm_store_cache.extend(_load_bm_store())
     return _bm_store_cache[0], _bm_store_cache[1]
+
+
+def _mask_paths(text):
+    """bm_store.mask_absolute_paths(text), or text unchanged when bm_store
+    cannot be loaded.
+
+    FIX SBE17: every store export pairs redact_text with mask_absolute_paths,
+    in that order (see bm_store.export_column, around its
+    _DUMP_SCRUB_ONLY_COLUMNS branch), so a value that is not secret-SHAPED
+    but is still an absolute filesystem path gets masked too. The artifact
+    loop below ran redact() alone, so an absolute client or machine path
+    (a per-tenant directory, a real username in a home path) landed
+    verbatim in the local telemetry ledger. Uses the same lazy
+    _get_bm_store() cache every other bm_store call in this module goes
+    through (never at module scope: see the note above _bm_store_cache),
+    and degrades to the unmasked text rather than raise, the same way
+    _resolve_root_quiet degrades: this is telemetry, an advisory record,
+    never a gate."""
+    bm_store, _err = _get_bm_store()
+    if bm_store is None:
+        return text
+    try:
+        return bm_store.mask_absolute_paths(text)
+    except Exception:
+        return text
 
 
 def _resolve_root_quiet(cwd):

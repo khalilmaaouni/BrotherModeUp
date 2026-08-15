@@ -65,6 +65,26 @@ MISSING=0
 TYPESWAPPED=0
 : > "$WORKDIR/manifest_paths"
 
+# SBE7 (2026-08-16): a registry is a file this project's own tooling reads
+# to know what exists (PO-6, CLAUDE.md: "before adding an entry to any
+# registry, open the file that READS that registry first"). A registry that
+# goes missing or stale across the install boundary is a silent capability
+# gap, not ordinary doc churn, so it gets called out on its own line instead
+# of blending into a long MISMATCH/MISSING list where it is easy to miss.
+# This is the same manifest-vs-disk loop below, not a second comparison
+# mechanism: it only tags a subset of the outcomes that loop already
+# produces. Extend this list when a new registry is added (see the file that
+# reads it, per PO-6, before adding here).
+REGISTRIES="tools/write_sites.json tools/toolkit_routes.json"
+REGISTRY_DRIFT=0
+REGISTRY_NAMES=""
+is_registry() {
+    case " $REGISTRIES " in
+        *" $1 "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Manifest lines are "<64 hex chars><two spaces><path>", the format both
 # sha256sum and shasum -a 256 produce. Splitting by fixed column position
 # (not by whitespace) is deliberate: a path may itself contain spaces, and
@@ -94,6 +114,11 @@ while IFS= read -r line; do
     if [ ! -e "$full" ]; then
         echo "MISSING:   $path"
         MISSING=$((MISSING + 1))
+        if is_registry "$path"; then
+            echo "REGISTRY:  $path is a tracked registry and is missing from this install"
+            REGISTRY_DRIFT=$((REGISTRY_DRIFT + 1))
+            REGISTRY_NAMES="$REGISTRY_NAMES $path"
+        fi
         continue
     fi
     if [ ! -f "$full" ]; then
@@ -107,6 +132,11 @@ while IFS= read -r line; do
     else
         echo "MISMATCH:  $path"
         MISMATCHED=$((MISMATCHED + 1))
+        if is_registry "$path"; then
+            echo "REGISTRY:  $path is a tracked registry and differs from this install"
+            REGISTRY_DRIFT=$((REGISTRY_DRIFT + 1))
+            REGISTRY_NAMES="$REGISTRY_NAMES $path"
+        fi
     fi
 done < "$MANIFEST"
 
@@ -206,6 +236,9 @@ done < "$WORKDIR/installed_raw"
 echo ""
 echo "verify-install: checked against $MANIFEST"
 echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $TYPESWAPPED wrong type, $EXTRA extra (present on disk, absent from the manifest)"
+if [ "$REGISTRY_DRIFT" -gt 0 ]; then
+    echo "verify-install: $REGISTRY_DRIFT registry file(s) missing or differing:$REGISTRY_NAMES"
+fi
 
 if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$TYPESWAPPED" -gt 0 ] || [ "$EXTRA" -gt 0 ]; then
     echo "verify-install: FAILED. Do not trust this installed copy until you" \

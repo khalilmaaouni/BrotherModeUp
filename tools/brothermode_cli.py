@@ -511,6 +511,20 @@ def main(argv):
         _err("brothermode: unknown command %r (known: %s)"
              % (cmd, ", ".join(sorted(COMMANDS))))
         return 2
+    # SBE3: the effect-class registry (tools/bm_effects.py) was a control
+    # only at gate time, because nothing in production ever imported it.
+    # Calling declared() here, on every dispatch, means a command added to
+    # COMMANDS above without a matching REGISTRY entry fails loudly with
+    # the registry's own UndeclaredCommand message the first time anyone
+    # runs it, instead of only when tools/test_bm_effects.py happens to
+    # run. This is the one dispatch point every subcommand passes through,
+    # so one check here covers all of them.
+    effects = _load("bm_effects")
+    try:
+        effects.declared("brothermode_cli.py", cmd)
+    except effects.UndeclaredCommand as exc:
+        _err(str(exc))
+        return 2
     return COMMANDS[cmd](argv[1:])
 
 
