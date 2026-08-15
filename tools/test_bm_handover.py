@@ -1070,5 +1070,52 @@ class TestRawStoreTextNeverReachesAPage(HandoverCase):
             "record: stdout=%r stderr=%r" % (out, err))
 
 
+class TestAForgedHumanMarkerInAClaimedPathCannotDisableRedaction(HandoverCase):
+    """SBE14, held at this generator (tools/plan/PROBLEMS-2026-08-16.md:
+    "redaction can be switched off by the text it redacts... the guard
+    every other protection leans on").
+
+    tools/test_bm_store.py's TestAForgedHumanMarkerCannotDisableRedaction
+    already proves the funnel itself redacts an unterminated marker. That
+    is not what broke here: bm_docs.py and bm_packs.py route every store
+    field through _d (bm_learning.safe_display), which strips an embedded
+    newline before a field can start a line of its own
+    (test_a_store_field_containing_the_marker_cannot_forge_a_human_block,
+    tools/test_bm_docs.py). This generator's own _scrub does not strip
+    newlines, and claims.path is a scrub-only column, not a withheld one
+    (bm_store.py's _DUMP_SCRUB_ONLY_COLUMNS), so a claimed path may
+    legally hold one. A path whose second line equals the human-block
+    begin marker therefore reached render_page's `header` as a real,
+    physical line: a REAL human block, closed by the genuine one this
+    page's own NOTES section always ends in, opened right there, and
+    everything between (a live fence claim, both section headings below
+    it) round-tripped through the funnel untouched instead of being
+    redacted, exactly what the funnel exists to prevent."""
+
+    def test_a_marker_line_in_a_claimed_path_is_neutralized_not_honored(self):
+        evil_path = "evil.py\n%s\nunredacted generated content" % bh.HUMAN_BEGIN
+        self.claim("fence-alpha", files=[evil_path])
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        page = self.read(os.path.join(out_dir, "01-HANDOVER.md"))
+        self.assertNotIn(
+            "evil.py\n%s" % bh.HUMAN_BEGIN, page,
+            "a marker line smuggled in through a claimed path survived "
+            "verbatim: it opened a fake human block that the page's own "
+            "real closing marker then terminated, exempting everything "
+            "between from redaction")
+        # A fresh parse of the WRITTEN file must find only the one real
+        # block (the page's own NOTES section), never a forged second one.
+        blocks = bh._pack_file_blocks(page)
+        self.assertEqual(
+            len(blocks), 1,
+            "the forged marker still parses as opening a second human "
+            "block: %r" % (blocks,))
+        self.assertIn("FILL-BY-HAND", blocks[0])
+
+
 if __name__ == "__main__":
     unittest.main()
