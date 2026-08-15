@@ -1202,6 +1202,111 @@ class TestChecksumsDirtyTreeSkip(unittest.TestCase):
             "did not run, so it cannot be misread as a pass")
 
 
+class TestInstallIdentityStampOnARealCheckout(unittest.TestCase):
+    """docs/QUICKSTART.md's Path 2 is: clone into ~/.claude/skills/brothermode,
+    then run that clone's own scripts/install.py from inside it (the exact
+    shape test_running_the_installer_from_inside_the_install_directory above
+    covers). Every existing check_install_identity-adjacent test, including
+    that one, builds its fixture with shutil.copytree(..., ignore=[".git",
+    ...]), so the fixture has no git history at all and INSTALLED-FROM is
+    stamped "unknown": check 11 (install_identity) can only ever SKIP there,
+    which means no test in this suite had ever driven it to PASS. This class
+    gives the copied checkout its own real git history, the same technique
+    TestChecksumsDirtyTreeSkip already uses, so install.py's source_commit()
+    and doctor.py's own _git_head_commit() both read a real 40-character
+    commit id, and proves the documented path actually clears the SKIP."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bm-install-identity-test-")
+        self.home = os.path.join(self.tmp, "home")
+        self.claude = os.path.join(self.home, ".claude")
+        os.makedirs(self.claude)
+        self.settings = os.path.join(self.claude, "settings.json")
+        self.target = os.path.join(self.claude, "skills", "brothermode")
+        self.consent_cfg = write_consented_config(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_a_clone_then_install_run_moves_check_11_from_skip_to_pass(self):
+        os.makedirs(os.path.dirname(self.target))
+        shutil.copytree(ROOT, self.target,
+                        ignore=shutil.ignore_patterns(
+                            ".git", "__pycache__", ".brothermode", "threads",
+                            ".claude"))
+        git_env = dict(os.environ)
+        git_env.update({"GIT_AUTHOR_NAME": "t",
+                        "GIT_AUTHOR_EMAIL": "t@example.com",
+                        "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@example.com"})
+        for cmd in (["git", "init"], ["git", "add", "-A"],
+                    ["git", "commit", "-m", "initial"]):
+            r = subprocess.run(cmd, cwd=self.target, env=git_env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True, timeout=60)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        expected_commit = subprocess.run(
+            ["git", "-C", self.target, "rev-parse", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30).stdout.strip()
+        self.assertEqual(len(expected_commit), 40, expected_commit)
+
+        # Doctor's own root, before install.py has run, has no
+        # INSTALLED-FROM stamp: check 11 must SKIP, not PASS or FAIL, and
+        # nothing above must be able to fake a PASS by coincidence.
+        run_env = dict(os.environ)
+        run_env.pop("BROTHERMODE_ROOT", None)
+        run_env.pop("BM_FENCE_STRICT", None)
+        run_env["BROTHERME_CONFIG"] = self.consent_cfg
+        run_env["HOME"] = self.home
+        before = subprocess.run(
+            [sys.executable, os.path.join(self.target, "scripts", "doctor.py"),
+             "--json"],
+            cwd=self.target, env=run_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        before_report = json.loads(before.stdout)
+        before_identity = [c for c in before_report["checks"]
+                           if c["key"] == "install_identity"]
+        self.assertEqual(len(before_identity), 1, before.stdout)
+        self.assertEqual(before_identity[0]["status"], "SKIP",
+                         before_identity[0]["message"])
+
+        # docs/QUICKSTART.md step 3: run the clone's OWN install.py, from
+        # inside it, exactly as test_running_the_installer_from_inside_the_
+        # install_directory does above.
+        install_r = subprocess.run(
+            [sys.executable, os.path.join(self.target, "scripts", "install.py"),
+             "--settings", self.settings],
+            env=dict(os.environ, HOME=self.home), cwd=self.target,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+        self.assertEqual(install_r.returncode, 0,
+                         install_r.stdout + install_r.stderr)
+        stamp_path = os.path.join(self.target, "INSTALLED-FROM")
+        self.assertTrue(os.path.isfile(stamp_path))
+        with io.open(stamp_path, encoding="utf-8") as fh:
+            stamped = fh.read().splitlines()[0]
+        self.assertEqual(stamped, expected_commit,
+                         "install.py stamped a commit that does not match "
+                         "the clone's own git HEAD")
+
+        after = subprocess.run(
+            [sys.executable, os.path.join(self.target, "scripts", "doctor.py"),
+             "--json"],
+            cwd=self.target, env=run_env, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, universal_newlines=True, timeout=300)
+        after_report = json.loads(after.stdout)
+        after_identity = [c for c in after_report["checks"]
+                          if c["key"] == "install_identity"]
+        self.assertEqual(len(after_identity), 1, after.stdout)
+        self.assertEqual(
+            after_identity[0]["status"], "PASS",
+            "check 11 (install_identity) did not move from SKIP to PASS "
+            "after running the documented clone-then-install.py path: %s"
+            % after_identity[0]["message"])
+        self.assertIn(expected_commit[:12], after_identity[0]["message"])
+
+
 # ---------------------------------------------------------------------------
 # scripts/bm_shell.py: the declared-path wrapper for unavoidable shell writes.
 # ---------------------------------------------------------------------------
