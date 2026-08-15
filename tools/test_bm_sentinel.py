@@ -309,6 +309,20 @@ class SentinelStoreCase(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.store = bs.Store(self._tmpdir.name)
+        # SBE10, 2026-08-16. These cases wrote sentinel rows against p1 and
+        # p2 without ever creating those projects, which passed only because
+        # the four sentinel writers checked nothing. A purge then left those
+        # rows behind holding raw founder prose, and the store-level guard
+        # that closes it refuses a write against a project that does not
+        # exist. Seeding both here is what real use looks like: the CLI in
+        # front of these writers already refused an unknown project, so the
+        # fixture, not the guard, was the thing out of step.
+        now = bs.now_iso()
+        for project_id in ("p1", "p2"):
+            self.store.upsert_project(
+                {"project_id": project_id, "name": "sentinel test project",
+                 "created_at": now, "updated_at": now},
+                _actor())
 
     def tearDown(self):
         self.store.close()

@@ -1460,6 +1460,15 @@ class TestExportAndPurge(unittest.TestCase):
                           # key turned the pin red the moment purge started
                           # removing the table, which is the pin's job.
                           "capability_receipts": 0,
+                          # SBE10 (2026-08-16) put the four sentinel tables
+                          # under the same purge, and they are the reason
+                          # the finding mattered: they were the ones left
+                          # holding raw founder prose after a purge that
+                          # reported success. The pin did its job again.
+                          "sentinel_knowledge": 0,
+                          "sentinel_procedural": 0,
+                          "sentinel_status": 0,
+                          "sentinel_interventions": 0,
                           # L05 (schema 17) put the generated views under
                           # the same purge. Same rule and same reason as
                           # the three blocks above: this fixture seeds
@@ -1798,7 +1807,13 @@ class TestCapabilityReceipts(unittest.TestCase):
                       "--task-id", task_id,
                       "--capability-name", "grep-search",
                       "--task-description", "search the repo",
-                      "--verification-state", "verified"]
+                      "--verification-state", "verified",
+                      # SBE12, 2026-08-16: 'verified' now costs an executor
+                      # and a piece of evidence, refused by name without
+                      # them, so this call carries what the sibling test
+                      # above it already carried.
+                      "--executor-identity", "grep 3.11 on this machine",
+                      "--verification-evidence", "rg --count returned 4"]
                      + list(ACTOR), root)
             self.assertEqual(r.returncode, 0, r.stderr)
             r = _run(["receipt", "add", "--project-id", "proj1",
