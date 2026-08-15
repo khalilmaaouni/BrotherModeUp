@@ -23601,6 +23601,231 @@ class TestSentinelRowsDoNotSurviveAPurge(unittest.TestCase):
                                               "", None, "r", "s", actor)
 
 
+class TestSentinelOrphansFindAndPurge(unittest.TestCase):
+    """The other half of SBE10 (2026-08-16 follow-up). purge_project's own
+    SBE10 fix (TestSentinelRowsDoNotSurviveAPurge above) cleans a project's
+    sentinel rows when THAT project is purged, and _require_sentinel_project
+    stops a NEW orphan being written. Neither reaches a sentinel row whose
+    project row was already gone before either guard existed: purge_project
+    refuses ('not-found') a project_id that names no project row, so a row
+    already orphaned is invisible to the one command that exists to erase
+    it. Store.sentinel_orphans() finds those rows (report only, never the
+    prose); Store.purge_sentinel_orphans() erases them, guarded the way
+    purge_project guards itself (a confirmation token, one explicit target,
+    a dry-run preview, one attribution row per project purged).
+
+    Fixture technique: seed sentinel rows through the real API (so they are
+    shaped exactly like any real row), then delete the project row directly
+    with raw SQL. That is not a synthetic shortcut, it IS the shape of the
+    defect: nothing in this codebase can create an orphan any other way any
+    more (_require_sentinel_project refuses the write), so the only way a
+    store ever holds one is a project row vanishing by some path outside
+    purge_project, exactly what this raw DELETE stands in for."""
+
+    def _seed_sentinel(self, store, pid, actor):
+        store.add_knowledge(pid, "fact", "the api key rotates weekly",
+                            "founder", "sess1", actor)
+        store.add_procedural(pid, "tried the old endpoint", "failed",
+                             "wrong base url", "sess1", actor)
+        store.set_status(pid, "halfway through the migration",
+                         "the vendor has not replied", "sess1", actor)
+        store.record_intervention(pid, "resume", "silent", "", None,
+                                  "nothing worth interrupting for", "sess1",
+                                  actor)
+
+    def _orphan(self, store, pid):
+        actor = _actor()
+        _seed(store, pid, actor)
+        self._seed_sentinel(store, pid, actor)
+        store.conn.execute(
+            "DELETE FROM projects WHERE project_id=?", (pid,))
+        store.conn.commit()
+
+    # -- report: found, and never the prose ---------------------------------
+
+    def test_report_finds_orphan_rows_by_table_and_project_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                report = store.sentinel_orphans()
+                for table in bs._TABLES_SENTINEL:
+                    self.assertEqual(report[table], {"ghost1": 1})
+
+    def test_report_never_returns_the_prose(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                report = store.sentinel_orphans()
+                blob = json.dumps(report)
+                for needle in ("api key rotates", "old endpoint",
+                               "halfway through", "nothing worth"):
+                    self.assertNotIn(needle, blob)
+
+    def test_report_leaves_a_live_projects_rows_out(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                _seed(store, "alive")
+                self._seed_sentinel(store, "alive", actor)
+                report = store.sentinel_orphans()
+                for table in bs._TABLES_SENTINEL:
+                    self.assertNotIn("alive", report[table])
+
+    # -- purge: refuses without its explicit flag ----------------------------
+
+    def test_purge_refuses_without_a_target(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(_actor(), "")
+                self.assertEqual(ctx.exception.reason, "no-target")
+
+    def test_purge_refuses_both_project_id_and_all_orphans(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(
+                        _actor(), "x", project_id="x", all_orphans=True)
+                self.assertEqual(ctx.exception.reason, "ambiguous-target")
+
+    def test_purge_refuses_a_live_project_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                _seed(store, "alive")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(
+                        _actor(), "alive", project_id="alive")
+                self.assertEqual(ctx.exception.reason, "not-orphan")
+
+    def test_purge_refuses_a_project_id_with_no_sentinel_rows_at_all(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(
+                        _actor(), "nope", project_id="nope")
+                self.assertEqual(ctx.exception.reason, "not-found")
+
+    def test_purge_refuses_wrong_confirmation_token_for_one_project(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(
+                        _actor(), "wrong", project_id="ghost1")
+                self.assertEqual(ctx.exception.reason, "bad-confirmation")
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT COUNT(*) c FROM sentinel_knowledge WHERE "
+                        "project_id='ghost1'").fetchone()["c"], 1,
+                    "a wrong confirmation token must change nothing")
+
+    def test_purge_refuses_wrong_confirmation_token_for_all_orphans(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.purge_sentinel_orphans(
+                        _actor(), "ghost1", all_orphans=True)
+                self.assertEqual(ctx.exception.reason, "bad-confirmation")
+
+    # -- purge: removes exactly the named orphans and nothing else ----------
+
+    def test_purge_by_project_id_removes_exactly_that_ghost_and_nothing_else(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                actor = _actor()
+                _seed(store, "alive")
+                self._seed_sentinel(store, "alive", actor)
+
+                result = store.purge_sentinel_orphans(
+                    _actor(), "ghost1", project_id="ghost1")
+                self.assertEqual(result["project_ids"], ["ghost1"])
+                self.assertEqual(
+                    result["removed"]["ghost1"],
+                    {"sentinel_knowledge": 1, "sentinel_procedural": 1,
+                     "sentinel_status": 1, "sentinel_interventions": 1})
+                for table in bs._TABLES_SENTINEL:
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE "
+                            "project_id='ghost1'" % table
+                        ).fetchone()["c"], 0)
+                    # the NON-orphan row planted alongside must survive
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE "
+                            "project_id='alive'" % table
+                        ).fetchone()["c"], 1,
+                        "%s: a live project's row must survive a ghost "
+                        "purge" % table)
+
+    def test_purge_all_orphans_sweeps_every_ghost_and_spares_live_projects(
+            self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                self._orphan(store, "ghost2")
+                actor = _actor()
+                _seed(store, "alive")
+                self._seed_sentinel(store, "alive", actor)
+
+                result = store.purge_sentinel_orphans(
+                    _actor(), "ALL-ORPHANS", all_orphans=True)
+                self.assertEqual(
+                    sorted(result["project_ids"]), ["ghost1", "ghost2"])
+                for table in bs._TABLES_SENTINEL:
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE project_id "
+                            "IN ('ghost1','ghost2')" % table
+                        ).fetchone()["c"], 0)
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE "
+                            "project_id='alive'" % table
+                        ).fetchone()["c"], 1,
+                        "%s: a live project's row must survive an "
+                        "all-orphans sweep" % table)
+
+    def test_purge_writes_one_attribution_row_per_ghost_project_purged(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                self._orphan(store, "ghost2")
+                store.purge_sentinel_orphans(
+                    _actor("purger"), "ALL-ORPHANS", all_orphans=True)
+                rows = store.conn.execute(
+                    "SELECT project_id, actor_name FROM attribution WHERE "
+                    "event_type='sentinel.orphans_purged'").fetchall()
+                self.assertEqual(
+                    sorted(r["project_id"] for r in rows),
+                    ["ghost1", "ghost2"])
+                for r in rows:
+                    self.assertEqual(r["actor_name"], "purger")
+
+    def test_dry_run_removes_nothing_and_reports_the_real_counts(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._orphan(store, "ghost1")
+                result = store.purge_sentinel_orphans(
+                    _actor(), "", project_id="ghost1", dry_run=True)
+                self.assertEqual(
+                    result["removed"]["ghost1"]["sentinel_knowledge"], 1)
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT COUNT(*) c FROM sentinel_knowledge WHERE "
+                        "project_id='ghost1'").fetchone()["c"], 1,
+                    "dry_run must leave every row exactly where it was")
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT COUNT(*) c FROM attribution WHERE "
+                        "event_type='sentinel.orphans_purged'"
+                    ).fetchone()["c"], 0,
+                    "dry_run must write no attribution row either")
+
+
 class TestTheViewCheckIsTwoDirectional(unittest.TestCase):
     """SBE11. The GATE B check asked only "is every active record in the
     file", never "is everything the file calls active still active". So a
