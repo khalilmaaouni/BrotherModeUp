@@ -266,14 +266,16 @@
 <section class="lede">
   <h2>Read this first, because it changes the rest</h2>
   <p>The review was run against an installed build that is generations behind the source: <span class="mono">1.0.0-rc.2</span> installed, <span class="mono">3.2.0</span> in the repository. The two heaviest findings, that nothing in the design folder says what the software must do, and that a green gate says nothing about the problems a QC lead actually finds, both have working answers that landed on 15 August, after the review was written.</p>
-  <p>That is not a reason to discount the review. It is the review&rsquo;s own argument made a second way: a fix nobody has installed is not a fix, and the version string did not warn anyone. So the first action here is not engineering. It is shipping the current build and asking two reviewers to re-read two items.</p>
+  <p>That is not a reason to discount the review. It is the review&rsquo;s own argument made a second way: a fix nobody has installed is not a fix, and the version string did not warn anyone.</p>
+  <p><strong>Corrected the same day, twice more.</strong> An adversarial check was asked to disprove this page and disproved two of its claims. The published version tag carries the version <em>string</em> and neither of the two fixes: they sit in 43 unpushed commits, so shipping needs a push and a new number, not a link. And the sizing defect below was fixed by a parallel session 28 minutes after this page first called it open. Three instances in one day of a single failure: nothing anywhere binds a version to what is inside it.</p>
 </section>
 
 <div class="tally">
-  <div><span class="n">4</span><span class="k">Confirmed open</span></div>
-  <div><span class="n">3</span><span class="k">Closed in source</span></div>
+  <div><span class="n">3</span><span class="k">Confirmed open</span></div>
+  <div><span class="n">4</span><span class="k">Closed or fixed</span></div>
   <div><span class="n">4</span><span class="k">Partly answered</span></div>
   <div><span class="n">3</span><span class="k">Not the tool&rsquo;s to fix</span></div>
+  <div><span class="n">9</span><span class="k">Holes nobody raised</span></div>
 </div>
 
 <h2>What is working, and what it constrains</h2>
@@ -352,10 +354,11 @@
 </article>
 
 <article class="problem">
-  <div class="gutter"><span class="pid">P8</span><span class="chip open">Confirmed open</span><span class="who">the analyst lead, proven on the live change</span></div>
+  <div class="gutter"><span class="pid">P8</span><span class="chip closed">Fixed today</span><span class="who">the analyst lead, proven on the live change</span></div>
   <div class="body-col">
     <h3>Ordinary changes are sized as heavy ones</h3>
-    <p class="status">The sharpest finding in the review, and it is four lines of code. Answering yes to the contract question alone produces the heavy tier, with no other answer needed. Crossing a service boundary alone does not. On an architecture where nearly every change touches an API contract, one question decides the ceremony for everything.</p>
+    <p class="status">The sharpest finding in the review, and it was four lines of code. Answering yes to the contract question alone produced the heavy tier, with no other answer needed. On an architecture where nearly every change touches an API contract, one question decided the ceremony for everything.</p>
+    <p class="status">Fixed on 15 August. Verified here by running the live change&rsquo;s own five answers rather than trusting the commit message: additive now lands one tier lower, breaking stays where it was, and a legacy answer of plain yes still resolves to the stricter side so no existing design is silently re-sized. The concrete win is the artifact count for that same ordinary change: <strong>two documents instead of seven</strong>.</p>
     <div class="scroll"><pre>if sensitive or not reversible_within_an_hour:  T3
 if changes_contract or consumers == "many":    T2   &lt;- one question, on its own
 if crosses_boundary or consumers == "some":    T1
@@ -420,7 +423,7 @@ otherwise:                                     T0</pre></div>
   <div class="body-col">
     <h3>The question nobody could answer</h3>
     <p class="status">The QC lead will not accept against a numbered criteria list, because what she finds is unnatural behaviour, interface problems once she is hands on, misunderstandings missed during design, and awkward text where the translator lacked context. None of that is an acceptance criterion, so a green gate systematically under-represents how much checking remains.</p>
-    <p class="status">The tooling half landed on 15 August. The behaviour table becomes the tester&rsquo;s own working sheet, one case per rule, plus an exploratory tail whose first charter is named <span class="mono">unnatural-behaviour</span>: the software does something nobody asked it to. A filled sheet reads back, and drafts new behaviour rules from what was found, so a discovery becomes a rule for next time instead of a comment on a ticket. Deliberately, none of it is a gate: the moment exploratory testing becomes a gate it stops being exploratory.</p>
+    <p class="status">The tooling half landed on 15 August. The behaviour table becomes the tester&rsquo;s own working sheet, one case per rule, plus an exploratory tail whose first charter is named <span class="mono">unnatural-behaviour</span>: the software does something nobody asked it to. A filled sheet reads back, and drafts new behaviour rules from what was found, so a discovery becomes a rule for next time instead of a comment on a ticket. Deliberately it is not a gate on what a tester finds: an empty table and malformed rows both pass, named in the sheet rather than refused, because the moment exploratory testing becomes a gate it stops being exploratory. One precision from the adversarial check: it does exit non-zero on an unreadable file or bad usage, so it can still turn a pipeline step red on an input error.</p>
     <div class="rec"><span class="label">Recommended</span><p>Run the sheet once on the live change and ask the QC lead the only question that matters: did it catch what she would have caught anyway. That answer is the acceptance test for the whole idea.</p></div>
     <ul class="alts"><li>Print what was NOT examined, by name, on every all-green summary: regression, cross-device, performance, interface. The cheapest way to stop a green verdict from lying about its own scope.</li><li>Measure the queue before and after, and publish the delta whether or not it moved.</li></ul>
   </div>
@@ -433,6 +436,27 @@ otherwise:                                     T0</pre></div>
     <p class="status">QC verifies far more slowly than developers now build with an assistant. That is a capacity fact, not a defect, and writing a proof list earlier adds a step without removing the bottleneck. The honest posture is to measure it, reveal it, remove labour that feeds it, and never add an obligation and call it a fix. The only measure that decides whether any of this worked stays the team&rsquo;s own queue numbers, not a gate verdict.</p>
   </div>
 </article>
+
+<h2>The holes nobody complained about</h2>
+<p>Every problem above was <em>raised</em>. That makes the list a good sample of the visible failures and a poor sample of the silent ones. A separate pass walked the whole lifecycle, from having an idea to a change somebody accepts, asking only one question: what has no tool at all? Nine, ranked by damage per unit of effort to close.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Stage</th><th>What is missing</th><th>Owner</th></tr></thead>
+  <tbody>
+    <tr><td>G1 measurement</td><td>Nothing computes the five queue numbers that everyone agreed decide whether this worked. They were hand-counted once and cannot be recomputed.</td><td>reveal only</td></tr>
+    <tr><td>G2 acceptance</td><td>There is no accepted state. The last thing the system knows is that evidence passed, never that a person accepted the result.</td><td>assurance</td></tr>
+    <tr><td>G3 deployment</td><td>Evidence binds to a commit, never to what is running. This is exactly how a week of review went into a build generations behind, with no verdict noticing.</td><td>assurance</td></tr>
+    <tr><td>G4 defects</td><td>A bug fix cannot be entered as one. It must be described as new work, so an escaped defect leaves no trace in the table that should have caught it.</td><td>assurance</td></tr>
+    <tr><td>G5 after merge</td><td>No reopen, rollback or escaped defect is recorded against the change that caused it, so no tier can ever be compared with its real outcome.</td><td>assurance</td></tr>
+    <tr><td>G6 discovered work</td><td>A requirement that appears mid-build has no event. A rule added after a test sheet was generated leaves that sheet short one case, silently.</td><td>assurance</td></tr>
+    <tr><td>G7 concentration</td><td>23 changes waiting on one reviewer and 11 in one tester&rsquo;s column are invisible to the router, which selects by capability and prints no load.</td><td>reveal only</td></tr>
+    <tr><td>G8 duration</td><td>No change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side and 48 undated tasks compare to nothing.</td><td>assurance</td></tr>
+    <tr><td>G9 one writer</td><td>The single-writer control is inert in the assurance repository: roughly twenty legacy claim lines it cannot parse, each reported as not enforced.</td><td>assurance</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>Five of those are one hole seen five times.</strong> G1, G2, G3, G5 and G8 all say the same thing: the system is complete up to the merge and blind after it. Everything it knows is about whether a change was <em>proven</em>. Almost nothing it knows is about whether the change <em>worked</em>.</p>
+<p>The pass also named what it found adequately covered, because a gap hunt that finds gaps everywhere has not hunted: design, single-person build execution, review routing and reviewer independence, test design, evidence execution, migration rollback, and handover between people.</p>
 
 <h2>Knowing when to stop and ask</h2>
 <p>A separate ask, and it is built rather than described. Three partial answers already existed: an automated controller that gives up after two failures, a sentence in a worker brief, and two watchdogs that notice a stuck machine. None of them noticed a stuck line of reasoning. Nothing counted that the same objective had defeated three different methods.</p>
@@ -453,13 +477,13 @@ otherwise:                                     T0</pre></div>
 
 <h2>The order, and the one next action</h2>
 <ol class="order">
-  <li>Ship the current build to the reviewers and ask for a re-read of P9 and P14. No engineering, and it closes or sharpens the two biggest findings.</li>
-  <li>The sizing split. Four lines, and it removes a tax everyone pays every day.</li>
-  <li>The escalation capability, which keeps everything above from failing silently. Built.</li>
+  <li><strong>Take the baseline first.</strong> The five queue numbers, counted once, however crudely. The sizing fix has already shipped, so part of the before-picture is already gone and every further hour loses more of it. Minutes of work, and the only item here that cannot be done later.</li>
+  <li>Push the work and cut a new version, then send the note. The published tag does not contain the two answers, so there is nothing to re-read until this happens.</li>
+  <li>The Windows first run. The earlier version of this order left it out, even though a non-developer being unable to reach a command line is the thing standing between this work and its own success measure.</li>
   <li>Print the unexamined classes as NO-DATA on every green summary. Small, and it permanently fixes the honesty of a green verdict.</li>
-  <li>Then P3, P7, P11, P6, P10, in that order.</li>
+  <li>Then the gate reading the plan, the PROVE rename, evidence provenance, and the staleness clock.</li>
 </ol>
-<p><strong>The one next action:</strong> send the current build to the analyst lead and the architecture reviewer, with P9 and P14 named, because every other decision here is cheaper to make once we know whether those two are actually closed.</p>
+<p><strong>The one next action:</strong> count the five queue numbers today, before anything else lands, because it is the only thing on this list that gets harder every hour and it is the measure everything else will be judged by.</p>
 
 <footer>
   Status lines were verified against source read on 15 August 2026, not against the review&rsquo;s description of the code. Where something could not be reproduced in the time available, it says so rather than being filed. Nothing here claims more than a check that ran.
