@@ -24,7 +24,7 @@ A REGRESSION TEST THAT HAS NOT BEEN FALSIFIED IS NOT A REGRESSION TEST. After
 fixing the Critical, the new test was proven by copying the tool outside the
 repository, deleting the fix from the COPY, and watching the test fail with
 the wrong session's name in its output. Evidence at
-~/Documents/BrotherModeUp-handovers/2026-08-15-seam-evidence/. The repository
+`~/Documents/BrotherModeUp-handovers/2026-08-15-seam-evidence/`. The repository
 was never modified to run it.
 
 A NUMBER TRUE IN ONE DIRECTORY IS NOT TRUE GENERALLY, and it landed three
@@ -54,7 +54,7 @@ PROJECT.md as the stable artifact, was NORTH-STAR-PUSH-BOARD.html. It reported
 OWED (stale) against a file three days older. Widened, with a control test
 proving a stale board is still reported stale.
 
-CROSS-SESSION COORDINATION PAID FOR ITSELF, TWICE. The concurrent BrotherModeUp
+CROSS-SESSION COORDINATION PAID FOR ITSELF, TWICE. The concurrent BrotherMode
 session held the answer to a blocker this session was about to re-derive, and
 released sole writer rather than colliding. The BrotherSBE session corrected a
 number this session had already told the founder, verified three of its claims

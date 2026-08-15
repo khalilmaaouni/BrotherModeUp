@@ -6,12 +6,12 @@ No em or en dashes.
 
 ## The one line
 
-BrotherModeUp's work is committed and pushed. The open work is in the SIBLING
+BrotherMode's work is committed and pushed. The open work is in the SIBLING
 repository: BrotherSBE pull request 48 is blocked by six red checks that
 reduce to one root cause, and that cause is diagnosed with the commands
 quoted below.
 
-## BrotherModeUp state, and exactly what is proven about it
+## BrotherMode state, and exactly what is proven about it
 
 Two commits, both pushed, both confirmed against the remote by comparing
 HEAD to @{u} after the push.
@@ -159,7 +159,7 @@ close 47 as superseded.
 
 ## What the founder decided, so it is not re-litigated
 
-1. Land on main at every green gate in BrotherModeUp, rather than branch and
+1. Land on main at every green gate in BrotherMode, rather than branch and
    pull request.
 2. Bitbucket is BLOCKED, not unverified, while that workspace is over its
    5-user limit. Work around it; do not retry pushes hoping they land.
@@ -180,6 +180,6 @@ close 47 as superseded.
   writes an ignore rule into a consumer repository, so `.brothermode/` and
   `.sbe/` land there neither tracked nor ignored. Ours carries the founder's
   recorded decisions with their alternatives.
-- The seam reads 4 of 5 fields carried in BrotherModeUp with a deposit
+- The seam reads 4 of 5 fields carried in BrotherMode's tree with a deposit
   present, and 2 of 5 in BrotherSBE with none. Quote it as a pair with both
   trees named, never as a property of the seam.
