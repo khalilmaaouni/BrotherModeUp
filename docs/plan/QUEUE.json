@@ -905,6 +905,18 @@
    ],
    "done_check": "a recorded founder decision exists naming scrub or leave, with its reason",
    "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
+  },
+  {
+   "id": "SBE19",
+   "title": "P2 tools/bm_escalate.py writes the founder's own objective and reason text to its ledger without passing it through redact_text, the same posture the sentinel tables had before SBE10 closed them. The file is owner-only at mode 0600 in a 0700 directory and local, so this is a decision for the module's author rather than an emergency: redact on the way in, or record why raw is right for a local ledger",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 25,
+   "files": [
+    "tools/bm_escalate.py"
+   ],
+   "done_check": "either the ledger write passes redaction, or the module carries a written justification naming what it holds raw",
+   "note": "found 2026-08-16 while reviewing the module's write sites, which the gate forced because a concurrent session committed it to main without registering it. Raised for its author rather than changed underneath them"
   }
  ]
 }

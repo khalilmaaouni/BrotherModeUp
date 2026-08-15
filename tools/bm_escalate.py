@@ -359,8 +359,16 @@ def cmd_attempt(args, root):
     verdict, trigger, reason = decide_verdict(records, args.objective)
     print("recorded. %s: %s" % (verdict, reason))
     if verdict == ESCALATE:
-        print("next: python3 tools/bm_escalate.py packet --objective %r "
-              "--recommendation ... --decision ... --default ..." % args.objective)
+        # P17: never print the repo-relative path. A reader who installed
+        # this does not have tools/ under their working directory, so the
+        # pasteable command has to name where this module actually is. This
+        # module imports no sibling on purpose, so it derives the path from
+        # itself rather than reaching for bm_store.invocation the way
+        # bm_stall.py can. Corrected 2026-08-16 after the shipping-message
+        # rule caught it on main.
+        print("next: python3 %s packet --objective %r "
+              "--recommendation ... --decision ... --default ..."
+              % (os.path.abspath(__file__), args.objective))
     return EXIT_OK
 
 
