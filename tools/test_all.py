@@ -234,6 +234,16 @@ SUITES = (
     # PURPOSE (see the file-level note above).
     "test_bm_effects.py",
     "test_bm_stall.py",
+    # The escalation surface (tools/bm_escalate.py), committed at 707d80c by
+    # a concurrent session that landed the suite without registering it here.
+    # The inventory check then did exactly its job: it REFUSED to run the
+    # gate at all rather than quietly running 35 suites while a 36th sat on
+    # disk unreached, which is the whole point of pairing a suite with this
+    # tuple. Registered on 2026-08-16 by the session that hit the refusal,
+    # after running the suite alone first (26 tests, OK), because
+    # registering a red suite would trade one silent gap for a loud one
+    # somebody else would have to unpick.
+    "test_bm_escalate.py",
     # The status line and footer links, the 2026-08-05 answer 7 named in
     # docs/program/absolute-lead/DESIGN-visual-surface.md section 14, item
     # 1: tools/bm_statusline.py, a fail silent script BrotherMode ships but
