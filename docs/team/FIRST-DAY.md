@@ -46,7 +46,18 @@ surprised you.
 
 **What you are proving:** one writer per file is structural, not advice.
 
-1. In your session, claim ownership of `notes.md` as part of some work.
+1. In your session, claim ownership of `notes.md` as part of some work: paste
+   this and ask it to run the command as written, filling in nothing itself.
+
+   ```
+   python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_store.py" claim notes-edit --lifetime ephemeral --objective "small change to notes.md" --files notes.md
+   ```
+
+   On a clone install, where that variable is unset, drop the
+   `${CLAUDE_PLUGIN_ROOT}/` part and run it from the BrotherMode root instead
+   (`~/.claude/skills/brothermode`). Good output names the work you claimed
+   and a version number: `claimed 'notes-edit' as lifecycle ... (version 1,
+   session ...)`.
 2. Open a **second** Claude Code session in the same folder.
 3. From that second session, try to edit `notes.md`.
 

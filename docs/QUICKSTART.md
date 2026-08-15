@@ -113,7 +113,15 @@ git clone --branch v3.3.0 --depth 1 https://github.com/khalilmaaouni/BrotherMode
 Expected: git prints a few lines ending in something like `Resolving deltas:
 100% (N/N), done.` The path matters: Claude Code looks for skills under
 `~/.claude/skills/`, and the scripts in this repo resolve their own location
-from there, so the clone IS the installation. Verify it landed:
+from there. This clone is step 1 of 3, not the finished install: nothing is
+wired yet. Step 3 below (`scripts/install.py`) is the step that wires the
+hooks and stamps this checkout with the commit it was installed from; skip
+it and you have a folder of files Claude Code never reads. One thing no
+step on this path ever does: register with Claude Code's own plugin manager
+(the list `claude plugin list` shows). That registry is written only by
+`claude plugin install` (Path 1 above). A clone install's health is checked
+by this project's own `scripts/doctor.py` instead, in step 3. Verify the
+clone landed:
 
 ```bash
 ls ~/.claude/skills/brothermode/SKILL.md
