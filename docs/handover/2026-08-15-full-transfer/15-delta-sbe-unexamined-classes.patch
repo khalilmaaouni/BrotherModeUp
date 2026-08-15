@@ -1,0 +1,145 @@
+diff --git a/tools/sbe_report.py b/tools/sbe_report.py
+index c9e1e8c..7e6d489 100644
+--- a/tools/sbe_report.py
++++ b/tools/sbe_report.py
+@@ -32,6 +32,14 @@ THE CONTRACT:
+   reaching into a fresh module object each time. Same reasoning, same shape,
+   as `tools/test_sbe_onepager.py` loading `sbe_onepager.py` by file location
+   rather than by package import.
++- Every report carries a NOT EXAMINED line naming, by class, whichever of
++  regression, cross-device, performance, user experience, and localisation
++  or translated copy is not mentioned anywhere in this report's own text
++  (see `UNEXAMINED_CLASSES`). This is reporting only: it never changes a
++  verdict, never changes the exit code, and never turns a PASS into a FAIL.
++  It exists because this project's evidence chain is acceptance-criteria
++  tasks and receipts only, so an all-green SUMMARY would otherwise read as
++  full coverage when these classes were never in scope of any gate here.
+ - `--html PATH` writes the same packet (SUMMARY plus the A1 one-pager, the
+   exact same text `build_report` produces, nothing re-derived) as ONE
+   self-contained HTML file: every style inline in a `<style>` block, zero
+@@ -101,12 +109,59 @@ def summarize(root):
+             % (len(tasks), passed, failed, no_data, unverified))
+ 
+ 
++# The classes of testing that sit entirely outside this project's whole
++# evidence chain (intake, verification plan, gates, receipts): every one of
++# them is anchored on numbered acceptance criteria, and none of these five
++# classes is a criterion any gate here checks. Named because the external
++# review's closing finding was exactly this: a green gate under-represents
++# how much checking remains, so a reviewer accepting against numbered
++# criteria is never told that regression, cross-device, performance,
++# user-experience, and localisation/translated-copy testing were never in
++# scope. One list, kept here only, so it is never scattered or restated.
++UNEXAMINED_CLASSES = (
++    ("regression", ("regression",)),
++    ("cross-device", ("cross-device", "cross device")),
++    ("performance", ("performance",)),
++    ("user experience", ("user experience", "usability")),
++    ("localisation or translated copy", ("localisation", "localization", "translat")),
++)
++
++
++def unexamined_classes_line(report_text):
++    """The NOT EXAMINED line: every class from UNEXAMINED_CLASSES whose
++    keywords do not appear anywhere in `report_text` (the SUMMARY plus the
++    full A1 one-pager: every task id, command, and verdict this run
++    produced) is named as NO-DATA, because this project's own vocabulary
++    treats NO-DATA as "nothing was examined", never a euphemism for a pass.
++
++    A keyword hit is read only as "some receipt or behaviour row mentions
++    this class"; it is never treated as proof the class was actually run,
++    so a class WITH a hit is simply left off this list rather than being
++    claimed as covered. This is a text scan over evidence already rendered
++    by onepager.render and summarize, not a new verdict: it adds no PASS,
++    FAIL, or exit code of its own."""
++    lowered = report_text.lower()
++    missing = [name for name, keywords in UNEXAMINED_CLASSES
++              if not any(kw in lowered for kw in keywords)]
++    if missing:
++        return ("NOT EXAMINED (NO-DATA): %s. This report's evidence chain is "
++                "acceptance-criteria tasks and receipts only; these classes are "
++                "never gated here, named so an all-green SUMMARY is never read "
++                "as full coverage." % ", ".join(missing))
++    return ("NOT EXAMINED: every class this line tracks (regression, "
++            "cross-device, performance, user experience, localisation or "
++            "translated copy) is mentioned somewhere in this report's own "
++            "text. A text match is not proof any of them actually ran.")
++
++
+ def build_report(root):
+-    """The full report text: the SUMMARY line, a blank line, then the A1
+-    one-pager verbatim (via onepager.render, never re-rendered here)."""
++    """The full report text: the SUMMARY line, the NOT EXAMINED line (see
++    `unexamined_classes_line`), a blank line, then the A1 one-pager verbatim
++    (via onepager.render, never re-rendered here)."""
+     summary = summarize(root)
+     page_lines = onepager.render(root)
+-    lines = [summary, ""] + page_lines
++    unexamined = unexamined_classes_line("\n".join([summary] + page_lines))
++    lines = [summary, unexamined, ""] + page_lines
+     return "\n".join(one_line(l) if l else "" for l in lines) + "\n"
+ 
+ 
+diff --git a/tools/test_sbe_report.py b/tools/test_sbe_report.py
+index 7b8b63b..8f14521 100644
+--- a/tools/test_sbe_report.py
++++ b/tools/test_sbe_report.py
+@@ -461,5 +461,58 @@ class TestHtmlCrashContainment(unittest.TestCase):
+         self.assertEqual(find_external_references(content), [])
+ 
+ 
++# ---------------------------------------------------------------------------
++# Unexamined test classes: the external review's closing finding was that an
++# all-green summary systematically under-represents how much checking
++# remains, because regression, cross-device, performance, user-experience,
++# and localisation testing sit entirely outside every gate and every
++# receipt. This is a REPORTING-ONLY change: it must never move the exit
++# code, and it must never turn a PASS into a FAIL.
++# ---------------------------------------------------------------------------
++
++class TestUnexaminedClassesNamedOnAllGreen(ReportCase):
++
++    def test_an_all_green_report_names_every_unexamined_class_as_no_data(self):
++        write_json(os.path.join(self.root, ".sbe", "tasks.json"),
++                   tasks_registry([one_task("T01")]))
++        write_json(os.path.join(self.root, ".sbe", "evidence", "T01-receipt.json"),
++                   {"command": "true", "verdict": "PASS"})
++        proc = self.run_once()
++        self.assertEqual(proc.returncode, 0, proc.stderr)
++        out = proc.stdout
++        self.assertIn("1 PASS, 0 FAIL, 0 NO-DATA, 0 unverified", out,
++                      "calibration: this must actually be an all-green summary")
++        self.assertIn("NOT EXAMINED", out)
++        self.assertIn("NO-DATA", out)
++        for cls in ("regression", "cross-device", "performance",
++                    "user experience", "localisation"):
++            self.assertIn(cls, out, "the unexamined line must name %r" % cls)
++
++    def test_exit_code_is_unaffected_by_the_unexamined_classes_line(self):
++        write_json(os.path.join(self.root, ".sbe", "tasks.json"),
++                   tasks_registry([one_task("T-FAIL")]))
++        write_json(os.path.join(self.root, ".sbe", "evidence", "T-FAIL-receipt.json"),
++                   {"command": "false", "verdict": "FAIL"})
++        proc = self.run_once()
++        self.assertEqual(proc.returncode, 0,
++                         "a reporter must never fail a build, before or after: %s"
++                         % proc.stderr)
++
++    def test_a_class_named_by_a_receipt_command_is_not_reported_as_unexamined(self):
++        write_json(os.path.join(self.root, ".sbe", "tasks.json"),
++                   tasks_registry([one_task("T-REG",
++                                            verify="pytest tests/test_regression.py")]))
++        write_json(os.path.join(self.root, ".sbe", "evidence", "T-REG-receipt.json"),
++                   {"command": "pytest tests/test_regression.py", "verdict": "PASS"})
++        out = self.run_once().stdout
++        # The regression class has a receipt naming it: it must not appear in
++        # the unexamined-classes line's list of missing classes, even though
++        # the word appears elsewhere in the page too.
++        unexamined_line = [l for l in out.splitlines() if l.startswith("NOT EXAMINED")][0]
++        self.assertNotIn("regression", unexamined_line)
++        for cls in ("cross-device", "performance", "user experience", "localisation"):
++            self.assertIn(cls, unexamined_line)
++
++
+ if __name__ == "__main__":
+     unittest.main(verbosity=1)

@@ -1,0 +1,584 @@
+<title>Intent to Verified Reality</title>
+<style>
+  :root {
+    --paper: #F7F8F6;
+    --surface: #FFFFFF;
+    --ink: #141B22;
+    --ink-soft: #4A5560;
+    --ink-faint: #7C8791;
+    --rule: #DFE3DE;
+    --petrol: #0E7A6F;
+    --petrol-wash: #E7F1EF;
+    --missing: #9B3A2F;
+    --missing-wash: #F6E9E6;
+    --partial: #8A6410;
+    --partial-wash: #F5EEDC;
+    --human: #2C4A7C;
+    --human-wash: #E6ECF5;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Seravek, "Gill Sans Nova", Avenir, "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #101720; --surface: #16202A; --ink: #E8ECE9; --ink-soft: #AEB8C0;
+      --ink-faint: #7E8A94; --rule: #26323D;
+      --petrol: #3AA893; --petrol-wash: #10302C;
+      --missing: #E0806F; --missing-wash: #341E1A;
+      --partial: #D6A94A; --partial-wash: #2E2716;
+      --human: #8FB0E0; --human-wash: #17233A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101720; --surface: #16202A; --ink: #E8ECE9; --ink-soft: #AEB8C0;
+    --ink-faint: #7E8A94; --rule: #26323D;
+    --petrol: #3AA893; --petrol-wash: #10302C;
+    --missing: #E0806F; --missing-wash: #341E1A;
+    --partial: #D6A94A; --partial-wash: #2E2716;
+    --human: #8FB0E0; --human-wash: #17233A;
+  }
+
+  body {
+    background: var(--paper); color: var(--ink); font-family: var(--body);
+    font-size: 17px; line-height: 1.6; margin: 0; padding: 0 5vw 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 58rem; margin: 0 auto; }
+  header { padding: 4rem 0 2rem; border-bottom: 2px solid var(--ink); display: grid; gap: 0.8rem; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--petrol);
+  }
+  h1 {
+    font-family: var(--display); font-weight: 400; margin: 0;
+    font-size: clamp(2.3rem, 6vw, 3.6rem); line-height: 1.06;
+    letter-spacing: -0.015em; text-wrap: balance;
+  }
+  .standfirst { font-size: 1.1rem; color: var(--ink-soft); max-width: 42rem; margin: 0; }
+  h2 {
+    font-family: var(--display); font-weight: 400; font-size: 1.55rem;
+    margin: 3.2rem 0 0.5rem; text-wrap: balance;
+  }
+  p { max-width: 44rem; }
+
+  .chain { display: grid; gap: 0; margin: 2.5rem 0 1rem; }
+  .stage {
+    display: grid; grid-template-columns: 12rem 1fr; gap: 0 1.5rem;
+    align-items: start; padding: 1rem 1.2rem;
+    background: var(--surface); border: 1px solid var(--rule);
+  }
+  .arrow {
+    font-family: var(--mono); color: var(--ink-faint); font-size: 1.1rem;
+    line-height: 1; padding: 0.35rem 0; text-align: center;
+  }
+  .stage .name { font-family: var(--display); font-size: 1.15rem; line-height: 1.25; }
+  .stage .what { margin: 0; color: var(--ink-soft); font-size: 0.97rem; }
+  .state {
+    display: inline-block; margin-top: 0.35rem;
+    font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.09em;
+    text-transform: uppercase; padding: 0.22rem 0.45rem;
+    border: 1px solid currentColor; line-height: 1.2;
+  }
+  .s-good { color: var(--petrol); background: var(--petrol-wash); }
+  .s-part { color: var(--partial); background: var(--partial-wash); }
+  .s-none { color: var(--missing); background: var(--missing-wash); }
+  .s-host { color: var(--ink-faint); background: transparent; }
+  .stage.human { border-color: var(--human); border-width: 2px; background: var(--human-wash); }
+  .stage.human .name { color: var(--human); }
+  .s-human { color: var(--human); background: transparent; }
+
+  .methods { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; }
+  .methods span {
+    font-family: var(--mono); font-size: 0.72rem; padding: 0.2rem 0.5rem;
+    border: 1px dashed var(--rule); color: var(--ink-soft);
+  }
+  .concerns {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.35rem; margin-top: 0.6rem;
+  }
+  .concerns span {
+    font-family: var(--mono); font-size: 0.72rem; padding: 0.28rem 0.45rem;
+    border-left: 3px solid var(--rule); color: var(--ink-soft);
+  }
+  .concerns span.good { border-left-color: var(--petrol); }
+  .concerns span.part { border-left-color: var(--partial); }
+  .concerns span.none { border-left-color: var(--missing); color: var(--missing); }
+
+  .rules { display: grid; gap: 1rem; margin-top: 1.5rem; }
+  .rule {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--petrol); padding: 1.1rem 1.3rem;
+    display: grid; gap: 0.4rem;
+  }
+  .rule h3 {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--petrol); margin: 0; font-weight: 400;
+  }
+  .rule p { margin: 0; }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93rem; margin-top: 0.6rem; }
+  th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--ink-faint); border-bottom: 1px solid var(--ink-soft);
+  }
+  td:first-child { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.3rem; border-top: 2px solid var(--ink);
+    font-size: 0.9rem; color: var(--ink-faint); max-width: 44rem;
+  }
+  footer p { max-width: 44rem; }
+  a { color: var(--petrol); }
+  a:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+  /* Deep-detail sections */
+  .numbered { display: grid; gap: 0.9rem; margin: 1.2rem 0; counter-reset: item; }
+  .numbered > div {
+    display: grid; grid-template-columns: 2rem 1fr; gap: 0 0.9rem;
+    align-items: baseline;
+  }
+  .numbered > div::before {
+    counter-increment: item; content: counter(item);
+    font-family: var(--mono); font-size: 0.78rem; color: var(--petrol);
+    font-variant-numeric: tabular-nums;
+  }
+  .numbered strong { font-weight: 600; }
+  .numbered p { margin: 0.2rem 0 0; color: var(--ink-soft); }
+
+  .passport {
+    display: grid; grid-template-columns: 13rem 1fr; gap: 0.1rem 1.2rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--petrol); padding: 1.2rem 1.3rem; margin: 1.2rem 0;
+  }
+  .passport dt {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--petrol); padding-top: 0.55rem;
+  }
+  .passport dd { margin: 0; padding: 0.5rem 0; color: var(--ink-soft); border-bottom: 1px solid var(--rule); }
+  .passport dd:last-of-type { border-bottom: 0; }
+  .passport dt.critical { color: var(--missing); }
+  .passport dd.critical { color: var(--ink); }
+
+  .note {
+    background: var(--partial-wash); border-left: 4px solid var(--partial);
+    padding: 0.9rem 1.1rem; margin: 1.2rem 0; color: var(--ink);
+  }
+  .note p { margin: 0; }
+  .note strong { color: var(--partial); }
+
+  .cases { display: grid; gap: 1rem; margin-top: 1.2rem; }
+  .case {
+    background: var(--surface); border: 1px solid var(--rule);
+    padding: 1.1rem 1.3rem; display: grid; gap: 0.4rem;
+  }
+  .case h3 {
+    font-family: var(--display); font-size: 1.12rem; margin: 0; font-weight: 400;
+  }
+  .case p { margin: 0; color: var(--ink-soft); }
+
+  @media (max-width: 640px) {
+    .stage { grid-template-columns: 1fr; gap: 0.5rem; }
+    .passport { grid-template-columns: 1fr; gap: 0.1rem; }
+    .passport dt { padding-top: 0.7rem; }
+  }
+
+  /* Contents strip */
+  .toc {
+    display: flex; flex-wrap: wrap; gap: 0.15rem 1.4rem;
+    padding: 0.9rem 0 0; margin: 0;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.02em;
+  }
+  .toc a { color: var(--ink-faint); text-decoration: none; border-bottom: 1px solid transparent; }
+  .toc a:hover, .toc a:focus-visible { color: var(--petrol); border-bottom-color: var(--petrol); }
+
+  /* Status strip */
+  .tally {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    margin: 2.2rem 0 0.8rem;
+  }
+  .tally div { background: var(--surface); padding: 1rem 1.1rem; display: grid; gap: 0.25rem; }
+  .tally .n {
+    font-family: var(--display); font-size: 2rem; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tally .k {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .tally .n.good { color: var(--petrol); }
+  .tally .n.part { color: var(--partial); }
+  .tally .n.none { color: var(--missing); }
+
+  /* Figure */
+  figure { margin: 1.6rem 0 0.6rem; }
+  figure svg { max-width: 100%; height: auto; display: block; min-width: 46rem; }
+  figcaption {
+    font-size: 0.88rem; color: var(--ink-faint); margin-top: 0.7rem;
+    max-width: 44rem;
+  }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; margin-top: 0.7rem;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .swatch { width: 0.75rem; height: 0.75rem; border: 1px solid currentColor; display: inline-block; }
+  .swatch.good { color: var(--petrol); background: var(--petrol-wash); }
+  .swatch.part { color: var(--partial); background: var(--partial-wash); }
+  .swatch.none { color: var(--missing); background: var(--missing-wash); }
+  .swatch.dot { border-radius: 50%; color: var(--human); background: var(--human); }
+
+  /* Diagram styling lives here rather than in presentation attributes: a CSS
+     custom property inside an SVG attribute is far less reliable across
+     renderers than the same value applied through a stylesheet rule. */
+  .flow { color: var(--ink); }
+  .flow .box { fill: var(--surface); stroke-width: 1.6; }
+  .flow .box.part { stroke: var(--partial); }
+  .flow .box.none { stroke: var(--missing); }
+  .flow .box.host { stroke: var(--ink-faint); stroke-width: 1.2; }
+  .flow .box.human { fill: var(--human-wash); stroke: var(--human); stroke-width: 2.2; }
+  .flow .dot { fill: var(--human); }
+  .flow .title { font-family: var(--display); font-size: 15px; fill: var(--ink); text-anchor: middle; }
+  .flow .title.human { fill: var(--human); }
+  .flow .who { font-family: var(--mono); font-size: 9px; fill: var(--ink-faint); text-anchor: middle; }
+  .flow .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-faint); text-anchor: middle; }
+  .flow .link { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; }
+  .flow .back { stroke: var(--missing); stroke-width: 1.6; fill: none; stroke-dasharray: 7 5; }
+  .flow .back-label { font-family: var(--mono); font-size: 10px; fill: var(--missing); text-anchor: middle; }
+  .flow .head { fill: var(--ink-faint); }
+  .flow .head-none { fill: var(--missing); }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">The operating model</div>
+  <h1>Intent to Verified Reality</h1>
+  <p class="standfirst">One chain, eight stages, and a human decision that no automation may remove. This is the north star for what gets built and how it gets built.</p>
+</header>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#flow">The flow</a>
+  <a href="#stages">Every stage in detail</a>
+  <a href="#passport">A filled passport</a>
+  <a href="#roles">Who does what</a>
+  <a href="#walks">Four ways to walk it</a>
+  <a href="#rules">The two rules</a>
+  <a href="#gaps">Where the gaps came from</a>
+</nav>
+
+<div class="tally">
+  <div><span class="n good">1</span><span class="k">stage that works</span></div>
+  <div><span class="n part">5</span><span class="k">partly there</span></div>
+  <div><span class="n none">2</span><span class="k">do not exist</span></div>
+  <div><span class="n">4</span><span class="k">points a human decides</span></div>
+</div>
+
+<h2 id="flow">The flow, and the loop nobody has built</h2>
+<p>The chain is usually drawn as a straight line from an idea to a release. It is not a line, it is a loop: what the change actually does in the world is where the next intent comes from. That return edge is drawn here in red because <strong>nothing carries it today</strong>, which is why a defect cannot be entered as a defect and a requirement discovered mid-build tells nobody.</p>
+
+<figure>
+<svg class="flow" viewBox="0 0 1100 330" role="img" aria-label="The delivery chain as a loop: intent, method, execution, passport, assurance, human decision, release, and verified reality, with a return edge from verified reality back to intent that is not built. Four stages carry a human decision point.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+    <marker id="ar-none" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head-none" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+  </defs>
+
+  <g class="edge">
+    <text x="136" y="101">a goal</text>
+    <text x="274" y="101">a way of working</text>
+    <text x="412" y="101">what actually happened</text>
+    <text x="550" y="101">the passport</text>
+    <text x="688" y="101">proven, and not proven</text>
+    <text x="826" y="101">a yes, from a person</text>
+    <text x="964" y="101">the change, live</text>
+  </g>
+
+  <g class="link" marker-end="url(#ar)">
+    <line x1="122" y1="144" x2="146" y2="144"/>
+    <line x1="260" y1="144" x2="284" y2="144"/>
+    <line x1="398" y1="144" x2="422" y2="144"/>
+    <line x1="536" y1="144" x2="560" y2="144"/>
+    <line x1="674" y1="144" x2="698" y2="144"/>
+    <line x1="812" y1="144" x2="836" y2="144"/>
+    <line x1="950" y1="144" x2="974" y2="144"/>
+  </g>
+
+  <g>
+    <rect class="box part" x="12"  y="110" width="110" height="68"/>
+    <rect class="box part" x="150" y="110" width="110" height="68"/>
+    <rect class="box part" x="288" y="110" width="110" height="68"/>
+    <rect class="box none" x="426" y="110" width="110" height="68"/>
+    <rect class="box part" x="564" y="110" width="110" height="68"/>
+    <rect class="box human" x="702" y="110" width="110" height="68"/>
+    <rect class="box host" x="840" y="110" width="110" height="68"/>
+    <rect class="box none" x="978" y="110" width="110" height="68"/>
+  </g>
+
+  <g class="dot">
+    <circle cx="108" cy="122" r="4.5"/>
+    <circle cx="384" cy="122" r="4.5"/>
+    <circle cx="798" cy="122" r="4.5"/>
+    <circle cx="1074" cy="122" r="4.5"/>
+  </g>
+
+  <g>
+    <text class="title" x="67"   y="141">Intent</text>
+    <text class="title" x="205"  y="141">Method</text>
+    <text class="title" x="343"  y="141">Execution</text>
+    <text class="title" x="481"  y="141">Passport</text>
+    <text class="title" x="619"  y="141">Assurance</text>
+    <text class="title human" x="757" y="141">Decision</text>
+    <text class="title" x="895"  y="141">Release</text>
+    <text class="title" x="1033" y="141">Reality</text>
+  </g>
+  <g>
+    <text class="who" x="67"   y="162">a person</text>
+    <text class="who" x="205"  y="162">theirs, or ours</text>
+    <text class="who" x="343"  y="162">BrotherMode</text>
+    <text class="who" x="481"  y="162">the only seam</text>
+    <text class="who" x="619"  y="162">BrotherSBE</text>
+    <text class="who" x="757"  y="162">a person</text>
+    <text class="who" x="895"  y="162">the host</text>
+    <text class="who" x="1033" y="162">the world</text>
+  </g>
+
+  <path class="back" marker-end="url(#ar-none)"
+        d="M 1033 178 L 1033 258 Q 1033 274 1017 274 L 83 274 Q 67 274 67 258 L 67 186"/>
+  <text class="back-label" x="550" y="295">defects, rollbacks and requirements discovered during the build: nothing carries this today</text>
+</svg>
+<figcaption>Read left to right, then follow the red edge back. The dot marks a point where a person decides, and there are four of them, not one. The passport is the single crossing between the two products, so either side can be replaced as long as it can fill in or read those five fields.</figcaption>
+</figure>
+
+<div class="legend">
+  <span><i class="swatch good"></i> exists and refuses something</span>
+  <span><i class="swatch part"></i> exists and can be walked past</span>
+  <span><i class="swatch none"></i> does not exist</span>
+  <span><i class="swatch dot"></i> a person decides here</span>
+</div>
+
+<p>The colour on each stage is where that stage stands today, not where it is meant to end up. Four of the last five do not exist yet, and saying so is the point: a diagram that only draws the finished shape hides the work.</p>
+
+<h2 id="stages">Every stage in detail</h2>
+<div class="chain">
+
+  <div class="stage">
+    <div><div class="name">Human intent</div><span class="state s-part">Partial</span></div>
+    <div><p class="what">A person wants something. <strong>The only stage no software may originate.</strong> Everything downstream exists either to carry it faithfully or to report honestly that it could not.</p>
+      <div class="concerns">
+        <span class="good">the goal, in the person&rsquo;s own words</span>
+        <span class="good">what is in scope and what is out</span>
+        <span class="good">how we will know it worked</span>
+        <span class="none">the questions asked and the answers given, before planning starts</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Where the gap is.</strong> The first three are recorded fields today. The fourth is not: nothing enforces or keeps a discussion before planning, so the exploration that produced the goal evaporates with the conversation. Two reviewers reported that independently, from different projects.</p>
+      <p class="what" style="margin-top:0.4rem">A requirement that appears <em>during</em> the build re-enters here, and today it tells nobody: a rule added after a test sheet was generated leaves that sheet one case short, silently.</p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Development method</div><span class="state s-part">No floor yet</span></div>
+    <div><p class="what">However the team already works. Interchangeable on purpose: neither product owns a method, competes with one, or requires one.</p>
+      <div class="methods"><span>Claude native</span><span>GSD</span><span>BMAD</span><span>Superpowers</span><span>whatever is next</span></div>
+      <p class="what" style="margin-top:0.6rem"><strong>Interchangeable does not mean optional.</strong> Most people arrive with none of these installed, and today that leaves this stage empty for them. BrotherMode owes a native floor: genuinely good on its own, walked through rather than written down, stepping aside the moment a real method is present, and never becoming a requirement. The routing that would defer to an installed method already runs. The floor it degrades to is a sentence, not a method.</p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">BrotherMode</div><span class="state s-part">One hole</span></div>
+    <div><p class="what"><strong>Execution provenance:</strong> an account of what happened that somebody else can check. Not process compliance, not a diary. The record as it really occurred, including the parts that went badly. Six mechanisms produce it, and each produces a record rather than a feeling.</p>
+      <div class="concerns">
+        <span class="good">ground map before any write</span>
+        <span class="none">claims, one writer per file</span>
+        <span class="good">the work record and its lifecycle</span>
+        <span class="good">the done-check rule</span>
+        <span class="good">handover when a session ends</span>
+        <span class="good">escalation when stuck</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Where the hole is, and it turned out to be worse than first drawn.</strong> The one-writer control is inert in two ways. In the assurance repository, roughly twenty legacy claim lines cannot be parsed and are not enforced. And on the machine that wrote this page, <strong>BrotherMode&rsquo;s fence hook is not running at all</strong>: it appears zero times in every settings file, and this product is absent from the 68 registered plugins. A write across a live claim WAS refused during this session, and that refusal came from the sibling&rsquo;s hook, which is registered. The protection was real and it was the other product&rsquo;s.</p>
+      <p class="what" style="margin-top:0.4rem">The other five mechanisms ran. Everything invoked as a command works exactly as documented, because a command is not a hook. It is the automatic half, the part meant to fire without being remembered, that is inert on the install shape people actually use.</p>
+      <p class="what" style="margin-top:0.4rem"><em>It does not decide whether a change is safe, classify risk, own review, or judge the work. A product that both does the work and grades it is grading itself.</em></p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Change passport</div><span class="state s-none">Does not exist</span></div>
+    <div><p class="what">The one object that travels from execution to assurance, and the <strong>only</strong> seam between the two products. Without it each side reaches into the other&rsquo;s internals, both drift, and neither can ever be replaced. Five fields, and no more.</p>
+      <div class="concerns">
+        <span class="part">1. what was done: change identity, commit range, files</span>
+        <span class="part">2. who did it: sessions, claims, the accountable person by name</span>
+        <span class="part">3. what was run: each check, its result, and whether a build system or a laptop produced it</span>
+        <span class="none">4. what was NOT established: mandatory, never empty</span>
+        <span class="part">5. where it came from: the method, named and not judged</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Field four is why the passport is worth carrying.</strong> A reviewer reads one line and knows where to spend attention. A tester who keeps finding interface problems nobody wrote down is handed the exact list of places nobody looked. A passport claiming nothing is unexamined is the precise lie this chain exists to prevent.</p>
+      <p class="what" style="margin-top:0.4rem"><em>BrotherMode produces it, BrotherSBE consumes it, it never travels back. Anything assurance needs that it does not carry is a defect in the passport, not permission to reach into execution state.</em></p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">BrotherSBE</div><span class="state s-part">Five of eight</span></div>
+    <div><p class="what"><strong>Assurance: it owns what must be proven, and verifies that it was.</strong> It borrows execution entirely, so a better coding agent or a better scanner makes it better. Eight concerns, each coloured by what exists today.</p>
+      <div class="concerns">
+        <span class="good">behaviour: the rules the software must follow under stated conditions</span>
+        <span class="none">business impact: what it is worth, and what getting it wrong costs</span>
+        <span class="good">risk: how bad failure would be, which decides how much ceremony</span>
+        <span class="good">required proof: what must be shown before this may proceed</span>
+        <span class="part">evidence integrity: whether the proof is real, current and traceable</span>
+        <span class="part">accountability: who decided, who reviewed, who owns the result</span>
+        <span class="none">release readiness: whether this may go, stated as a judgement</span>
+        <span class="none">production observation: what it did once it was actually running</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Reading the colours.</strong> Green means it exists and refuses something: behaviour has a table whose check rejects four separate ways to fake it, and risk is computed from five intake answers. Amber means it exists and can be walked past: evidence binds to a commit but never records whether a build system or a laptop produced it, and reviewer load is invisible so one person silently becomes the queue. Red means nothing at all, and the three reds are the same three the whole chain is missing at the end.</p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage human">
+    <div><div class="name">Human decision</div><span class="state s-human">Unconditional</span></div>
+    <div><p class="what">A person decides to release, or not. <strong>This node may never be removed, shortened to a rubber stamp, or pre-approved.</strong> The system&rsquo;s job is to make the decision cheap and well informed, never to make it unnecessary.</p>
+      <div class="concerns">
+        <span class="part">what was found</span>
+        <span class="part">the recommendation, and it is refused if absent</span>
+        <span class="part">the alternatives not tried</span>
+        <span class="part">the risk if the system guesses</span>
+        <span class="part">the one decision needed</span>
+        <span class="part">what happens if nobody answers, also refused if absent</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Humans are in the loop at four points,</strong> not one: the intent that starts the chain, any forcing condition where guessing is the danger, this release decision, and the acceptance that closes it. A change that removes, bypasses or silently pre-answers any of the four is refused whatever it saves.</p>
+      <p class="what" style="margin-top:0.4rem">The packet above is built and refuses to print hollow. What is still missing is the other half: <strong>no record of an acceptance ever happening.</strong> So the system can now ask a person well, and still cannot say afterwards who said yes.</p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Release</div><span class="state s-host">The host does this</span></div>
+    <div><p class="what">The change reaches the world: a merge, a deploy, a published package, on GitHub or Bitbucket or whatever pipeline the team already runs. Both products stop at the pull request, so no piece of work may claim this stage as its own, and the queue check refuses one that tries.</p>
+      <div class="concerns">
+        <span class="good">the host merges, deploys or publishes</span>
+        <span class="part">the human decision must already be recorded: who accepted, when, against what</span>
+        <span class="none">that record does not exist today, so &ldquo;who accepted this&rdquo; has no answer</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Why neither product performs it,</strong> and the second reason is the real one. Scope: a deployment platform is a different product and doing it badly is worse than not doing it. And structure: <em>a system that can both approve and release has no gap in it for a person to stand in.</em> Release is the last point where somebody can still say no, so the products stay on the near side of that line.</p>
+    </div>
+  </div>
+  <div class="arrow">&darr;</div>
+
+  <div class="stage">
+    <div><div class="name">Verified reality</div><span class="state s-none">Does not exist</span></div>
+    <div><p class="what">Whether it actually worked, <strong>observed rather than asserted</strong>. The terminal state, and deliberately not &ldquo;the gate went green&rdquo;: a green gate is a claim about <em>proof</em>, verified reality is a claim about the <em>world</em>. Four things would count, none of them opinions.</p>
+      <div class="concerns">
+        <span class="none">no material reopen within seven days</span>
+        <span class="none">no rollback, incident or emergency fix against it</span>
+        <span class="none">the acceptance held: whoever accepted it did not come back</span>
+        <span class="none">the team&rsquo;s own queue numbers moved, or did not</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Why the two come apart constantly.</strong> Acceptance criteria describe core functions, while the problems a good tester finds are unnatural behaviour, misunderstandings from the design phase, and text a translator wrote without context. Every one of those sits comfortably inside a fully green change.</p>
+      <p class="what" style="margin-top:0.4rem">All four are red because nothing computes any of them. There is no post-merge record at all, so a risk tier can never be compared with its real outcome, and the agreed success measure cannot even be recomputed. The seven-day test already sat in the ratified delivery definition, which means the north star was reaching for this stage before the chain was ever drawn.</p>
+    </div>
+  </div>
+
+</div>
+
+<h2 id="passport">A filled change passport</h2>
+<p>The card above lists the five fields. This is one filled in, so the shape is unambiguous: a new optional field pulled from the content system through the API to the client.</p>
+<dl class="passport">
+  <dt>What was done</dt>
+  <dd>Add an optional <span class="mono">fax_account_id</span> field, pulled from the CMS through the API to the client. 4 commits, 6 files.</dd>
+  <dt>Who did it</dt>
+  <dd>One session, holding claims on those six files. The accountable human is the engineer who opened it, by name, never by role.</dd>
+  <dt>What was run</dt>
+  <dd>The unit suite, green, produced by the build system, run 47812. The type check, green, same source. Where evidence came from is part of the evidence.</dd>
+  <dt class="critical">What was NOT established</dt>
+  <dd class="critical">No regression pass. No cross-device check. No performance measurement. No interface review. The translated strings were not read by anyone who speaks the language.</dd>
+  <dt>Where it came from</dt>
+  <dd>The team&rsquo;s own specification-first flow. Named, not judged.</dd>
+</dl>
+<p><strong>That fourth field is what makes the passport worth carrying,</strong> and it may never be empty. A reviewer reading it knows in one line where to spend their attention. A tester who keeps finding interface problems nobody wrote down is being handed the exact list of places nobody looked. A passport claiming that nothing is unexamined is the precise lie this whole chain exists to prevent.</p>
+<p><strong>Direction of travel.</strong> BrotherMode produces it, BrotherSBE consumes it, it never travels back. If the assurance side needs something the passport does not carry, that is a defect in the passport, not permission to reach into execution state.</p>
+
+<h2 id="roles">Who does what, stage by stage</h2>
+<p>The short version of the whole page. The last column is the one that may never be automated away.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Stage</th><th>BrotherMode</th><th>BrotherSBE</th><th>The human</th></tr></thead>
+  <tbody>
+    <tr><td>Human intent</td><td>records goal, scope, success criteria</td><td>nothing</td><td>states what they actually want</td></tr>
+    <tr><td>Method</td><td>fills the stage when nothing is installed, steps aside when something is</td><td>nothing</td><td>picks a method, or has none and is carried anyway</td></tr>
+    <tr><td>Execution</td><td>claims files, records the work, enforces the done-check, hands over, escalates</td><td>nothing</td><td>decides at any forcing condition</td></tr>
+    <tr><td>Passport</td><td>produces it</td><td>consumes it</td><td>nothing</td></tr>
+    <tr><td>Assurance</td><td>nothing</td><td>risk, required proof, evidence integrity, behaviour, accountability, readiness</td><td>answers what only a person can answer</td></tr>
+    <tr><td>Human decision</td><td>presents it with a recommendation and a default</td><td>supplies what is proven and what is not</td><td>decides, and is named for it</td></tr>
+    <tr><td>Release</td><td>stops here</td><td>stops here</td><td>releases</td></tr>
+    <tr><td>Verified reality</td><td>should record the outcome (does not yet)</td><td>should compare outcome against risk tier (does not yet)</td><td>says whether it actually worked</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="walks">The same chain, walked four ways</h2>
+<p>One shape, and it should feel different depending on who you are. If it feels identical for all four, it is too heavy for the first and too light for the last.</p>
+<div class="cases">
+  <div class="case">
+    <h3>One person, one small change</h3>
+    <p>Intent is a sentence. The method is whatever they already do. Provenance costs seconds: a claim, a record, a done-check. The passport is thin and its fourth field is honest, because nothing was checked but the unit suite. Assurance sits at the lowest tier, two artifacts rather than seven. The decision-maker is the same person, and the system says so plainly instead of pretending a review happened. This path has to stay fast, because a skipped path records nothing at all.</p>
+  </div>
+  <div class="case">
+    <h3>A team, a risky migration</h3>
+    <p>Intent is a specification. Assurance is the highest tier: both directions of the migration proven against a restore, real row counts, an approval signed by somebody other than the author, and evidence produced by the build system rather than a laptop. The passport&rsquo;s fourth field is long, and it is the most valuable page in the change. The decision belongs to a named accountable person, and the release waits for them.</p>
+  </div>
+  <div class="case">
+    <h3>Somebody who does not write code</h3>
+    <p>An analyst or a tester meets the chain at three points only: stating the intent, writing what the software must do under stated conditions, and deciding whether what came back is right. They should never meet a claim, a fence, a risk tier or a receipt. The measure of whether this works for them is whether their first hour goes on the work or on installing prerequisites, and today it goes on prerequisites.</p>
+  </div>
+  <div class="case">
+    <h3>A consultancy proving diligence</h3>
+    <p>Here the chain <em>is</em> the deliverable. Every stage leaves a record a client can read: what was intended, what was decided and why, what was proven, what was honestly not proven, who accepted it, and what happened afterwards. The fourth passport field is what makes it credible rather than marketing, because a report listing only what went well gets read as one.</p>
+  </div>
+</div>
+
+<h2 id="rules">The two rules this imposes on everything</h2>
+<div class="rules">
+  <div class="rule">
+    <h3>Rule one: the human loop is never optimised away</h3>
+    <p>Humans stay in the loop at four points: the intent that starts the chain, any forcing condition where guessing is the danger, the release decision, and the acceptance that closes it. A change that removes, bypasses or silently pre-answers one of those is refused, whatever it saves.</p>
+    <p>This is a mechanism, not an intention. A stuck run now converts itself into a named decision for a person, with a recommendation and a default action, on four triggers: a danger where guessing is the risk, three distinct approaches failed, two failures sharing one root cause, or a spent budget. It never answers the question itself and never decides on anyone&rsquo;s behalf.</p>
+  </div>
+  <div class="rule">
+    <h3>Rule two: every item of work names its stage</h3>
+    <p>Work that cannot name the stage it serves goes to the parking lot, not the backlog. This is now checked rather than remembered: the queue knows the fourteen stage names, an item naming one that does not exist fails hard and names the item, and an item naming none is reported on every run without breaking anything. Today 37 queued items name no stage, and the check says so out loud.</p>
+  </div>
+</div>
+
+<h2 id="gaps">Where the gaps came from, which is the part worth trusting</h2>
+<p>Nine holes were found earlier the same day by walking the lifecycle and asking what has no tool at all, before this chain was written down. Five of the nine turned out to be one hole seen five times: <strong>the system is complete up to the merge and blind after it.</strong></p>
+<p>This chain names that same hole from the opposite direction. Its last four stages are exactly the four that do not exist. The gaps are not scattered debt, they are the unbuilt half of the model, and two independent passes reached it within an hour of each other.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Hole found</th><th>Stage it belongs to</th></tr></thead>
+  <tbody>
+    <tr><td>H1 nothing computes the success measure</td><td>verified reality</td></tr>
+    <tr><td>H2 no accepted state</td><td>human decision</td></tr>
+    <tr><td>H3 evidence binds to a commit, not to what runs</td><td>production observation</td></tr>
+    <tr><td>H4 a defect cannot be entered as a defect</td><td>the return edge, reality back to intent</td></tr>
+    <tr><td>H5 nothing recorded after merge</td><td>verified reality</td></tr>
+    <tr><td>H6 a requirement discovered mid-build tells nobody</td><td>intent, re-entering mid-chain</td></tr>
+    <tr><td>H7 reviewer concentration invisible</td><td>accountability</td></tr>
+    <tr><td>H8 no opened-at and closed-at pair</td><td>business impact</td></tr>
+    <tr><td>H9 the one-writer control is inert</td><td>execution provenance</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p><strong>How the states on this page were decided, since a coloured chip is a claim.</strong> Verified directly, by running or reading the code on 15 August 2026: behaviour, risk, evidence integrity, the queue rule, and the inert one-writer control. Taken from a lifecycle pass that read the files and named them: the absence of an acceptance record, of a deployed reference, and of any post-merge outcome. Not independently re-checked here, and marked this way rather than presented as one uniform verification.</p>
+  <p>The four stages marked as not existing are marked that way on purpose. Naming what is missing is the only version of this diagram worth keeping.</p>
+</footer>
+</div>
