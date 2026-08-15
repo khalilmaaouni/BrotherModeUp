@@ -67,11 +67,38 @@ named. It imports the existing parser rather than writing a second one, which
 was an explicit instruction: two parsers of one format drifting apart is a
 recorded failure here.
 
-NOT FOLDED and NOT FULLY VERIFIED BY ME. The lane was still finishing when
-this was written, so this patch is a snapshot of its worktree taken to make
-sure the work survived, not a completed hand-off. Whoever folds it runs the
-lane's own done-checks (`tools/test_sbe_evidence.py` and `tools/test_sbe.py`)
-on the merged tree before trusting any of the above.
+The lane finished after that first snapshot and this file is now its FINAL
+state, 546 lines. A second copy sits at
+`~/Documents/BrotherArchive/2026-08-15-lane-gate-provenance-and-plan.patch`.
+
+Its own done-checks, run after its last edit: `tools/test_sbe_evidence.py`
+reported 68 tests OK, and six assertions were red first, each named, including
+a receipt missing an owed check failing by row id and a `local` receipt
+failing only under the new flag. `tools/test_sbe.py` reported one failure,
+which is the same pre-existing dossier failure two other lanes already
+confirmed independently. That is now THREE independent confirmations, from
+three lanes that stashed three different sets of files.
+
+FOUR THINGS TO KNOW BEFORE FOLDING, all disclosed by the lane itself rather
+than found afterwards:
+
+1. IT EDITED ONE FILE OUTSIDE ITS FENCE and said so: `tools/test_sbe_bypass.py`,
+   11 added lines in one fixture, no assertion changed, because that
+   scenario's PASS became NO-DATA once the gate started asking for a plan.
+   Reasonable, disclosed, and still an out-of-fence edit that whoever folds
+   should read rather than take on trust.
+2. AN UNVERIFIED PREDICTION, which the lane marked as unverified because it
+   did not run it: `evals/run_evals.py` has three cases (roughly lines 359,
+   8624, 8650) whose fixtures write a receipt with no behaviour table and
+   expect PASS. Under this change they would become NO-DATA. Either the
+   fixtures gain a table whose Proof names the receipt's check, or those
+   expectations change. RUN THE EVALS BEFORE FOLDING; this is the one thing
+   most likely to bite.
+3. CI opts in explicitly. The provenance rule does nothing until a workflow
+   step passes the new flag, which is deliberate: behaviour is unchanged for
+   every existing consumer until somebody decides otherwise.
+4. The Bitbucket pipeline invokes only the approval gate, so it needs nothing
+   unless a `ran` step is added there.
 
 ### sbe-staleness-clock.patch
 
