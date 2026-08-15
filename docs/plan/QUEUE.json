@@ -692,7 +692,7 @@
   },
   {
    "id": "SBE2",
-   "title": "P1 The install suite copied the whole repository including .claude, which held 678 MB of agent worktrees on this machine, silently and untimed inside a 900 second silence budget; that starved three gate runs in one night while the same suite passed alone. Fix applied 2026-08-16 (ignore .claude, track the worktree ignore rule); this item is the VERIFICATION that a full gate under load no longer starves",
+   "title": "P0 The install suite is killed at the 900 second SILENCE budget while it is still making progress, three times in one night. ROOT CAUSE PROVEN 2026-08-16 and it is not what the first review guessed: tools/test_all.py reads the child by LINES (for line in p.stdout) while unittest writes one dot per test with NO newline, so a whole suite emits no complete line until its dot row ends. Any suite whose row takes longer than the budget reads as silent and is killed with 0 tests. Disproven on the way: adding -u changes nothing, both buffered and unbuffered first reached the reader only when a newline arrived (measured, 3.03s in both arms). Fix candidates: read by chunk instead of line, or run suites at verbosity 2 so each test emits its own line. The .claude copytree exclusion already landed and is worth keeping on its own merits but did NOT fix this",
    "state": "queued",
    "clock": "agent",
    "forecast_minutes": 20,
@@ -700,8 +700,8 @@
     "tools/test_install.py",
     ".gitignore"
    ],
-   "done_check": "a full gate run under comparable load completes with test_install reporting its real test count, quoted",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+   "done_check": "a suite that runs longer than the budget while emitting dots is NOT killed, proven by a fixture suite that sleeps past the budget and still reports its real test count",
+   "note": "root cause corrected 2026-08-16 by an executed experiment after the first fix failed; the earlier 678 MB copytree diagnosis was incomplete, and the honest record of that is the point"
   },
   {
    "id": "SBE3",
@@ -780,6 +780,131 @@
    ],
    "done_check": "the repository root carries no .bak litter and the store still renders STATE.md",
    "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE9",
+   "title": "P0 purge_project CRASHES for any project whose capability receipt names a task: receipts are deleted 100 lines after tasks under foreign keys ON, so a bare sqlite IntegrityError escapes to the command line and the founder's erasure request fails with no path forward. Reproduced by the reviewer. Fix: move the receipts delete above the tasks delete, and add a task-linked receipt to the purge fixture, which never set task_id and is why the T5 tests missed it",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a project with a task-linked receipt purges cleanly, proven by a test written failing first",
+   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it"
+  },
+  {
+   "id": "SBE10",
+   "title": "P0 purge_project leaves the four sentinel tables behind, and they are the ones holding raw founder prose stored deliberately unscrubbed. Reproduced: after a purge reporting 21 cleared keys, sentinel_knowledge still held rows and their verbatim text was readable; add_knowledge also accepts a project that never existed. The method's own docstring claims it erases every row that belongs to the project. Fix: purge the four tables and check project existence on the four writers",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "after purge, all four sentinel tables hold zero rows for that project, proven failing first; a write against a nonexistent project is refused by name",
+   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it"
+  },
+  {
+   "id": "SBE11",
+   "title": "P1 The STATE.md integrity check is one-directional, so a completed record can still be listed as active while verify() reports healthy; reproduced. The rendered block also carries no timestamp, store fingerprint or schema version since the stamp was removed, so staleness cannot be seen by inspection either. Fix: make the check two-directional, or stamp the block with a content hash verify() recomputes",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a stale generated view is reported by verify(), proven by rendering, transitioning, and re-verifying",
+   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it"
+  },
+  {
+   "id": "SBE12",
+   "title": "P2 A capability receipt can certify nothing and contradict its twin: executor identity and verification evidence are not required even when the state is verified, two contradicting receipts on one capability are both accepted, a future-dated receipt sorts last, changed_artifacts carries no digest, and the attribution row for receipt.added passes no evidence reference so the kept trail cannot name which receipt a purge destroyed",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a verified receipt without executor identity or evidence is refused by name, and the attribution row resolves to its receipt",
+   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it"
+  },
+  {
+   "id": "SBE13",
+   "title": "P3 Alerts have no project grain but are purged per project and listed store-wide, so any per-project risk display shows other projects' alerts as its own; runtime_runs likewise carries no project and is never purged",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 40,
+   "files": [
+    "tools/bm_store.py"
+   ],
+   "done_check": "alert listing scoped to a project returns only that project's alerts, proven with two seeded projects",
+   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it"
+  },
+  {
+   "id": "SBE14",
+   "title": "P0 The redaction funnel can be switched off by the very content it redacts: any line equal to the human-block open marker starts a block, an unterminated block deliberately runs to end of file, and the marker is a fixed literal with no escaping anywhere. Executed proof: a generated document redacted line 1 and wrote the following lines verbatim. Fix: treat an unterminated marker as NO human block, and neutralize marker-looking lines found outside a real pair before splicing",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a generated document containing the marker inside untrusted text redacts the whole tail, proven failing first",
+   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
+  },
+  {
+   "id": "SBE15",
+   "title": "P1 bm_project.py writes CANVAS.md and DELIVERY-PACKET.md with raw=True, bypassing the withholding policy and leaving the funnel as the only guard, which is exactly the guard SBE14 disables. DELIVERY-PACKET.md is by name a shareable artifact. Fix: route the raw lane through the same safe display bm_packs uses, or justify raw in the file",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 40,
+   "files": [
+    "tools/bm_project.py"
+   ],
+   "done_check": "the raw lane either passes safe display or carries a written justification naming what it would leak",
+   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
+  },
+  {
+   "id": "SBE16",
+   "title": "P1 The handover zip carries whatever is in the pack with no content scan: containment is a path control only, the FILL-BY-HAND slots are written by hand AFTER the redaction funnel ran, and the archive lands outside the repository past the commit-time secret scan, in a Documents folder that is commonly cloud synced. Fix: scan every member at zip time and refuse on a hit, naming file and line",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_handover.py"
+   ],
+   "done_check": "zipping a pack whose hand-written slot contains a secret pattern is refused by name, proven failing first",
+   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
+  },
+  {
+   "id": "SBE17",
+   "title": "P3 Telemetry redacts secrets from artifact paths but never masks absolute paths, which every store export pairs with it, so absolute client and machine paths land verbatim in the local ledger",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 20,
+   "files": [
+    "tools/bm_telemetry.py"
+   ],
+   "done_check": "a recorded artifact path is masked the same way the store export masks it",
+   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
+  },
+  {
+   "id": "SBE18",
+   "title": "P2 FOUNDER DECISION, not an engineering fix: 199 committed files carry the founder's home path in 2721 occurrences, concentrated in the evidence tree, including a raw agent transcript with session identifiers and full tool payloads. No credentials and no other-project data were found. Decide before the repository is public: scrub the tree, or record that the username is already public and leave it",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 30,
+   "files": [
+    "docs/program/absolute-lead/evidence"
+   ],
+   "done_check": "a recorded founder decision exists naming scrub or leave, with its reason",
+   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers"
   }
  ]
 }
