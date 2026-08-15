@@ -11,6 +11,33 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
+FINISHED, superseding every earlier status line below. Final state at
+close, 2026-08-16 morning: origin/main == local main == 272c1c7, tree
+clean, every piece of the session's work merged and pushed. The P17 block
+below was resolved the same night through the fence hook's own adoption
+path (owner absent from the live list, adoption recorded where the fence
+lives, fence L2b closed with LANDED evidence in STATE.md), and the full
+gate then ran ALL GREEN at 95789c8: 3174 tests across 35 suites, exit 0.
+The final docs-only commit (tester-pack fixes from the adversarial read,
+the parity map) carries a NAMED deviation, not hidden: its gate run
+starved under machine load 20 (test_install 0 tests at the 900s ceiling,
+the known class), and the evidence pair is the gate log naming that one
+suite plus test_install passing alone at the same SHA with exit 0, on a
+five-file markdown and json diff.
+
+FOR THE FRESH SESSION, in order: read this pack, then
+docs/plan/WBS-2026-08-15-TODAY.md (what ran today),
+docs/plan/PARITY-READ-2026-08-15.md (the integration map),
+docs/plan/INTEGRITY-SYSTEM-INTAKE-2026-08-15.md (both vision docs, the
+fold plan), docs/plan/WEEKEND-EMERGENCY-PLAN-2026-08-15.md. Queue depth
+17, top items: O21 (name the claiming command in FIRST-DAY), TK6
+(attended pipeline), TK7, TK8, the vision fold with founder windows, the
+Bitbucket mirror moment, the analyst lead and the engineering lead's pack (now adversarially
+hardened, BrotherSBE pin moved to v3.2.0). The founder's model order:
+launch the fresh session on Opus if Fable credits are out.
+
+The historical record of the mid-session state this line supersedes:
+
 UNFINISHED, and the baton lies on ONE test: local main sits at a5037aa
 carrying TK4 routing, the O18 help fix, the WBS page, the merge-to-main
 law and the queue reconciliation, but the gate is red on
