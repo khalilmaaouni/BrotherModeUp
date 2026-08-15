@@ -1,3 +1,5 @@
+Status: CURRENT. Founder-delivered vision document, preserved verbatim below this line; intake and adaptation: docs/plan/INTEGRITY-SYSTEM-INTAKE-2026-08-15.md
+
 # BrotherMode: The Integrity System Between Human Intent and AI Delivery
 
 > **Stop thinking of BrotherMode as a better workflow around Claude Code. Build it as the integrity system between human intent and AI delivery.**

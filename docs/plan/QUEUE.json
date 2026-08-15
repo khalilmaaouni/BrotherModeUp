@@ -340,13 +340,14 @@
   {
    "id": "O19",
    "title": "Wire bm_idle.py check into tools/bm_sessionstart.sh so the verdict arrives unasked",
-   "state": "queued",
+   "state": "done",
    "clock": "agent",
    "forecast_minutes": 20,
    "files": [
     "tools/bm_sessionstart.sh"
    ],
-   "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one"
+   "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one",
+   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record"
   },
   {
    "id": "O20",
@@ -363,13 +364,14 @@
   {
    "id": "A4",
    "title": "Put the calibration number on the session start line, beside the progress-page verdict",
-   "state": "queued",
+   "state": "done",
    "clock": "agent",
    "forecast_minutes": 20,
    "files": [
     "tools/bm_sessionstart.sh"
    ],
-   "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin"
+   "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin",
+   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record"
   },
   {
    "id": "A5",

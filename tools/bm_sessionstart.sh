@@ -73,6 +73,16 @@ fi
 # being read. Fail-open like every check above it.
 python3 "$DIR/tools/bm_handover.py" owed 2>/dev/null | grep -v '^CURRENT' || true
 python3 "$DIR/tools/bm_telemetry.py" check-update 2>/dev/null
+# IDLE CONTROL (O19 plus A4, founder order 2026-08-15: never stay idle). Two
+# one-line verdicts so every session opens knowing whether the queue can feed
+# it and what the forecast correction currently is. bm_idle.py check prints
+# OK with the queue depth, IDLE naming what should have arrived, or
+# QUEUE-EMPTY when nothing startable exists; bm_forecast.py calibrate prints
+# the measured multiplier or NO-DATA below its floor. Both fail open like
+# every check above, because a session that cannot compute its idle verdict
+# must still start; the absence of the line is itself visible.
+python3 "$DIR/tools/bm_idle.py" check 2>/dev/null || true
+python3 "$DIR/tools/bm_forecast.py" calibrate --clock agent --basis judged 2>/dev/null | tail -1 || true
 # If this session resumed from a compaction, point it at the autosave.
 printf '%s' "$PAYLOAD" | python3 "$DIR/tools/bm_telemetry.py" compact-hint 2>/dev/null
 # Store health: silent when healthy or when no store exists yet (verify's own
