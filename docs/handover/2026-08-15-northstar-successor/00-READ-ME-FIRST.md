@@ -24,17 +24,20 @@ outside itself except the two repositories it names.
    the founder and a merged pull request he asked for before going to bed.
 4. 02-LEARNINGS-AND-MISTAKES.md and 03-RULES-AND-PROCESS-FIXES.md when you
    need them, not before.
-5. The board, docs/plan/NORTH-STAR-PUSH-BOARD.html in BrotherModeUp, is the
+5. The board, docs/plan/NORTH-STAR-PUSH-BOARD.html in the `BrotherModeUp`
+   repository, is the
    founder's view. Refresh it at every closed loop and put it in front of him
    rather than naming its path.
 
 BEFORE YOU TOUCH ANYTHING:
 
-    python3 tools/bm_handover.py detect
-    git -C /Users/khalil.maaouni/Documents/BrotherModeUp status --porcelain
-    git -C /Users/khalil.maaouni/Documents/BrotherSBE status --porcelain
+```
+python3 tools/bm_handover.py detect
+git -C ~/Documents/BrotherModeUp status --porcelain
+git -C ~/Documents/BrotherSBE status --porcelain
+```
 
-THE SHORTEST POSSIBLE ORIENTATION. BrotherModeUp is committed and pushed at
+THE SHORTEST POSSIBLE ORIENTATION. BrotherMode is committed and pushed at
 13814a6. BrotherSBE pull request 48 is red on six checks that are all ONE
 root cause, already found: a design dossier that has never had its artifacts,
 which a corrected tier computation in that same pull request made visible for

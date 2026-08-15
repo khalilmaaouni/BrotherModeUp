@@ -15,7 +15,7 @@ UNFINISHED. The baton lies at BrotherSBE pull request 48, at the step "write the
 
 WHAT THIS SESSION FINISHED, with the command that proves it.
 
-BrotherModeUp 586a20d, the passport producer plus two repository hazards:
+BrotherMode 586a20d, the passport producer plus two repository hazards:
 
     test_all: 3257 tests across 37 suites, 5 skipped, 1624.7s wall. ALL GREEN
 
@@ -24,7 +24,7 @@ tree, after the last edit, with a session-unique log path, because the
 previous run shared $TMPDIR/gate.log with a concurrent session and produced a
 verdict that contradicted itself inside one file.
 
-BrotherModeUp 13814a6, the board and two ledger entries: three targeted
+BrotherMode 13814a6, the board and two ledger entries: three targeted
 checks only, listed in 01-HANDOVER.md. A full gate over the final state
 including this pack is the last thing this session runs. IF NO GATE VERDICT
 APPEARS BELOW THIS LINE, that gate did not complete and 13814a6 has no
