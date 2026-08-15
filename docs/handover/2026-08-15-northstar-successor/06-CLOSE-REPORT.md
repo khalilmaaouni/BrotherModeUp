@@ -151,11 +151,37 @@ counted 48 worktrees, 39 of them dirty, holding 920 MB.
 
 So the worktree accumulation is no longer only a disk question: it is degrading
 the assurance checks into PARTIAL verdicts. A partial verdict printed beside a
-PASS is the same class as this night's mute-control finding, one layer out. The
+PASS line is the same class as this night's mute-control finding, one layer
+out. The
 checks are honest about it, which is why it is visible at all, but nobody was
 reading that clause. Nothing was deleted: the founder's standing rule is that
 nothing is cleaned up unless he names it, so this is a decision for him with
 the numbers attached.
+
+CLOSE VERIFICATION: NO-DATA, and it is a finding against this session.
+
+    python3 tools/bm_handover.py verify-close --pack <this pack> --session <id>
+    NO-DATA: session '8e367576-...' owns no record in this store, so the
+    unparked-records check cannot say anything about it.
+
+This session never opened a BrotherMode claim. It inherited a predecessor's
+state, worked through the BrotherSBE task registry for the fence discipline,
+and never registered a record of its own. The safety floor says fence THEN
+dispatch, and that was not done, so the store has no idea this session existed
+and the closing check cannot reach a verdict about it.
+
+NO-DATA IS NEVER A PASS. This close is UNVERIFIED, not clean. The pack is
+zipped and every claim in it carries the command that produced it, but the one
+mechanical check that would confirm nothing was left held could not run.
+
+Exactly the same shape this session spent the night writing up: a control that
+cannot reach a verdict, sitting where a reader expects a pass. Finding it in
+its own close is the appropriate ending.
+
+WHAT THE SUCCESSOR SHOULD DO ABOUT IT: nothing to repair, since no record was
+held, so nothing can be left unparked. What to do DIFFERENTLY: open a claim
+before the first write, so the close can be verified rather than merely
+asserted.
 
 BROTHERSBE PULL REQUEST 48: improved, still red, handed back to its stream.
 The dossier landed as 7b12715 and consumer-checks went from fail to PASS. A
@@ -163,7 +189,7 @@ second blocker sits behind the first: 13 failures in the honesty meta-test,
 measured as identical at 20fad2e (before my commit) and ZERO on main, so they
 belong to that pull request rather than to this work. Three of the 13 are the
 artifacts check's own worked-example fixture, and editing a check's worked
-example at 4am in another product's control plane to make a gate pass is the
+example at 4am in another product's control plane to turn a gate green is the
 quality drop the founder told me to stop for. Stopped on that judgment.
 
 WHAT THIS SESSION GOT WRONG, kept because the correction is the evidence.
