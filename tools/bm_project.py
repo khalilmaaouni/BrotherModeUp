@@ -91,18 +91,6 @@ SUBCOMMANDS
                           that now also names this purge, the vault, and
                           any generated file already on disk) (WP-H,
                           loop6 security-closure design, D-3)
-  sentinel-orphans        read-only report: for each Memory Sentinel table,
-                          every project id that has rows there but no
-                          matching project row, and how many; never prints
-                          the prose itself, counts and project ids only
-  purge-sentinel-orphans  erase sentinel rows purge_project cannot reach
-                          because their project id resolves to no project;
-                          --project-id ID for one orphan id, or
-                          --all-orphans for every orphan id in every table
-                          (not both); refuses without --confirm matching
-                          exactly (the project id, or the literal
-                          ALL-ORPHANS for --all-orphans), --dry-run to
-                          preview first without deleting anything
 
 WHY create=False EVERYWHERE
   Matching bm_store.py's own CLI convention (its cmd_claim and every other
@@ -1895,102 +1883,6 @@ def cmd_purge(argv):
 
 
 # ---------------------------------------------------------------------------
-# sentinel orphans: report (find) and purge (erase), the gap purge_project
-# cannot close on its own. Store.sentinel_orphans / Store.purge_sentinel_orphans
-# own the whole shape (SBE10 follow-up, 2026-08-16); this is a thin wrapper
-# exactly like purge above.
-# ---------------------------------------------------------------------------
-
-_SENTINEL_ORPHANS_FLAGS = ("out-json",)
-
-
-def cmd_sentinel_orphans(argv):
-    _pos, kv = _parse(argv, _SENTINEL_ORPHANS_FLAGS)
-    # _store(), not _read_store(): matching every other read-only report
-    # here (status, forecast show, receipt list) rather than alert list's
-    # own narrower exception (that one command's docstring names why it
-    # alone needs a connection that never migrates the schema on open).
-    store = _store()
-    try:
-        report = store.sentinel_orphans()
-    finally:
-        store.close()
-    if kv.get("out-json"):
-        _print_json(report)
-        return 0
-    total = sum(sum(counts.values()) for counts in report.values())
-    if total == 0:
-        _out("no orphaned sentinel rows: every sentinel_* row names a "
-             "project id that still exists")
-        return 0
-    # Counts and project ids only, NEVER the prose: Store.sentinel_orphans
-    # itself never reads a prose column, so there is nothing here to leak,
-    # but the line is printed anyway so a reader never has to check.
-    _out("orphaned sentinel rows (project id resolves to no project); "
-         "counts and project ids only, never the stored prose:")
-    for table in sorted(report):
-        counts = report[table]
-        if not counts:
-            continue
-        _out("%s:" % table)
-        for pid, n in sorted(counts.items()):
-            _out("  %s: %d row(s)" % (pid, n))
-    return 0
-
-
-_PURGE_SENTINEL_ORPHANS_FLAGS = (
-    "project-id", "all-orphans", "confirm", "out-json",
-    "dry-run") + _ACTOR_FLAGS
-
-
-def cmd_purge_sentinel_orphans(argv):
-    _pos, kv = _parse(argv, _PURGE_SENTINEL_ORPHANS_FLAGS, wants_value=(
-        "project-id", "confirm") + _ACTOR_FLAGS)
-    usage = ("usage: purge-sentinel-orphans (--project-id ID | "
-             "--all-orphans) (--confirm TOKEN | --dry-run) "
-             "[--actor-type human|model] --actor-name NAME "
-             "[--session-id SID] [--out-json]")
-    dry = bool(kv.get("dry-run"))
-    project_id = kv.get("project-id") or None
-    all_orphans = bool(kv.get("all-orphans"))
-    confirm = kv.get("confirm", "") if dry else _require(kv, "confirm", usage)
-    actor = _actor(kv, usage)
-    prefix = "[dry-run] " if dry else ""
-    store = _store()
-    try:
-        # Store.purge_sentinel_orphans owns every refusal (no-target,
-        # ambiguous-target, not-orphan, not-found, bad-confirmation): never
-        # restated here, same discipline cmd_purge follows for
-        # purge_project's own refusals.
-        result = store.purge_sentinel_orphans(
-            actor, confirm, project_id=project_id, all_orphans=all_orphans,
-            dry_run=dry)
-    finally:
-        store.close()
-    if kv.get("out-json"):
-        _print_json({"dry_run": dry, "removed": result["removed"],
-                     "project_ids": result["project_ids"]})
-        return 0
-    if not result["project_ids"]:
-        _out("%sno orphan rows matched; nothing was removed" % prefix)
-        return 0
-    for pid in result["project_ids"]:
-        counts = result["removed"][pid]
-        _out("%s%s project id %s: %d knowledge, %d procedural, %d status, "
-             "%d intervention row(s)"
-             % (prefix, "would purge" if dry else "purged", pid,
-                counts["sentinel_knowledge"], counts["sentinel_procedural"],
-                counts["sentinel_status"], counts["sentinel_interventions"]))
-    _out("%skept: the attribution trail (%s)"
-         % (prefix,
-            "unchanged, and no purge entry was added because nothing was "
-            "purged" if dry
-            else "it now also carries one new entry per project id "
-                 "purged"))
-    return 0
-
-
-# ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
 
@@ -2006,8 +1898,6 @@ COMMANDS = {
     "deliver": cmd_deliver,
     "export": cmd_export,
     "purge": cmd_purge,
-    "sentinel-orphans": cmd_sentinel_orphans,
-    "purge-sentinel-orphans": cmd_purge_sentinel_orphans,
 }
 
 
