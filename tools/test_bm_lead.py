@@ -1796,11 +1796,30 @@ class TestNoSQLGuard(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 def _write_fixture(name, payload):
-    """Every shape writes its transcript beside the loop's other evidence,
-    regenerated on every run by design, the same way TestEndToEndE4 writes
-    E4-endtoend.json: every value in it is read back out of the live
-    records the test just drove, which is what makes it evidence."""
-    path = os.path.join(EVIDENCE_DIR, name + ".json")
+    """Every shape writes its transcript, and every value in it is read back
+    out of the live records the test just drove, which is what makes it
+    evidence rather than a fixture.
+
+    WHERE it writes changed on 2026-08-16, and the gate is what forced it.
+    This used to write straight into the tracked evidence directory on
+    every run, so merely RUNNING the suite left two tracked files modified.
+    The gate then refused to report green, correctly, because a suite that
+    writes into the checkout invalidates CHECKSUMS.sha256, which makes
+    verify-install tell a user their install may be tampered with and makes
+    doctor SKIP its integrity check. That refusal was read as somebody
+    else's mess for most of a night before a run in a pristine clone proved
+    it was this line.
+
+    So the default is now a temporary directory, and the tracked path is
+    an OPT IN, exactly the shape tools/test_bm_controller.py already uses
+    for its E4 artifact (BM_WRITE_E4_EVIDENCE) and exactly what the gate's
+    own refusal message tells you to do. Publishing a run as evidence is a
+    deliberate act; running the suite is not."""
+    if os.environ.get("BM_WRITE_L04_EVIDENCE") == "1":
+        directory = EVIDENCE_DIR
+    else:
+        directory = tempfile.mkdtemp(prefix="bm-l04-evidence-")
+    path = os.path.join(directory, name + ".json")
     if not os.path.isdir(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     with io.open(path, "w", encoding="utf-8") as fh:
