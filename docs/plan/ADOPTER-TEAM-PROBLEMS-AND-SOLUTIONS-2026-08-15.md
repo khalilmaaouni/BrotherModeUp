@@ -1,0 +1,782 @@
+Status: CURRENT. Written 2026-08-15.
+
+# The team's problems, one by one, and what the two products do about each
+
+Source: `Verified_Delivery_Team_Feedback (1).docx`, five reviewers (the analyst lead,
+the engineering lead, the delivery lead, the non-developer reviewer, the senior reviewer) plus one live change, the reference change.
+Every status line below was checked against code read today, not against
+the feedback's description of the code and not against memory. Where a
+claim could not be checked in the time available it says so.
+
+## The finding that changes how the rest of this document reads
+
+The team reviewed a build that is generations behind the code.
+
+    installed:  ~/.claude/skills/brothersbe/VERSION  ->  1.0.0-rc.2
+    source:     ~/Documents/BrotherSBE/VERSION       ->  3.2.0 (5ef7da4)
+
+Their two heaviest findings, the one the engineering lead called the largest gap
+(nothing in the design folder says what the software should do) and the
+one nobody could answer (the QC lead finds unnatural behaviour, UX and
+translation problems that no acceptance criterion names), both have
+working answers in the source repository, landed 2026-08-15, after the
+review was written:
+
+    f65cf07  feat(design): the behaviour table, in the analyst's words
+    9bee153  feat(design): the spine artifact stops certifying its own demo rows
+    0010130  feat(testkit): the behaviour table becomes the tester's working document
+    ea1f25d  fix(design): an id written B-1 no longer hides a deleted rule
+
+This is not a reason to discount the review. It is the review's own point
+made a second way: a fix that exists in a repository nobody has installed
+is not a fix, and the version string did not warn anybody, which is
+already filed as SBE1 (the installed clone and the repository can
+disagree while both report the same version).
+
+So the first action is not engineering. It is shipping 3.2.0 to the five
+reviewers and asking for a re-read of items P9 and P14 specifically.
+
+## What is working, and what that costs us
+
+Keep these, because they are load bearing and four of them constrain
+every solution below.
+
+- W1. Checks written before the build caught real contradictions in the
+  specification (the senior reviewer). This is the tier's whole argument.
+- W2. Bad news first, no flattery, no jargon (the senior reviewer). Every solution
+  below has to preserve this register, which rules out any fix that
+  reports a green verdict it cannot defend.
+- W3. The diagnosis matches lived experience: the queue numbers from the
+  7 August report (41 waiting on development, 22 waiting on test
+  resource, 23 waiting on the QC lead, 11 in Testing (the QC lead), 48 with a TBD end
+  date) are the agreed measure of success (the delivery lead). No gate verdict
+  replaces them.
+- W4. NO-DATA as a real answer (the delivery lead, the engineering lead): absent evidence is never
+  a pass. Every solution below must return NO-DATA where it cannot see,
+  never PASS.
+- W5. Each rule names what enforces it, and the parts no software
+  computes are marked as such (the engineering lead). A solution that is only a
+  sentence in a document is written UNENFORCED here, in those words.
+
+## The problems, one by one
+
+Format: who raised it, what is true in the code today, the solutions,
+and which one is recommended. A solution names the product that owns it,
+the files it touches, and the check that proves it.
+
+---
+
+### P1. Setting up is hard without a developer background
+
+Raised by the non-developer reviewer. Python and the Claude command line tool were not on the
+machine, the `sbe` command was not on the PATH on Windows, and each
+problem had to be solved alone.
+
+Status today. Half fixed and half unchanged. BrotherSBE's CI now runs
+Linux, macOS and Windows, with the two POSIX shell tools excluded on
+Windows by name (README.md, PARITY.md). So the tools themselves are
+tested on Windows. Nothing about the first hour on a fresh Windows
+machine changed: there is still no installer that puts the command on
+the PATH, and Python plus the CLI are still prerequisites the person has
+to satisfy alone.
+
+Why it happens. The install path was designed for engineers who already
+have both. the non-developer reviewer is the person the product most needs, and the least
+equipped path is hers.
+
+Solutions.
+
+1. RECOMMENDED. A single Windows first-run script, `install.ps1`, that
+   detects Python and the Claude CLI, installs neither silently, prints
+   exactly what is missing with the one command that fixes it, and adds
+   the tool directory to the user PATH. Done-check: a clean Windows
+   runner in CI executes it and then runs `sbe --help` at exit 0. Cost:
+   small, one file plus one CI leg. This is a diagnosis-and-instruct
+   script, not an installer, which is the difference between something
+   we can support and something we cannot.
+2. A doctor command, `sbe doctor`, that prints a numbered list of what
+   is wrong and the command for each. Cheaper, works on all three
+   platforms, and it does not solve the PATH problem, because a person
+   who cannot run `sbe` cannot run `sbe doctor` either.
+3. Remove the prerequisite: run the checks from inside the assistant
+   session with no shell at all. Largest change, and it deletes the CI
+   story, so it is filed as a direction to decide, not as a fix to
+   schedule.
+
+Note. BrotherMode's own limits page already states the installer refuses
+Windows by design and WSL is the documented path. That is the honest
+current answer, and it is also why the non-developer reviewer lost an afternoon.
+
+---
+
+### P2. The guide describes how BAs work here, incorrectly
+
+Raised by the analyst lead. BAs do not hand over conversations, they hand over a
+full specification document with the core acceptance criteria in the
+ticket.
+
+Status today. The guide's description is wrong about the adopter team practice, and
+the reviewer's warning is the important half: people stop trusting a
+document that describes their own job incorrectly.
+
+Why it happens. The line was written from the BrotherMode world, where a
+single operator's session history really is the context, and was carried
+across without checking whether it described the reader's job.
+
+Solutions.
+
+1. RECOMMENDED. Rewrite the BA section around the specification document
+   as the source of context, and keep the underlying principle where it
+   belongs: the AI needs the specification, not the chat. Done-check: the
+   revised page read and agreed by the analyst lead in writing.
+2. Also give the specification a mechanical use: make it the declared
+   input to the behaviour table (artifact 08), so the BA's document
+   produces the behaviour rows rather than sitting beside them. This is
+   the version that makes the correction worth more than an apology.
+3. Delete the practice-to-stop list entirely and describe only what to
+   start. Least effort, and it loses a real teaching point.
+
+---
+
+### P3. Discussion before planning is not enforced
+
+Raised by the senior reviewer (it must be mandatory, you should not have to ask
+for it) and independently by the engineering lead (the tool's own rules said a request
+of that shape begins with a brainstorming step, it did not happen,
+nothing flagged it or failed).
+
+Status today. CONFIRMED OPEN, and wider than reported. A search of the
+whole BrotherSBE repository for any brainstorming or
+discussion-before-planning enforcement returns nothing outside scratch
+worktrees. BrotherMode mentions brainstorming only in a delegation
+reference and in a learning module. Neither product has a check that a
+discussion happened, and neither logs its absence.
+
+Why it happens. It was written as an instruction to the model. An
+instruction to the model is not a control, which is this product's own
+first law, applied here against itself.
+
+Solutions.
+
+1. RECOMMENDED. Make it a state, not a sentence: an intake cannot be
+   written until a `clarify` record exists for the change, carrying the
+   questions asked and the answers received, and `sbe intake` refuses
+   with the exact command that creates one. This lands in the one place
+   the process already forces people through, so nothing new has to be
+   remembered. Done-check: an intake attempted with no clarify record
+   exits nonzero and names the command; with one, it proceeds.
+2. Detect and report rather than refuse: a session-close check that
+   names every change whose intake has no clarify record. Softer, and it
+   fails in the direction the team complained about, which is silence.
+3. Put the questions in the skill's own first turn, so the discussion
+   happens by default and skipping it is the deliberate act. Cheapest,
+   still UNENFORCED, and it changes the default, which is most of the
+   value.
+
+The honest note that travels with this one: option 1 is the only version
+where nothing can silently skip it.
+
+---
+
+### P4. The decisions record stays empty while decisions get made
+
+Raised by the senior reviewer (the table has zero rows, decisions ended up in
+commit messages and a separate notes file, so we pay twice) and the engineering lead
+(three memory systems running in parallel, none aware of the others, the
+built-in one empty for the whole project).
+
+Status today. Real and only half owned. BrotherMode's conflict detection
+carries multi-memory-authority as a named class and reports NO-DATA
+rather than pretending to check it: no mechanical detector exists. The
+empty decisions table itself is a BrotherSBE defect.
+
+Why it happens. Recording a decision is a separate act from making one,
+and every separate act loses. Meanwhile the decision genuinely does get
+written, into a commit message, so the information exists and only the
+index is missing.
+
+Solutions.
+
+1. RECOMMENDED. Harvest instead of asking: read decisions out of where
+   they already land. A `decisions harvest` verb that scans commit
+   messages and the notes file across the change's range, proposes rows,
+   and writes only what a person confirms. Nobody is asked to type
+   anything twice, and the empty table fills from real history.
+   Done-check: run over the the reference change range, propose rows,
+   and show a non-empty table where the previous run showed zero.
+2. Refuse to close a change whose architecture decision record cites an
+   alternative that no decision row explains. Stronger, and it adds an
+   obligation to a team that is already over-obligated.
+3. Name one system as the authority and demote the other two to
+   pointers, which is the parity item already filed (O23, one fence
+   owner, one shared evidence definition). This is the real fix for
+   the engineering lead's version of the complaint, and it needs a founder
+   ratification, not an engineer.
+
+---
+
+### P5. Hard for a first-time user, a wall of text, and stale status after clearing
+
+Raised by the senior reviewer. Three separate things: no suggested next command
+after each phase, too much text on return to an old session, and status
+returning irrelevant or out-of-date information after the working
+session was cleared.
+
+Status today. Mixed, and the reviewers' own note is right: the
+next-command suggestion exists in the current version and the most
+recent release was aimed at first-time users, so parts of this were
+already answered by a build they did not have. The stale-status report
+could not be reproduced and needs exact steps.
+
+Why the third one is different. Clearing a session destroys the
+in-context state, so status is then read from disk. If it comes back
+wrong, either the disk state is wrong or two surfaces derive the answer
+differently. That second failure mode is documented in this codebase:
+four separate hand-rolled next-action ladders were found giving three
+different answers to the same dossier, which is why one reducer now owns
+the ladder.
+
+Solutions.
+
+1. RECOMMENDED. Ask the senior reviewer for one reproduction (the commands, in
+   order, and both status outputs), and re-test on 3.2.0 first. This
+   costs one message and may close the whole item.
+2. If it reproduces: bind every status line to the commit and timestamp
+   it was derived from, and print that stamp, so an out-of-date answer
+   is visible as out of date instead of merely wrong. A wrong answer
+   that announces its own age is a much smaller defect.
+3. For the wall of text: a short form by default, with the long form
+   behind an explicit flag. This is BrotherMode's own status-view rule,
+   already written, not yet applied to the sibling.
+
+---
+
+### P6. The check that confirms a check ran grades only the shape
+
+Raised by the engineering lead. The gate inspects that the result is a whole number and
+the duration positive, so a hand-written file claiming success passes as
+well as a real one. Trust evidence produced by the build system, not by
+somebody's laptop.
+
+Status today. CONFIRMED, and narrowed since. `gate_ran` in
+`tools/sbe_gate.py` now binds the receipt to the current commit, so
+evidence produced before the code moved is refused. What it still does
+not do is ask WHERE the receipt came from: there is no provenance field
+and no CI-only mode.
+
+Why it happens. The gate was designed to be runnable anywhere, and
+anywhere includes a laptop.
+
+Solutions.
+
+1. RECOMMENDED. Adopt the engineering lead's own operating rule mechanically: a receipt
+   records its producer (CI job id and run url, or the string `local`),
+   and `--strict` accepts only receipts whose producer is the build
+   system. One configuration value in the pipeline sets it. A local run
+   still gets a verdict, it just cannot be the one that closes a change.
+   Done-check: a hand-written receipt PASSes without the flag and FAILs
+   with it, both proven by a test written failing first.
+2. Sign the receipts. Stronger, and it needs key handling that this team
+   does not have today.
+3. Leave it and document the limit. This is the current state, and the
+   product's own rule says an unenforced rule gets written UNENFORCED,
+   which is what P6 would then be.
+
+---
+
+### P7. The gate never opens the plan that says which checks were owed
+
+Raised by the engineering lead. Evidence containing one check passes exactly as green
+as evidence containing all of them. They closed it in their own project
+with a small extra check and think it belongs in the tool.
+
+Status today. CONFIRMED for the general case, with one exception that
+matters: the behaviour check added on 2026-08-15 compares the
+verification plan (artifact 07) against the behaviour table (artifact
+08) in one direction, so a verification plan citing a behaviour id that
+no longer exists now FAILs. The reverse direction, every owed check
+appearing in the evidence, is still not checked.
+
+Why it happens. The gate was written to read evidence. Reading the plan
+means the gate has to know what the plan promised, which is the same
+missing link as P9, expressed at the other end of the pipeline.
+
+Solutions.
+
+1. RECOMMENDED. Complete the loop the behaviour check opened: every
+   behaviour row's Proof names a check, and the ran-receipt must contain
+   a check of that name, or the gate FAILs naming the missing rows. This
+   reuses a table that now exists rather than inventing a plan format,
+   which is why it is cheap. Done-check: delete one check from a
+   receipt, gate goes red naming the row it belongs to.
+2. Adopt the engineering lead's own extra check as written and ship it, crediting them.
+   Fastest, and it makes the team a contributor rather than a reporter,
+   which is worth more than the code.
+3. Count only: report how many owed checks appear, as NO-DATA when the
+   plan cannot be parsed. Weakest, honest, and it never blocks.
+
+---
+
+### P8. Ordinary changes are sized as heavy ones
+
+Raised by the analyst lead, and proven on the live change: the reference change, a
+new field pulled through Strapi and the API to the client, was sized T2.
+
+Status today. CONFIRMED, exactly as the reviewers described it, and the
+code is four lines:
+
+    if v["touches_sensitive"] or not v["reversible_under_hour"]:
+        return "T3"
+    if v["changes_contract"] or v[CONSUMERS] == "many":
+        return "T2"
+    if v["crosses_boundary"] or v[CONSUMERS] == "some":
+        return "T1"
+    return "T0"
+
+Answering yes to the contract question alone produces T2, with no other
+answer needed. Crossing a service boundary alone produces T1, which is
+the reviewers' one correction to their own account, and it sharpens the
+point: on an architecture where nearly every change touches an API
+contract, one question decides the ceremony for everything.
+
+Why it happens. The question asks whether a contract changed. It does
+not ask what KIND of change it is, and the two most common kinds are not
+alike: adding an optional field that no existing consumer reads is not
+the same risk as changing the meaning of a field three consumers depend
+on.
+
+Solutions.
+
+1. RECOMMENDED. Split the contract question in two: additive or
+   breaking. Additive plus few consumers lands at T1, breaking stays at
+   T2, and T3 is untouched. This is a change to `compute_tier` plus its
+   fixtures, and it is the smallest edit that fixes the reported case.
+   Done-check: the the reference change answers re-run produce T1, with
+   the existing tier fixtures still green.
+2. Let the diff answer instead of the person: derive additive versus
+   breaking from the API schema where one exists. More accurate, much
+   more work, and it returns NO-DATA on estates with no machine-readable
+   schema.
+3. Keep the tier and cut what T2 costs: make artifacts 02, 05 and 06
+   optional for an additive contract change. Reaches the same felt
+   outcome by another route, and it weakens what a tier means, so it is
+   the third choice rather than the first.
+
+This is the highest-value item in the whole review, because it is the one
+that makes every ordinary change expensive, every day, for everybody.
+
+---
+
+### P9. Nothing in the design folder says what the software must do
+
+Raised by the engineering lead, and called the largest gap: seven documents covering
+purpose, process, decisions, technology, data, diagrams and verification,
+none of which states the rules the software must follow. Acceptance
+criteria live in a ticket, outside the folder and outside every check.
+
+Status today. CLOSED IN SOURCE, 2026-08-15, and absent from the build
+they reviewed. `templates/dossier/08-behaviour.md` is a table of
+`ID | Starting point | Trigger | Required outcome | Proof`, it is
+required from T1 upward (`REQUIRED` in `tools/sbe_intake.py`), and
+`check_behaviour` in `tools/sbe_design.py` refuses four distinct ways to
+fake it:
+
+- a row with no Required outcome, or no Proof, or a Proof reading TBD,
+  fails, because a rule nobody agreed how to check is not finished;
+- rows that are still the shipped example rules fail, so deleting the
+  template marker does not certify the demo;
+- a verification plan citing a behaviour id the table no longer has
+  fails, so deleting a rule cannot go unnoticed;
+- an unreadable table is a FAIL, an absent one is NO-DATA, never a pass.
+
+That answers every clause of the finding except one: it does not say who
+writes the table. The reviewers' sharpest structural observation stands,
+that CLARIFY is the only step whose tooling reads "talk to people", and
+the fix is to make the BA's specification the input to this table (P2,
+solution 2).
+
+Solutions.
+
+1. RECOMMENDED. Ship 3.2.0 to the reviewers and ask the engineering lead to re-audit
+   this item specifically. No new engineering, and it converts our
+   biggest open finding into either a close or a much sharper reopen.
+2. Declare the BA's specification as the input to artifact 08, so the
+   table has an owner and a source instead of appearing from nowhere.
+3. Nothing further. The gap the review named is covered, and the
+   ownership question it exposed belongs to P2.
+
+---
+
+### P10. Nothing handles a requirement changing
+
+Raised by the engineering lead (no version history, no way to mark a design superseded,
+no staleness warning, so a design describing an abandoned intention
+stays green indefinitely, and a change that starts small keeps its
+original obligations) and by the analyst lead from the other end (developers find
+edge cases during coding, the specification is updated, and QC then has
+to revisit a proof list instead of testing what is ready).
+
+Status today. CONFIRMED OPEN. The word supersede does appear in
+`src/brothersbe/lifecycle.py`, and it is about which next action
+supersedes which in the priority ladder, not about a design being
+superseded by a later one. There is no design version, no supersession
+link, and no staleness clock. On the BrotherMode side this is item 2 of
+the integrity intake, planned and not built.
+
+This is the most structurally serious item in the review, because it is
+the one that gets worse with time rather than staying constant. P13
+(fifty point-in-time designs after a year) is the same defect observed a
+year later.
+
+Solutions.
+
+1. RECOMMENDED and smallest. A staleness clock with no new concepts: a
+   dossier records the commit and date its intake was answered, and any
+   check reports NO-DATA with a stale-since line once the change's own
+   code has moved past it by a declared distance. NO-DATA, not FAIL,
+   because a stale design is an unknown rather than a defect, and this
+   product's own rule is that an unknown never reads as a pass.
+   Done-check: a dossier whose code moved reports stale, one that did
+   not reports normally.
+2. Supersession as a link: a dossier can name the dossier it replaces,
+   and status refuses to read a superseded one as current. This is what
+   makes a year of designs navigable, and it is the real answer to P13.
+3. Re-sizing on churn rather than on risk alone: if the diff grew past a
+   threshold since the intake, the tier is recomputed and the delta
+   reported. This answers the analyst lead's version directly, and it is the most
+   work of the three.
+
+All three are the same object designed once, which is why the intake
+already treats them as one item. Recommended order is 1, then 2, then 3.
+
+---
+
+### P11. The step called PROVE checks the paperwork, not the work
+
+Raised by the team collectively, on the live run. Everyone assumed step 7
+checks that what was built matches what was designed. It checks that the
+documents exist, are not empty, and that certain evidence files are
+present. The comparison against the design is a different command, which
+the step never runs, and the step never looks at review findings at all.
+
+Status today. CONFIRMED. Their suggestion is also the right one, and it
+splits into two independent parts, which is why it is cheap.
+
+Solutions.
+
+1. RECOMMENDED, and both halves are documentation, not code. Rename and
+   re-describe step 7 as a completeness check, name the comparison
+   command beside it so it actually gets run, and move the step off QC
+   and onto the engineer, because what it checks is whether the engineer
+   produced the documents they owe. Done-check: the revised process page
+   read and agreed by the team.
+2. Make the completeness step invoke the comparison itself, so the two
+   verdicts arrive together and neither can be skipped by not knowing
+   about it. Slightly more work, removes the failure mode permanently.
+3. Give QC's real question a tool of its own. That is the exploratory
+   sheet described under P14, and it answers the deeper half of this
+   complaint, which is that QC currently has no tool in the process at
+   all.
+
+---
+
+### P12. We use Bitbucket, not GitHub
+
+Raised by the whole team, about the pipeline, the approval step, the
+sign-off check, and branch protection.
+
+Status today. SHIPPED on the BrotherMode side and standing law: GitHub
+canonical, Bitbucket first class, `docs/BITBUCKET.md` with executed proof
+and UNVERIFIED labels where a leg is not yet observed, and
+`bitbucket-pipelines.yml` running the full gate. OPEN on the BrotherSBE
+side, whose approval and pipeline steps are still worded in GitHub terms.
+There is also a live blocker outside the code: the test workspace is
+read-only because it exceeds its user limit, so the Bitbucket half of any
+two-host check is BLOCKED rather than merely unverified, and no session
+should retry a push hoping it lands.
+
+Solutions.
+
+1. RECOMMENDED. Port the two-host pattern from BrotherMode to
+   BrotherSBE: host-neutral scripts, one thin pipeline definition per
+   host, and any host-specific command reporting NO-DATA naming the host
+   rather than erroring or silently passing. Done-check: the same
+   fixture through both host legs, with the Bitbucket leg labelled
+   BLOCKED by name until the workspace is writable.
+2. Make the approval check host independent instead of host specific: a
+   signed trailer verified locally beats any provider approval API, and
+   it works identically on both. This is the cheaper and better answer
+   for the specific step the team named.
+3. Decide first, build second, which is what the team actually asked
+   for: whether the first phase should run on this repository at all is
+   a decision, and it is owed before expansion, not during.
+
+---
+
+### P13. Fifty point-in-time designs after a year, none describing the system
+
+Raised by the engineering lead, over a longer horizon.
+
+Status today. CONFIRMED OPEN, and it is P10 observed later. Nothing
+merges, supersedes or indexes dossiers today.
+
+Solutions.
+
+1. RECOMMENDED. P10's solution 2 (supersession links) plus one index
+   command that walks all dossiers and prints the current behaviour
+   rows across them, newest wins, conflicts named. That is a system
+   description assembled from what exists rather than a document
+   somebody has to maintain, which is the only version that survives.
+2. A living system dossier that every change updates. Better to read,
+   and it reintroduces exactly the maintenance burden that made the
+   first one go stale.
+3. Accept it and say so. Honest, and it is what we are doing now by
+   default rather than by decision.
+
+---
+
+### P14. The question nobody could answer
+
+Raised by the analyst lead and by the QC lead's own position. QC verifies far more slowly
+than AI-assisted developers build, so a proof list written early adds a
+step without removing the bottleneck. the QC lead will not accept against
+acceptance criteria: what she finds is unnatural behaviour, UX problems
+once she is hands on, misunderstandings between her and the BA, and
+awkward text where the translator lacked context. The closing finding is
+the sharpest sentence in the document: a green gate will systematically
+under-represent how much checking remains.
+
+Status today. Split in two, and the split is the answer.
+
+The tooling half is CLOSED IN SOURCE and, again, absent from the build
+they reviewed. `tools/sbe_testkit.py`, landed 2026-08-15, turns the
+behaviour table into the tester's working sheet, one case per row, and it
+appends an exploratory tail of charters. The first charter is named
+`unnatural-behaviour`, described as "the software does something nobody
+asked it to". That is the QC lead's category, in her words, in a tool. The tool
+also reads a filled sheet back and drafts new behaviour rows from every
+finding, so what the QC lead discovers becomes a rule for next time instead of a
+comment on a ticket. Deliberately, nothing here is a gate: it cannot fail
+a build, which is right, because the moment exploratory testing becomes a
+gate it stops being exploratory.
+
+The queue half is NOT ours and must never be gated by us. QC being slower
+than AI-assisted development is a capacity fact. No tool fixes it. The
+honest posture, already doctrine: measure it, reveal it, remove labour
+that feeds it, and never add an obligation and call it a fix. The measure
+stays the team's own numbers (41, 22, 23, 11, 48), not any gate verdict.
+
+Solutions.
+
+1. RECOMMENDED. Ship the testkit to the QC lead and run it once on
+   the reference change, then ask her the only question that matters:
+   did the sheet plus the four charters catch what she would have caught
+   anyway. Her answer is the acceptance test for the whole idea.
+2. Carry the under-representation warning into the product's own output:
+   any all-green summary prints the classes it did not examine
+   (regression, cross-device, performance, UX) as NO-DATA by name rather
+   than staying silent about them. This makes the closing finding
+   structural instead of a paragraph in a review, and it is a small
+   change.
+3. Measure the queue before and after, on the team's five numbers, and
+   publish the delta whether or not it moved.
+
+Solution 2 deserves emphasis: it is the cheapest way to make sure a green
+verdict never lies about its own scope again.
+
+---
+
+## The new capability the founder asked for: knowing when to stop and ask
+
+The ask, in the founder's words: the system should recognise when it is
+stuck and has tried every method possible, and then ask for help, ask for
+guidance, give a recommendation, or hand over to a human.
+
+What exists today, which is three partial answers and no whole one.
+
+- BrotherMode's Full-Auto controller escalates after a unit fails twice
+  (`tools/bm_controller.py`, "unit %s failed twice (%s); escalating
+  rather than"). Real, mechanical, and confined to autonomous runs. An
+  ordinary interactive session has none of it.
+- BrotherSBE's worker brief carries `maxAttemptsPerApproach: 2` and the
+  sentence "stop after two attempts at the same approach fail from the
+  same root cause; report" (`src/brothersbe/work.py`). That is an
+  instruction to a subagent, which this product's own first law says is
+  not a control.
+- Both products have stall detectors (`tools/bm_stall.py`,
+  `tools/sbe_stall_detector.py`) that are genuinely good and watch the
+  wrong thing: dead workers, stale fences, disk floor, an owed handover.
+  They detect a stuck MACHINE. Nobody detects a stuck LINE OF REASONING.
+
+So the gap is exact and small: no counter anywhere records that the same
+objective has defeated three different approaches, and no rule converts
+that count into a decision to stop.
+
+The design, in one paragraph. One small tool records attempts against an
+objective and answers one question, continue or escalate. Three triggers,
+all mechanical, any one is enough: three distinct approaches have failed
+on the same objective; two attempts have failed with the same observed
+root cause, which means no new information was bought; or a declared
+budget (wall clock, tokens, or attempts) is spent with no done-check
+having passed since it started. The verdict is a state, not advice, and
+the escalation packet uses the checkpoint shape this product already
+defines: what I found, my recommendation, the alternatives I have not
+tried, the one decision I need, and what I will do if you say nothing.
+
+The part that makes it a control rather than a sentence. A session close
+hook refuses a silent ending while an escalation is open. That is the
+only place a hook can observe the failure mode the founder is describing,
+which is a session that quietly gives up, reports something vague, and
+stops. Everything else in the design is bookkeeping; this is the check.
+
+What it must not do, stated now so it does not get added later. It never
+answers the question itself, it never retries automatically, and it never
+escalates on a single failure, because a system that asks for help too
+early is as useless as one that never asks. Escalating with no
+recommendation is also refused: the packet requires a recommended option
+and a default action, because handing a person a problem with no proposal
+moves the work without reducing it.
+
+Where it lives. BrotherMode owns it, because BrotherMode governs one
+person's session and this is a property of a session. BrotherSBE ports it
+under the existing porting rule (PARITY.md), where it replaces the prose
+in the worker brief with the same counter the parent uses.
+
+---
+
+## What the two products together now cover, and what they do not
+
+Covered by shipped or source code today: P9 behaviour (source), P14
+tooling half (source), P12 on the BrotherMode side, P5's next-command
+half, P7's one direction, P6's commit binding.
+
+Covered by a named plan, not built: P10 and P13 (one object, the
+integrity intake), P4's authority question (parity item O23).
+
+Not covered, and needing engineering decided here: P8 tier inflation, P3
+discussion enforcement, P6 provenance, P7's reverse direction, P11's
+rename, P1's Windows first run, P14's solution 2 (unexamined classes
+printed as NO-DATA), and the escalation capability.
+
+Never ours, and the tooling must keep saying so: QC capacity, the QC lead's
+acceptance standard, and whether the first phase runs on this repository.
+The team's five queue numbers remain the only measure that decides
+whether any of this worked.
+
+## The outside architecture proposal, judged
+
+A second document arrived mid-analysis: BROTHERS-VERIFIED-DELIVERY-
+ARCHITECTURE-WBS.md, 3,178 lines, written by ChatGPT after reading the same
+team feedback. The founder's instruction was to judge what to implement, why
+and how. This section is that judgment. It is worth reading: its
+complaint-by-complaint structure, its traceability matrix and its escalation
+chapters are better than anything we had written on those subjects.
+
+### Adopted immediately, and already in the code as of this session
+
+- Its escalation ladder (canonical local facts, then a trusted machine
+  source, then one bounded test, then a human) is the front half of the
+  problem, and our attempt counter was only the back half. Adopted.
+- Its "escalate immediately" list becomes the `forcing_condition` trigger:
+  seven named conditions where guessing is the danger, so the count never
+  applies and the escalation fires at zero attempts. This is BrotherSBE's L6
+  prose promoted to a state.
+- Its rule that a truth-affecting failure escalates after ONE attempt, not
+  two, is a correction to our design and it is right: a wrong status or a
+  PASS with a known counterexample is a defect in what this product sells,
+  and a second attempt only means the wrong answer stands longer.
+- Its help-request format is richer than ours in two fields that change what
+  the human does, so both were added: who is being asked, and the risk if the
+  system guesses. An unaddressed question waits longest, and the stated risk
+  is what decides how fast somebody answers.
+
+All four are in `tools/bm_escalate.py` with 26 passing tests, including the
+discriminating pair that proves the truth-affecting flag is what moves the
+verdict rather than the wording of the root cause.
+
+### Adopted as the target shape, with a cheaper first increment
+
+- Section 11, separating the risk tier ("how bad is failure") from the
+  evidence trigger ("what surface changed"), is the best idea in the
+  document and it is a better diagnosis of P8 than ours. The contract
+  question is an evidence trigger that was wired as a risk input, which is
+  exactly why the reference change came out T2. We adopt the framing and
+  ship the four-line additive-versus-breaking split as its first increment,
+  because that fixes the reported case this week and moves toward the same
+  place. Full separation follows once the split is in use.
+- Section 10, the evidence graph with staleness and precision, and section 9,
+  requirements with supersession, are the same object as P10 and P13. Adopted
+  as the shape. First increment stays the staleness clock, because it is the
+  one that stops a stale design reading as green.
+- Section 12, one durable event journal with materialised views, and its rule
+  that chat is context and commit messages are sources rather than parallel
+  memories, is the right answer to P4. Adopted as doctrine now, and the first
+  increment is the decisions harvest.
+- Section 22, progressive QC (QC starts early and does not finish early), and
+  section 24's user-friendliness requirements are adopted as written. They
+  cost nothing and they say plainly what the team asked for.
+
+### Amended before adoption
+
+- Sections 13 to 20 design Bitbucket support in three levels and recommend
+  level 1 as the MVP. The sequencing is wrong for our estate and the document
+  could not have known why: the test workspace is READ-ONLY today because it
+  exceeds its user limit, and the free plan allows fifty build minutes a
+  month. So level 1 gets built and its Bitbucket leg is labelled BLOCKED by
+  name until the seats are fixed, rather than scheduled as if it could be
+  certified now. Nothing here is a reason to buy a paid plan.
+- Its escalation rule of "two failed automated approaches" for a named class
+  is compatible with our counter and does not need a second mechanism: it is
+  a declared budget of two, which the tool already accepts.
+
+### Not adopted now, with the condition that would flip it
+
+- Sections 2.1 and 5 propose one UX layer over both products, with unified
+  `/brothers:start`, `next`, `status`, `review` and `deliver` commands. Not
+  now. Three reasons: the product direction on file makes BrotherSBE a
+  standalone skill and BrotherMode the general orchestrator, so this is a
+  merge rather than a feature; none of the five reviewers reported the
+  boundary as a problem, they reported sizing, behaviour, evidence and setup;
+  and building it would consume exactly the capacity that fixes those. FLIP
+  CONDITION: if the re-test on 3.2.0 puts boundary confusion in the
+  reviewers' top three, build it.
+- Section 2.2's canonical object model, if built as a new store, is not
+  adopted. BrotherMode already has a record and receipt store, and standing a
+  parallel journal beside it creates a third source of truth, which is the
+  defect P4 is about. Adopted as the target SHAPE for what the existing store
+  should express. FLIP CONDITION: a named failure the current store provably
+  cannot express.
+- The five release trains R0 to R5 as a program are not adopted as a plan.
+  The work is right and the packaging assumes a team. Our own order below is
+  what a single founder can actually run, and it deliberately front-loads the
+  two items that cost nothing to try.
+
+### What the document is missing, stated so it is not mistaken for complete
+
+It does not know that the Bitbucket workspace is read-only, that the free
+plan caps build minutes, that BrotherSBE 3.2.0 already closed the behaviour
+gap and the exploratory-testing gap, or that the installed build the team
+reviewed was 1.0.0-rc.2. Read it as a strong architecture with an out-of-date
+picture of the estate, which is the same failure mode as the review itself,
+and for the same reason.
+
+## The order, and the one next action
+
+Order by value per unit of work, which is not the same as by severity:
+
+1. Ship 3.2.0 to the five reviewers and ask for a re-read of P9 and P14
+   (no engineering, closes or sharpens the two biggest findings).
+2. P8, the tier split (four lines and fixtures, removes a daily tax on
+   everybody).
+3. The escalation capability, BUILT THIS SESSION (`tools/bm_escalate.py`,
+   26 tests green, `docs/ESCALATION.md`). Its registration into the five
+   shared registries is NOT applied, because another session held live work
+   across seven files in this tree while it was written; the exact edits are
+   listed at the end of `docs/ESCALATION.md`.
+4. P14 solution 2, unexamined classes printed as NO-DATA (small, and it
+   permanently fixes the honesty of a green verdict).
+5. P3 solution 1, then P7 solution 1, then P11, then P6, then P10.
+
+The one next action: send 3.2.0 to the analyst lead and the engineering lead with P9 and P14 named,
+because everything else in this list is cheaper to decide once we know
+whether those two are actually closed.
