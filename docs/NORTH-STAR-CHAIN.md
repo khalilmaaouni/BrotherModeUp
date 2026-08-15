@@ -44,6 +44,33 @@ already has a way of working keeps it. This extends the assurance product's
 existing rule (it owns assurance and borrows execution) one level upward:
 the method is borrowed too.
 
+AND WHEN THERE IS NOTHING TO BORROW, founder correction 2026-08-15, because
+the paragraph above had a hole in it. Interchangeable does not mean optional.
+Most people arrive with NO method plugin installed, and for them this stage
+is empty, which means they get whatever the assistant does by default. That
+is precisely the third underlying problem the review named: everyone has
+their own method, so context falls on the floor at handover.
+
+THE RULE, therefore: BrotherMode ships a NATIVE FLOOR that fills this stage
+well on a machine with nothing else installed, and steps aside cleanly the
+moment a real method is present. Three properties, all binding:
+
+- IT IS A FLOOR, NOT A CEILING. It must be genuinely good on its own, not a
+  stub that exists to be replaced. A person with only BrotherMode gets a
+  real method, walked through, not a law they are expected to have read.
+- IT DEFERS, MECHANICALLY. `tools/bm_toolkit.py route` already decides which
+  installed capability owns a task class and prints a degrade path when none
+  is present. The floor is what that degrade path resolves to, so deferring
+  is a routing decision that already runs rather than a promise in prose.
+- IT NEVER BECOMES A REQUIREMENT. The floor may not block work, may not
+  demand its own steps when another method is installed, and may not
+  duplicate a capability the machine already has.
+
+Status today, stated plainly: the routing exists and the floor does not. Six
+task classes each print a degrade path, and those paths name a handful of
+tools and one law rather than a method somebody is taken through. Closing
+that is the work this section creates.
+
 BROTHERMODE. Execution provenance: what actually happened while the work was
 being done. Who wrote which file, in which session, under which claim, with
 which verification run after which edit, and what was left unfinished. Not
@@ -108,7 +135,7 @@ Checked against code read on 2026-08-15, not against intentions.
 | Stage | State | What exists |
 |---|---|---|
 | Human intent | PARTIAL | No clarify or discussion step is enforced anywhere (problem P3). Intent arrives, and nothing records that it was explored. |
-| Development method | GOOD | Both products are method-neutral by design, and the assurance side states it as law. |
+| Development method | PARTIAL | Method-neutral by design, and the routing that picks an installed capability per task class exists and runs. The NATIVE FLOOR for a machine with no method plugin does not exist: six task classes print a degrade path naming a few tools and one law, which is not a method anybody is walked through. |
 | Execution provenance | GOOD, with one hole | Claims, fences, sessions, verification after last edit, handover packs. The one-writer control is INERT in the assurance repository (hole H9). |
 | Change passport | DOES NOT EXIST | This is the largest structural gap in the chain. See below. |
 | Behaviour | SHIPPED 2026-08-15 | The behaviour table, required from tier T1 up, with a check refusing four ways to fake it. |
