@@ -44,7 +44,54 @@ naming what it covered, which is never read as clean, and that is correct:
 three paths (.gitignore, SECURITY.md, pyproject.toml) were written under no
 declaration at all.
 
-## BrotherSBE pull request 48: the whole diagnosis
+## BrotherSBE pull request 48: OUTCOME FIRST, then the diagnosis
+
+WHAT HAPPENED, and read this before the section below, which was written
+earlier in the night and is now INCOMPLETE on one point.
+
+The dossier was written, verified and pushed as 7b12715. It worked:
+`consumer-checks` went from fail to PASS, and the design step the five `gates`
+jobs were dying at now passes too.
+
+THE PULL REQUEST IS STILL RED, because there is a SECOND blocker behind the
+first, and the section below does not know about it. Final state after the
+push: `fail=5, pass=1`. All five `gates` jobs now fail one step later, at
+"Honesty meta-test (no check may PASS over evidence it never examined)",
+whose command is:
+
+    python3 evals/test_no_data_class.py
+
+It reports `4085 scenarios run, 13 failure(s)`. Measured, not inferred:
+
+- At 20fad2e, the pull request head BEFORE the dossier commit: the same 13
+  failures. So they are NOT caused by the dossier work.
+- At 484c7a4, which is main: ZERO failures.
+
+So they are introduced by this pull request's own changes, and the first
+blocker was simply hiding them by failing earlier in the job. The BrotherSBE
+session that stopped had already seen this: it reported "a gate-severity
+scorecard failure" in a clean copy before it ran out of context.
+
+THE 13, grouped: nine are mechanical (`sbe_gate.py:1744` and eight sites in
+`sbe_testkit.py` print a line the `one_line()` choke point never flattened,
+fix is to route through `say()`); one is a registry gap
+(`sbe_design.py:_behaviour_rows` can return PASS but sits in no registry, so
+no scenario reaches it); and three are the artifacts check's own worked-example
+fixture (`want PASS got FAIL`), which is plausibly downstream of the same tier
+computation change and is the one that needs care rather than typing.
+
+WHY THIS SESSION STOPPED HERE RATHER THAN CONTINUING. Those last three mean
+editing the check that polices the product, in another product's control
+plane, with its author asleep. The founder's standing instruction for the night
+was to push on "unless the quality really drops", and quietly adjusting a
+check's own worked example at 4am to make a gate pass is the definition of the
+drop. The nine mechanical ones are safe but partial, and a partial fix does not
+turn the pull request green.
+
+RECOMMENDATION, not a decision taken: this belongs to the BrotherSBE stream and
+its author, with the diagnosis above handed to them so no one re-derives it.
+
+## The first blocker: the diagnosis as it was found
 
 DO NOT force-merge. DO NOT weaken a check. DO NOT touch branch protection:
 `enforce_admins` is true, so even --admin does not bypass it, and lowering it
