@@ -173,13 +173,14 @@
   {
    "id": "O5",
    "title": "Adversarial read of the first-day pack as somebody who has never used any of this",
-   "state": "queued",
+   "state": "done",
    "clock": "agent",
    "forecast_minutes": 25,
    "files": [
     "docs/evidence/tester-pack/ADVERSARIAL-READ.md"
    ],
-   "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named"
+   "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named",
+   "note": "done 2026-08-16: adversarial newcomer read executed commands per PO-5; 2 critical findings (unsatisfiable sbe version check, stale v3.1.0 pin) plus 2 fixed inline and 1 deferred; fixes landed same session"
   },
   {
    "id": "O6",
@@ -238,13 +239,14 @@
   {
    "id": "O11",
    "title": "BrotherSBE parity read: what BrotherMode enforces that BrotherSBE only states",
-   "state": "queued",
+   "state": "done",
    "clock": "agent",
    "forecast_minutes": 30,
    "files": [
     "docs/evidence/parity/SBE-PARITY-2026-08-12.md"
    ],
-   "done_check": "each law names checked-by-tool or human, verified by opening the tool"
+   "done_check": "each law names checked-by-tool or human, verified by opening the tool",
+   "note": "done 2026-08-16: parity read landed as docs/plan/PARITY-READ-2026-08-15.md with proving lines and the three integration moves"
   },
   {
    "id": "O12",
@@ -640,6 +642,17 @@
    ],
    "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
    "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers"
+  },
+  {
+   "id": "O21",
+   "title": "FIRST-DAY.md Exercise 2 step 1 never names the command that claims ownership; a newcomer cannot execute it. Found by the O5 adversarial read (MEDIUM 3). Name the actual claiming action in the exercise.",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 15,
+   "files": [
+    "docs/team/FIRST-DAY.md"
+   ],
+   "done_check": "the exercise names a runnable claiming command a newcomer can paste; docs suite green"
   }
  ]
 }

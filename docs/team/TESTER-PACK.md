@@ -19,7 +19,7 @@ Two tools that do different jobs and are versioned separately.
 | Tool | Version | What it is for |
 |---|---|---|
 | BrotherMode | `v3.3.0` | one person's session: holds the goal, refuses to call work done without a check that actually ran |
-| BrotherSBE | `v3.1.0` | one change's passage between people: design before verification, gates that block on evidence |
+| BrotherSBE | `v3.2.0` | one change's passage between people: design before verification, gates that block on evidence |
 
 Write both numbers in your first daily note. If the numbers on your machine
 differ from the ones above, that is a finding, and it is the first one to
@@ -49,14 +49,14 @@ claude plugin install brothermode@brothermode-marketplace
 **BrotherSBE:**
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
+claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.2.0
 ```
 
 ```bash
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.3.0` and `@v3.1.0` matter. They pin each install to a released tag
+The `@v3.3.0` and `@v3.2.0` matter. They pin each install to a released tag
 instead of whatever happens to be on the default branch today. Two testers on
 different commits cannot tell a bug from a version difference, and that has
 cost this project real time before.
@@ -118,10 +118,16 @@ which sbe
 sbe --version
 ```
 
-The version must say `3.1.0`. A stale copy from an older install can sit on
-your PATH for months while a newer one exists, and it will be missing commands
-the documentation says exist. This was found on a maintainer's own machine,
-two major versions behind, which is why it is in the pack.
+Two different version schemes meet here, and knowing that is the check.
+`sbe --version` prints the CLI's own build number in the form
+`1.0.0-rc.N`, NOT the product tag `v3.2.0` you installed by; that is
+expected, not a broken install. The pass condition: the command runs at
+all, and `which sbe` points inside your Claude plugin cache under a
+`brothersbe` path, not at some older copy elsewhere. A stale copy from an
+older install can sit on your PATH for months while a newer one exists,
+and it will be missing commands the documentation says exist. This was
+found on a maintainer's own machine, two major versions behind, which is
+why it is in the pack.
 
 ---
 
@@ -150,7 +156,12 @@ better result for us than passing all three, so do not smooth over a failure.
 Do not make it a required check on anything yet. Start at stage 0, shadow
 mode, described in that project's `docs/ROLLOUT.md`: copy
 `.github/workflows/brothersbe-gates.yml` into a repository you care about and
-let it report on pull requests **without blocking a merge**.
+let it report on pull requests **without blocking a merge**. Where that file
+actually lives after a plugin install, because the pages never said and a
+reviewer executed the search: inside your Claude plugin cache, at
+`~/.claude/plugins/cache/brothersbe/brothersbe/<version>/.github/workflows/brothersbe-gates.yml`
+(pick the newest version directory), or take it straight from the
+BrotherSBE repository on GitHub at the tag you installed.
 
 Watch a sprint of real pull requests before anybody argues about turning it
 on. Every gate in that project has been proven against its own fixtures, and

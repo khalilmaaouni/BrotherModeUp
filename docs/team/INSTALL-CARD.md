@@ -10,13 +10,17 @@ same two versions and writes both numbers down.
 | Tool | Version | What it governs |
 |---|---|---|
 | BrotherMode | `v3.3.0` | one person's session |
-| BrotherSBE | `v3.1.0` | one change's passage between people |
+| BrotherSBE | `v3.2.0` | one change's passage between people |
 
 They version independently on purpose. Write down both.
 
-BrotherSBE `v3.1.0` was checked against its remote on 2026-08-12 and resolves
-to `c48ac46b`, local and remote agreeing. The evidence is
-[docs/evidence/tester-pack/CHECKED-2026-08-12.md](../evidence/tester-pack/CHECKED-2026-08-12.md).
+BrotherSBE `v3.2.0` was checked against its remote on 2026-08-16 and peels
+to `96d6d120`, local and remote agreeing, and it matches that repository's
+own VERSION file. The earlier check of the superseded v3.1.0 pin is
+[docs/evidence/tester-pack/CHECKED-2026-08-12.md](../evidence/tester-pack/CHECKED-2026-08-12.md);
+the pin moved to v3.2.0 after an adversarial pre-send review caught it one
+release stale, the second recurrence of exactly this defect class, which is
+why this line now names the date it was last checked.
 
 BrotherMode `v3.3.0` is cut in the same change as this line, and its SHA is
 therefore NOT quoted here: a number written before the tag exists would be a
@@ -46,14 +50,14 @@ claude plugin install brothermode@brothermode-marketplace
 **BrotherSBE**, the same two shapes against its own repository:
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.1.0
+claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.2.0
 ```
 
 ```bash
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.3.0` and `@v3.1.0` pin each marketplace to a released tag rather than
+The `@v3.3.0` and `@v3.2.0` pin each marketplace to a released tag rather than
 a moving branch, so everybody gets the same thing. BrotherSBE's own README
 still documents the unpinned form; pin it here anyway, because a pilot in
 which two people are on different commits of the same tool cannot tell a bug
@@ -79,7 +83,9 @@ slash. Its sibling is the opposite: `sbe` really is a terminal program.
 
 **2. If you already ran an older major version, uninstall it first.** The
 plugin identity changed at v3.0.0, so old and new are different plugins to
-Claude Code and installing both wires two hook chains at once.
+Claude Code and installing both wires two hook chains at once. The command,
+so nobody has to hunt for it: `claude plugin uninstall brothermode` (and
+the same shape for any old sibling install).
 
 **3. Check what your shell actually has, not what you installed last.** Run
 `which sbe` and confirm the path matches the version you meant to install. A
