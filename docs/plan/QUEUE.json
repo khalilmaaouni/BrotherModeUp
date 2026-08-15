@@ -1037,6 +1037,104 @@
    ],
    "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists",
    "stage": "human-decision"
+  },
+  {
+   "id": "M1",
+   "title": "BrotherMode is not a registered plugin on the founder's own machine, so its hooks and agents load nowhere: installed_plugins.json holds 68 plugins and no brothermode, while brothersbe is present. Every control claimed by a hook or an agent is inert on the shape people actually install",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "scripts/install.py",
+    "docs/KNOWN-LIMITS.md"
+   ],
+   "done_check": "grep brothermode ~/.claude/plugins/installed_plugins.json returns a match, or the limits page states the skill-copy install has no hooks and no agents, by name"
+  },
+  {
+   "id": "M2",
+   "title": "deliver certifies a project that did nothing: three commands with no goal, no acceptance check, no build, no review and no evidence produce a success message and a written packet reading (no evidence recorded)",
+   "state": "queued",
+   "stage": "human-decision",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/bm_project.py"
+   ],
+   "done_check": "a project with zero evidence rows is refused at deliver, naming what is missing; a project with evidence still delivers"
+  },
+  {
+   "id": "M3",
+   "title": "a task created through the CLI can never be served by next: task add writes status planned and next reads only ready, so the guided flow's own handoff from planning to work is broken",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_project.py"
+   ],
+   "done_check": "task add then next returns that task rather than 'no recommended next task'"
+  },
+  {
+   "id": "M4",
+   "title": "a task may be born in any of the ten lifecycle states because cmd_task_add passes --status straight through, so the ordering law the whole method rests on is bypassed by one flag",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_project.py"
+   ],
+   "done_check": "task add --status verified is refused naming the legal birth states; task add with no status still lands planned"
+  },
+  {
+   "id": "M5",
+   "title": "acceptance checks enforce nothing: the criterion link is opt-in, so a review that names no criterion verifies a task whose acceptance checks were never examined",
+   "state": "queued",
+   "stage": "required-proof",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_store.py"
+   ],
+   "done_check": "a review moving a task to verified while its acceptance_checks are non-empty and no criterion is named is refused"
+  },
+  {
+   "id": "M6",
+   "title": "the capability detector cannot tell installed from absent in either direction: it reads only ~/.claude/skills and the plugin caches, so it reports DEGRADE for a class the harness already ships built in, and would wrongly call the method stage empty",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/bm_toolkit.py"
+   ],
+   "done_check": "a class whose capability ships with the harness reports RESOLVED or reports NO-DATA naming what it cannot see, never a bare DEGRADE"
+  },
+  {
+   "id": "M7",
+   "title": "two degrade sentences promise more than the machine delivers: the tdd path names a test-first law that exists nowhere, and the security path claims secret scanning is already in the gate when no suite scans the tree",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_toolkit.py",
+    "tools/toolkit_routes.json"
+   ],
+   "done_check": "every degrade sentence names only capabilities that exist, proven by resolving each named artifact"
+  },
+  {
+   "id": "M8",
+   "title": "the guided walkthrough stops at the project brief: no skill, command or reference tells anyone to create tasks, so next reads a queue the flow never fills",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "skills/start/SKILL.md"
+   ],
+   "done_check": "following the start skill end to end produces at least one task that next will serve"
   }
  ]
 }

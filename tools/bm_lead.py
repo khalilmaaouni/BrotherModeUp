@@ -692,7 +692,14 @@ def _next_action_branch(store, project_id):
                 "agree what I am allowed to do on your behalf",
                 "the outcome is recorded, and nothing can run until you "
                 "authorise it",
-                "bm-autonomy sign --project-id %s" % project_id)
+                # --project, NOT --project-id: tools/bm_autonomy.py cmd_sign
+                # parses with wants_value=("project", ...) and calls
+                # _require(kv, "project"), and its parser refuses an
+                # unrecognised flag, so the id form died on paste. This line
+                # is the single recommended next action a beginner is handed
+                # at the authorisation step, which made it the worst possible
+                # place for a wrong flag name.
+                "bm-autonomy sign --project %s" % project_id)
     if not (project.get("goal") or "").strip():
         return ("state-outcome", "tell me the outcome you want",
                 "nothing is recorded yet, so there is nothing to plan "

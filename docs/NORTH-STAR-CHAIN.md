@@ -66,10 +66,70 @@ moment a real method is present. Three properties, all binding:
   demand its own steps when another method is installed, and may not
   duplicate a capability the machine already has.
 
-Status today, stated plainly: the routing exists and the floor does not. Six
-task classes each print a degrade path, and those paths name a handful of
-tools and one law rather than a method somebody is taken through. Closing
-that is the work this section creates.
+Status today, measured rather than assumed. A design for the floor was
+produced and then attacked by two independent adversarial passes briefed to
+refute it. BOTH returned survives: false, and what they found matters more
+than the design would have.
+
+THE SIX DEGRADE PATHS, audited by running each one and then verifying the
+fallback it names actually does what the sentence claims:
+
+    product-strategy      REAL         the store's goal, scope, success
+                                       criteria and non-goals, exercised end
+                                       to end in a scratch project
+    long-phase-planning   PARTLY-REAL  the acceptance-checks column and its
+                                       review-time refusal are real, and the
+                                       CLI has no flag to set it
+    tdd                   PARTLY-REAL  the gate battery exists; the
+                                       "test-first law" it names exists
+                                       nowhere in the repository
+    security-check        PARTLY-REAL  write-site inventory and effect
+                                       classes are real; "all already in the
+                                       gate" is false, no suite scans the
+                                       tree for secrets
+    historical-recall     PARTLY-REAL  the store is real; the vault half is a
+                                       human habit no tool reads or writes
+    pr-review             PROSE-ONLY   no brief, no template, no tool. The
+                                       named landing place, agents/reviewer.md,
+                                       is 18 lines and contains none of it
+
+One real, four partly real, one prose only. A degrade sentence that names a
+capability which does not exist is worse than no sentence, because a reader
+gets a more complete picture than the machine delivers.
+
+THREE STRUCTURAL FINDINGS, each executed rather than reasoned, and each one
+larger than the floor's design:
+
+1. NOTHING LOADS THIS PRODUCT'S HOOKS OR AGENTS on the founder's own machine.
+   `installed_plugins.json` holds 68 plugins and no brothermode; the sibling
+   IS there. BrotherMode is installed as a directory copy under
+   `~/.claude/skills/brothermode`, which carries `hooks/hooks.json` and a
+   plugin manifest that nothing reads, because a skill copy is not a plugin
+   install. So every control this product claims through a hook or a
+   registered agent is inert on the shape people actually have. Filed as M1.
+2. THE CLOSING GATE CERTIFIES A PROJECT THAT DID NOTHING. Three commands, no
+   goal, no acceptance check, no build, no review, no evidence: deliver
+   prints success and writes a packet whose own text reads "no evidence
+   recorded". Filed as M2, and it is the sharpest thing found today, because
+   the whole chain exists to stop exactly that.
+3. THE FLOOR'S OWN SPINE IS BROKEN. A task created through the CLI is born
+   `planned`, and `next` reads only `ready`, so the handoff from planning to
+   work never happens. Filed as M3.
+
+Also filed: a task may be born in any of the ten lifecycle states through one
+flag (M4), the acceptance-criterion link is opt-in so acceptance checks
+enforce nothing (M5), the capability detector cannot tell installed from
+absent in either direction and would wrongly call this stage empty (M6), two
+degrade sentences overstate the machine (M7), and the guided walkthrough
+stops at the brief so nobody is ever told to create a task (M8).
+
+WHAT THIS CHANGES ABOUT THE FLOOR. It is not primarily a design problem. Most
+of the floor's parts exist and are broken or unreachable rather than absent,
+and the pieces that would deliver a method into a live session (hooks,
+agents) are not loaded at all. So the order is: make what exists actually
+work and actually load, then walk people through it, and only then consider
+adding steps. Adding steps to a floor whose closing gate certifies an empty
+project would raise the confidence of the output faster than its truth.
 
 BROTHERMODE. Execution provenance: what actually happened while the work was
 being done. Who wrote which file, in which session, under which claim, with
