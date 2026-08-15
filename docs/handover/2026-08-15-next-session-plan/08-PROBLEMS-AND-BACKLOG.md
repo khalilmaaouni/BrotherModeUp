@@ -1,0 +1,91 @@
+Status: CURRENT.
+
+# The problems list, 2026-08-16
+
+Three BrotherSBE reviewers ran adversarially over this repository at the
+founder's order: a principal architect on structure, a data reviewer on
+the store, a security reviewer on the trust boundaries. Every finding
+below is anchored to a file the reviewer read, and the sharpest ones were
+EXECUTED and reproduced rather than reasoned about. All eighteen are in
+docs/plan/QUEUE.json as items SBE1 to SBE18 with the same priorities.
+
+Two were fixed the same night. Sixteen are open.
+
+## P0, the four that are wrong today
+
+- **SBE14, redaction can be switched off by the text it redacts.** Any
+  line equal to the human-block marker opens a block, an unterminated
+  block runs to end of file by design, and nothing escapes the marker.
+  Proven: a generated document redacted its first line and wrote the
+  rest verbatim. This is the guard every other protection leans on.
+- **SBE9, a purge crashes on any project whose receipt names a task.**
+  Receipts are deleted a hundred lines after the tasks they reference
+  under foreign keys on, so a database error escapes to the command
+  line. A founder asking to erase a project gets a crash. The existing
+  tests miss it because the fixture never sets the link.
+- **SBE10, a purge leaves the sentinel tables behind**, and those are
+  the ones holding raw founder prose stored deliberately unscrubbed.
+  Proven: after a purge reporting twenty one cleared keys, the text was
+  still readable. The method's own docstring claims it erases
+  everything belonging to the project.
+- **SBE2, the gate starved because this repository's own test copied
+  678 MB of agent worktrees.** FIXED tonight, verification pending in
+  the current gate run: three red gates in one night, each blaming the
+  install suite, each passing alone. Cost was coupled to local scratch
+  volume, never to anything the suite tests.
+
+## P1, the four that make a green result less trustworthy
+
+- **SBE1, the installed clone and the repository can disagree while
+  both report the same version.** Measured twenty two commits of skew
+  with real source differences. Every gate binds to code that is not
+  the code running the hooks.
+- **SBE11, a completed record can still be listed as active** while the
+  store's own verify reports healthy, because the integrity check runs
+  in one direction only and the rendered block carries no stamp.
+- **SBE16, the handover zip carries whatever is in the pack with no
+  content scan**, and the hand-written slots are filled after the
+  redaction funnel ran, then land outside the repository past the
+  commit-time secret scan.
+- **SBE15, two shareable documents are written raw**, bypassing the
+  withholding policy and leaning on the one guard SBE14 disables.
+
+## P2 and P3, the structural debt
+
+SBE3 the effects registry never refuses at runtime, only at gate time.
+SBE4 three sources of truth for work items with no reconciliation, so
+the idle verdict is only as true as a hand-edited file. SBE5 the store
+is a nineteen thousand line module whose import cost is paid three
+times on every shell command. SBE12 a receipt can certify nothing,
+contradict its twin, and be dated in the future. SBE6 a registry read
+by regex instead of parsed. SBE7 registry drift across the install
+boundary is unchecked. SBE13 alerts have no project grain. SBE17
+telemetry masks secrets but not paths. SBE8 backup litter at the root.
+SBE18 is a founder decision, not an engineering fix: the committed
+evidence tree carries the founder's home path in 2721 places, with no
+credentials and no other-project data found; decide scrub or leave
+before the repository is public.
+
+## What the reviewers could NOT break, which matters as much
+
+Migrations are additive and lossless across all nineteen. The
+schema-ahead refusal is correct and touches nothing. Fence token
+identity, pack path containment, and the consent gate all held under
+attack. No credentials are in the tree. The gate's execution model,
+serial with a silence budget rather than a wall clock, survived an
+argument for parallelism. The store's transaction contract showed no
+two-writer window. Marker injection through the packs and view
+renderers is already defended, twice.
+
+## The honest reading
+
+The product's own discipline found these, which is the argument for the
+discipline. But four of them are wrong today, two of those touch
+erasure and redaction, and none of the eighteen was caught by 3174
+passing tests. That is the gap between a green gate and a true one, and
+it is the same gap the the adopter team review named from the outside.
+
+Recommended order: the two erasure defects and the redaction switch
+first, because they are correctness and privacy rather than structure;
+then the install-boundary identity, because it undermines every other
+verdict; then the debt, in queue order.
