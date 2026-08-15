@@ -132,8 +132,55 @@
   footer p { max-width: 44rem; }
   a { color: var(--petrol); }
   a:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+  /* Deep-detail sections */
+  .numbered { display: grid; gap: 0.9rem; margin: 1.2rem 0; counter-reset: item; }
+  .numbered > div {
+    display: grid; grid-template-columns: 2rem 1fr; gap: 0 0.9rem;
+    align-items: baseline;
+  }
+  .numbered > div::before {
+    counter-increment: item; content: counter(item);
+    font-family: var(--mono); font-size: 0.78rem; color: var(--petrol);
+    font-variant-numeric: tabular-nums;
+  }
+  .numbered strong { font-weight: 600; }
+  .numbered p { margin: 0.2rem 0 0; color: var(--ink-soft); }
+
+  .passport {
+    display: grid; grid-template-columns: 13rem 1fr; gap: 0.1rem 1.2rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--petrol); padding: 1.2rem 1.3rem; margin: 1.2rem 0;
+  }
+  .passport dt {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--petrol); padding-top: 0.55rem;
+  }
+  .passport dd { margin: 0; padding: 0.5rem 0; color: var(--ink-soft); border-bottom: 1px solid var(--rule); }
+  .passport dd:last-of-type { border-bottom: 0; }
+  .passport dt.critical { color: var(--missing); }
+  .passport dd.critical { color: var(--ink); }
+
+  .note {
+    background: var(--partial-wash); border-left: 4px solid var(--partial);
+    padding: 0.9rem 1.1rem; margin: 1.2rem 0; color: var(--ink);
+  }
+  .note p { margin: 0; }
+  .note strong { color: var(--partial); }
+
+  .cases { display: grid; gap: 1rem; margin-top: 1.2rem; }
+  .case {
+    background: var(--surface); border: 1px solid var(--rule);
+    padding: 1.1rem 1.3rem; display: grid; gap: 0.4rem;
+  }
+  .case h3 {
+    font-family: var(--display); font-size: 1.12rem; margin: 0; font-weight: 400;
+  }
+  .case p { margin: 0; color: var(--ink-soft); }
+
   @media (max-width: 640px) {
     .stage { grid-template-columns: 1fr; gap: 0.5rem; }
+    .passport { grid-template-columns: 1fr; gap: 0.1rem; }
+    .passport dt { padding-top: 0.7rem; }
   }
 </style>
 
@@ -150,7 +197,16 @@
 
   <div class="stage">
     <div><div class="name">Human intent</div><span class="state s-part">Partial</span></div>
-    <div><p class="what">A person wants something. The only stage no software may originate. Today nothing enforces or records that the intent was explored before planning started.</p></div>
+    <div><p class="what">A person wants something. <strong>The only stage no software may originate.</strong> Everything downstream exists either to carry it faithfully or to report honestly that it could not.</p>
+      <div class="concerns">
+        <span class="good">the goal, in the person&rsquo;s own words</span>
+        <span class="good">what is in scope and what is out</span>
+        <span class="good">how we will know it worked</span>
+        <span class="none">the questions asked and the answers given, before planning starts</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Where the gap is.</strong> The first three are recorded fields today. The fourth is not: nothing enforces or keeps a discussion before planning, so the exploration that produced the goal evaporates with the conversation. Two reviewers reported that independently, from different projects.</p>
+      <p class="what" style="margin-top:0.4rem">A requirement that appears <em>during</em> the build re-enters here, and today it tells nobody: a rule added after a test sheet was generated leaves that sheet one case short, silently.</p>
+    </div>
   </div>
   <div class="arrow">&darr;</div>
 
@@ -165,50 +221,190 @@
 
   <div class="stage">
     <div><div class="name">BrotherMode</div><span class="state s-part">One hole</span></div>
-    <div><p class="what"><strong>Execution provenance.</strong> What actually happened while the work was carried out: which file each session wrote, under which claim, verified by which command run after which edit, and what was left unfinished. Not process compliance. The record as it really occurred, including the parts that went badly.</p></div>
+    <div><p class="what"><strong>Execution provenance:</strong> an account of what happened that somebody else can check. Not process compliance, not a diary. The record as it really occurred, including the parts that went badly. Six mechanisms produce it, and each produces a record rather than a feeling.</p>
+      <div class="concerns">
+        <span class="good">ground map before any write</span>
+        <span class="good">claims, one writer per file</span>
+        <span class="good">the work record and its lifecycle</span>
+        <span class="good">the done-check rule</span>
+        <span class="good">handover when a session ends</span>
+        <span class="good">escalation when stuck</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Where the hole is:</strong> the one-writer control is inert in the assurance repository, roughly twenty legacy claim lines it cannot parse and does not enforce. Everything else on this list ran during the session that wrote this page.</p>
+      <p class="what" style="margin-top:0.4rem"><em>It does not decide whether a change is safe, classify risk, own review, or judge the work. A product that both does the work and grades it is grading itself.</em></p>
+    </div>
   </div>
   <div class="arrow">&darr;</div>
 
   <div class="stage">
     <div><div class="name">Change passport</div><span class="state s-none">Does not exist</span></div>
-    <div><p class="what">The one object that travels from execution to assurance, and the only seam between the two products. Defined now, before either side grows half of it: what was carried out, who did it, what was run, <strong>what was not established</strong>, and which method it came from. The fourth field may never be empty.</p></div>
+    <div><p class="what">The one object that travels from execution to assurance, and the <strong>only</strong> seam between the two products. Without it each side reaches into the other&rsquo;s internals, both drift, and neither can ever be replaced. Five fields, and no more.</p>
+      <div class="concerns">
+        <span class="part">1. what was done: change identity, commit range, files</span>
+        <span class="part">2. who did it: sessions, claims, the accountable person by name</span>
+        <span class="part">3. what was run: each check, its result, and whether a build system or a laptop produced it</span>
+        <span class="none">4. what was NOT established: mandatory, never empty</span>
+        <span class="part">5. where it came from: the method, named and not judged</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Field four is why the passport is worth carrying.</strong> A reviewer reads one line and knows where to spend attention. A tester who keeps finding interface problems nobody wrote down is handed the exact list of places nobody looked. A passport claiming nothing is unexamined is the precise lie this chain exists to prevent.</p>
+      <p class="what" style="margin-top:0.4rem"><em>BrotherMode produces it, BrotherSBE consumes it, it never travels back. Anything assurance needs that it does not carry is a defect in the passport, not permission to reach into execution state.</em></p>
+    </div>
   </div>
   <div class="arrow">&darr;</div>
 
   <div class="stage">
     <div><div class="name">BrotherSBE</div><span class="state s-part">Five of eight</span></div>
-    <div><p class="what"><strong>Assurance.</strong> Eight concerns, each coloured by what exists today.</p>
+    <div><p class="what"><strong>Assurance: it owns what must be proven, and verifies that it was.</strong> It borrows execution entirely, so a better coding agent or a better scanner makes it better. Eight concerns, each coloured by what exists today.</p>
       <div class="concerns">
-        <span class="good">behaviour</span>
-        <span class="none">business impact</span>
-        <span class="good">risk</span>
-        <span class="good">required proof</span>
-        <span class="part">evidence integrity</span>
-        <span class="part">accountability</span>
-        <span class="none">release readiness</span>
-        <span class="none">production observation</span>
+        <span class="good">behaviour: the rules the software must follow under stated conditions</span>
+        <span class="none">business impact: what it is worth, and what getting it wrong costs</span>
+        <span class="good">risk: how bad failure would be, which decides how much ceremony</span>
+        <span class="good">required proof: what must be shown before this may proceed</span>
+        <span class="part">evidence integrity: whether the proof is real, current and traceable</span>
+        <span class="part">accountability: who decided, who reviewed, who owns the result</span>
+        <span class="none">release readiness: whether this may go, stated as a judgement</span>
+        <span class="none">production observation: what it did once it was actually running</span>
       </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Reading the colours.</strong> Green means it exists and refuses something: behaviour has a table whose check rejects four separate ways to fake it, and risk is computed from five intake answers. Amber means it exists and can be walked past: evidence binds to a commit but never records whether a build system or a laptop produced it, and reviewer load is invisible so one person silently becomes the queue. Red means nothing at all, and the three reds are the same three the whole chain is missing at the end.</p>
     </div>
   </div>
   <div class="arrow">&darr;</div>
 
   <div class="stage human">
     <div><div class="name">Human decision</div><span class="state s-human">Unconditional</span></div>
-    <div><p class="what">A person decides to release, or not. This node may never be removed, shortened to a rubber stamp, or pre-approved. The system&rsquo;s job is to make the decision cheap and well informed, never to make it unnecessary. Today there is still no record of an acceptance ever happening.</p></div>
+    <div><p class="what">A person decides to release, or not. <strong>This node may never be removed, shortened to a rubber stamp, or pre-approved.</strong> The system&rsquo;s job is to make the decision cheap and well informed, never to make it unnecessary.</p>
+      <div class="concerns">
+        <span class="part">what was found</span>
+        <span class="part">the recommendation, and it is refused if absent</span>
+        <span class="part">the alternatives not tried</span>
+        <span class="part">the risk if the system guesses</span>
+        <span class="part">the one decision needed</span>
+        <span class="part">what happens if nobody answers, also refused if absent</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Humans are in the loop at four points,</strong> not one: the intent that starts the chain, any forcing condition where guessing is the danger, this release decision, and the acceptance that closes it. A change that removes, bypasses or silently pre-answers any of the four is refused whatever it saves.</p>
+      <p class="what" style="margin-top:0.4rem">The packet above is built and refuses to print hollow. What is still missing is the other half: <strong>no record of an acceptance ever happening.</strong> So the system can now ask a person well, and still cannot say afterwards who said yes.</p>
+    </div>
   </div>
   <div class="arrow">&darr;</div>
 
   <div class="stage">
     <div><div class="name">Release</div><span class="state s-host">The host does this</span></div>
-    <div><p class="what">The change reaches the world. Both products stop at the pull request by design, so no piece of work may claim this stage as its own.</p></div>
+    <div><p class="what">The change reaches the world: a merge, a deploy, a published package, on GitHub or Bitbucket or whatever pipeline the team already runs. Both products stop at the pull request, so no piece of work may claim this stage as its own, and the queue check refuses one that tries.</p>
+      <div class="concerns">
+        <span class="good">the host merges, deploys or publishes</span>
+        <span class="part">the human decision must already be recorded: who accepted, when, against what</span>
+        <span class="none">that record does not exist today, so &ldquo;who accepted this&rdquo; has no answer</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Why neither product performs it,</strong> and the second reason is the real one. Scope: a deployment platform is a different product and doing it badly is worse than not doing it. And structure: <em>a system that can both approve and release has no gap in it for a person to stand in.</em> Release is the last point where somebody can still say no, so the products stay on the near side of that line.</p>
+    </div>
   </div>
   <div class="arrow">&darr;</div>
 
   <div class="stage">
     <div><div class="name">Verified reality</div><span class="state s-none">Does not exist</span></div>
-    <div><p class="what">Whether it actually worked, observed rather than asserted. The terminal state, and deliberately not &ldquo;the gate went green&rdquo;. A green gate is a claim about proof. Verified reality is a claim about the world. Nothing computes it today, and the agreed success measure cannot even be recomputed.</p></div>
+    <div><p class="what">Whether it actually worked, <strong>observed rather than asserted</strong>. The terminal state, and deliberately not &ldquo;the gate went green&rdquo;: a green gate is a claim about <em>proof</em>, verified reality is a claim about the <em>world</em>. Four things would count, none of them opinions.</p>
+      <div class="concerns">
+        <span class="none">no material reopen within seven days</span>
+        <span class="none">no rollback, incident or emergency fix against it</span>
+        <span class="none">the acceptance held: whoever accepted it did not come back</span>
+        <span class="none">the team&rsquo;s own queue numbers moved, or did not</span>
+      </div>
+      <p class="what" style="margin-top:0.6rem"><strong>Why the two come apart constantly.</strong> Acceptance criteria describe core functions, while the problems a good tester finds are unnatural behaviour, misunderstandings from the design phase, and text a translator wrote without context. Every one of those sits comfortably inside a fully green change.</p>
+      <p class="what" style="margin-top:0.4rem">All four are red because nothing computes any of them. There is no post-merge record at all, so a risk tier can never be compared with its real outcome, and the agreed success measure cannot even be recomputed. The seven-day test already sat in the ratified delivery definition, which means the north star was reaching for this stage before the chain was ever drawn.</p>
+    </div>
   </div>
 
+</div>
+
+<h2>Inside BrotherMode: what &ldquo;execution provenance&rdquo; actually means</h2>
+<p>Provenance is one word for a plain idea: <strong>an account of what happened that somebody else can check.</strong> Not a diary, not a compliance report. Six things produce it, and each produces a record rather than a feeling.</p>
+<div class="numbered">
+  <div><div><strong>The ground map, before anything is written.</strong><p>Files somebody else changed mean coordinate, never overwrite. The cheapest step, and the one that catches the expensive mistake: while this page was being written, seven files changed underneath it because another session was working the same repository. The ground map is how that was noticed instead of merged over.</p></div></div>
+  <div><div><strong>Claims: one writer per file.</strong><p>Before anyone writes, they claim the files they will touch, and a hook refuses a write another live claim covers. Not advice: in this same session it refused an edit by name because a different session held that file, and the work became a delta instead of a collision.</p></div></div>
+  <div><div><strong>The work record, in one place rather than in chat.</strong><p>A project with a goal, scope, success criteria and non-goals. Tasks that walk a ten-state lifecycle and may not skip a stage. Every move records who made it, when and why. Evidence attaches to the task it belongs to.</p></div></div>
+  <div><div><strong>The done-check rule.</strong><p>Nothing is called done without a verifying command run <em>after</em> the last edit, with its output quoted. This single rule is what separates a report from a claim.</p></div></div>
+  <div><div><strong>Handover, so a session ending is not work lost.</strong><p>When a session closes, a pack says what is finished, what is in flight and at exactly which step, what was never started, which claims are still held, and what the person was asked and has not answered. A ceremony refuses a hollow pack or a session still holding claims it never released.</p></div></div>
+  <div><div><strong>Escalation, so a stuck run reaches a person.</strong><p>Four mechanical triggers: a named danger where guessing is the risk, three distinct approaches failed, two failures sharing one root cause, or a declared budget spent with nothing passing. It produces a decision for a person, never an answer of its own.</p></div></div>
+</div>
+<div class="note"><p><strong>What it deliberately does not do,</strong> because the boundary is the whole point: it does not decide whether a change is safe, does not classify risk, does not own review, and does not judge the work. It records what happened accurately enough that somebody else can judge it. A product that both does the work and grades it is grading itself.</p></div>
+
+<h2>The change passport, in full</h2>
+<p><strong>The problem it solves.</strong> Two products must hand work between them. With no defined object, each reaches into the other&rsquo;s internals: assurance starts reading execution state it does not own, execution starts guessing what assurance will want. Both drift and neither can be replaced. One defined object means either side can be swapped for something better, as long as it can fill in or read the same five fields.</p>
+<p>Here is a filled one, so the shape is unambiguous. The change is a new optional field pulled from the content system through the API to the client.</p>
+<dl class="passport">
+  <dt>What was done</dt>
+  <dd>Add an optional <span class="mono">fax_account_id</span> field, pulled from the CMS through the API to the client. 4 commits, 6 files.</dd>
+  <dt>Who did it</dt>
+  <dd>One session, holding claims on those six files. The accountable human is the engineer who opened it, by name, never by role.</dd>
+  <dt>What was run</dt>
+  <dd>The unit suite, green, produced by the build system, run 47812. The type check, green, same source. Where evidence came from is part of the evidence.</dd>
+  <dt class="critical">What was NOT established</dt>
+  <dd class="critical">No regression pass. No cross-device check. No performance measurement. No interface review. The translated strings were not read by anyone who speaks the language.</dd>
+  <dt>Where it came from</dt>
+  <dd>The team&rsquo;s own specification-first flow. Named, not judged.</dd>
+</dl>
+<p><strong>That fourth field is what makes the passport worth carrying,</strong> and it may never be empty. A reviewer reading it knows in one line where to spend their attention. A tester who keeps finding interface problems nobody wrote down is being handed the exact list of places nobody looked. A passport claiming that nothing is unexamined is the precise lie this whole chain exists to prevent.</p>
+<p><strong>Direction of travel.</strong> BrotherMode produces it, BrotherSBE consumes it, it never travels back. If the assurance side needs something the passport does not carry, that is a defect in the passport, not permission to reach into execution state.</p>
+
+<h2>Release, and why both products stop before it</h2>
+<p>The host performs the release: a merge, a deploy, a published package, on GitHub or Bitbucket or whatever pipeline the team already runs. Neither product does it, for two reasons, and the second is the real one.</p>
+<p>The first is scope: a deployment platform is a different product, and doing it badly would be worse than not doing it. The second is that <strong>a system which can both approve and release has no gap in it for a person to stand in.</strong> The release is the last point where a human can still say no, so the products stay on the near side of that line and the node cannot be optimised away by convenience.</p>
+<p>What must be true before it: the human decision is recorded, who accepted and when and against what. Today that record does not exist, so the honest answer to &ldquo;who accepted this&rdquo; is that nobody knows.</p>
+
+<h2>Verified reality, and why a green gate is not it</h2>
+<p><strong>The distinction that matters most on this page.</strong> A green gate is a claim about <em>proof</em>: the checks that ran, passed. Verified reality is a claim about the <em>world</em>: the thing does what somebody needed.</p>
+<p>The two come apart constantly, and the team review behind this work named exactly how: a green result systematically under-represents how much checking remains, because acceptance criteria describe core functions while the problems a good tester finds are unnatural behaviour, misunderstandings from the design phase, and text a translator wrote without context. Every one of those sits comfortably inside a fully green change.</p>
+<p>Four things would actually count, none of them opinions:</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Observable</th><th>What it tells you</th></tr></thead>
+  <tbody>
+    <tr><td>no material reopen in seven days</td><td>the change held once people used it</td></tr>
+    <tr><td>no rollback, incident or emergency fix</td><td>it did not break something else</td></tr>
+    <tr><td>the acceptance held</td><td>the person who accepted it did not come back</td></tr>
+    <tr><td>the team&rsquo;s own queue numbers moved</td><td>or did not, which is equally worth knowing</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The seven-day test already exists in the ratified delivery definition, which means the north star was reaching for this stage before the chain was ever drawn. Nothing computes any of the four today.</p>
+
+<h2>Who does what, stage by stage</h2>
+<p>The short version of the whole page. The last column is the one that may never be automated away.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Stage</th><th>BrotherMode</th><th>BrotherSBE</th><th>The human</th></tr></thead>
+  <tbody>
+    <tr><td>Human intent</td><td>records goal, scope, success criteria</td><td>nothing</td><td>states what they actually want</td></tr>
+    <tr><td>Method</td><td>fills the stage when nothing is installed, steps aside when something is</td><td>nothing</td><td>picks a method, or has none and is carried anyway</td></tr>
+    <tr><td>Execution</td><td>claims files, records the work, enforces the done-check, hands over, escalates</td><td>nothing</td><td>decides at any forcing condition</td></tr>
+    <tr><td>Passport</td><td>produces it</td><td>consumes it</td><td>nothing</td></tr>
+    <tr><td>Assurance</td><td>nothing</td><td>risk, required proof, evidence integrity, behaviour, accountability, readiness</td><td>answers what only a person can answer</td></tr>
+    <tr><td>Human decision</td><td>presents it with a recommendation and a default</td><td>supplies what is proven and what is not</td><td>decides, and is named for it</td></tr>
+    <tr><td>Release</td><td>stops here</td><td>stops here</td><td>releases</td></tr>
+    <tr><td>Verified reality</td><td>should record the outcome (does not yet)</td><td>should compare outcome against risk tier (does not yet)</td><td>says whether it actually worked</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>The same chain, walked four ways</h2>
+<p>One shape, and it should feel different depending on who you are. If it feels identical for all four, it is too heavy for the first and too light for the last.</p>
+<div class="cases">
+  <div class="case">
+    <h3>One person, one small change</h3>
+    <p>Intent is a sentence. The method is whatever they already do. Provenance costs seconds: a claim, a record, a done-check. The passport is thin and its fourth field is honest, because nothing was checked but the unit suite. Assurance sits at the lowest tier, two artifacts rather than seven. The decision-maker is the same person, and the system says so plainly instead of pretending a review happened. This path has to stay fast, because a skipped path records nothing at all.</p>
+  </div>
+  <div class="case">
+    <h3>A team, a risky migration</h3>
+    <p>Intent is a specification. Assurance is the highest tier: both directions of the migration proven against a restore, real row counts, an approval signed by somebody other than the author, and evidence produced by the build system rather than a laptop. The passport&rsquo;s fourth field is long, and it is the most valuable page in the change. The decision belongs to a named accountable person, and the release waits for them.</p>
+  </div>
+  <div class="case">
+    <h3>Somebody who does not write code</h3>
+    <p>An analyst or a tester meets the chain at three points only: stating the intent, writing what the software must do under stated conditions, and deciding whether what came back is right. They should never meet a claim, a fence, a risk tier or a receipt. The measure of whether this works for them is whether their first hour goes on the work or on installing prerequisites, and today it goes on prerequisites.</p>
+  </div>
+  <div class="case">
+    <h3>A consultancy proving diligence</h3>
+    <p>Here the chain <em>is</em> the deliverable. Every stage leaves a record a client can read: what was intended, what was decided and why, what was proven, what was honestly not proven, who accepted it, and what happened afterwards. The fourth passport field is what makes it credible rather than marketing, because a report listing only what went well gets read as one.</p>
+  </div>
 </div>
 
 <h2>The two rules this imposes on everything</h2>

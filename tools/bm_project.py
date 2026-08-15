@@ -176,6 +176,15 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+#: The only states a task may be CREATED in. Not derived from schema.STATES on
+#: purpose: this is a different rule from the transition law, it is shorter,
+#: and deriving it would mean a new state added to the lifecycle silently
+#: becomes a legal birth state. `planned` is the default and the honest start;
+#: `ready` is legal because `next` serves only ready tasks, so refusing it
+#: would break the guided flow. Every later state is reached by walking, which
+#: is what makes the walk mean anything.
+BIRTH_STATES = ("planned", "ready")
+
 
 def _load(name):
     """Load a sibling module by PATH, the exact technique tools/bm_learn.py
@@ -1100,6 +1109,28 @@ def cmd_task_add(argv):
     task["project_id"] = project_id
     task.setdefault("task_id", kv.get("task-id") or uuid.uuid4().hex)
     task["status"] = kv.get("status") or task.get("status") or "planned"
+    # M4, and the reason it is refused HERE rather than in deliver. The
+    # transition law was never the hole: `task transition --to verified` from
+    # `planned` is refused correctly, and TestRefusals proves it. The hole was
+    # that BIRTH chose a state, so a task could start past every gate instead
+    # of walking through them. Reproduced in a throwaway root before this
+    # guard existed, three commands total: `task add --status closed` printed
+    # "added task t1", and `deliver` then printed "delivered px: all 1 task(s)
+    # closed" and exited 0, for a project with no goal, no acceptance check,
+    # no review and no evidence. deliver's own rule was doing its job on the
+    # evidence it had; the lie was upstream, so the guard is upstream, in the
+    # one place every caller of task creation already routes through.
+    #
+    # `ready` is legal alongside `planned` on purpose: `next` serves only
+    # ready tasks, so refusing it would break the guided flow this same work
+    # is trying to make real (M3).
+    if task["status"] not in BIRTH_STATES:
+        _err("bm_project: refused: a task cannot be created in %r. A task is "
+             "born in one of: %s, and reaches any later state by walking the "
+             "lifecycle, because a task that starts past a stage hides which "
+             "evidence and review requirements were met at it."
+             % (task["status"], ", ".join(BIRTH_STATES)))
+        return 1
     for flag, field in (
             ("user-value", "user_value"), ("reason", "reason"),
             ("priority", "priority"), ("assigned-human", "assigned_human"),
