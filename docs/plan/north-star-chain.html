@@ -182,6 +182,72 @@
     .passport { grid-template-columns: 1fr; gap: 0.1rem; }
     .passport dt { padding-top: 0.7rem; }
   }
+
+  /* Contents strip */
+  .toc {
+    display: flex; flex-wrap: wrap; gap: 0.15rem 1.4rem;
+    padding: 0.9rem 0 0; margin: 0;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.02em;
+  }
+  .toc a { color: var(--ink-faint); text-decoration: none; border-bottom: 1px solid transparent; }
+  .toc a:hover, .toc a:focus-visible { color: var(--petrol); border-bottom-color: var(--petrol); }
+
+  /* Status strip */
+  .tally {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    margin: 2.2rem 0 0.8rem;
+  }
+  .tally div { background: var(--surface); padding: 1rem 1.1rem; display: grid; gap: 0.25rem; }
+  .tally .n {
+    font-family: var(--display); font-size: 2rem; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tally .k {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .tally .n.good { color: var(--petrol); }
+  .tally .n.part { color: var(--partial); }
+  .tally .n.none { color: var(--missing); }
+
+  /* Figure */
+  figure { margin: 1.6rem 0 0.6rem; }
+  figure svg { max-width: 100%; height: auto; display: block; min-width: 46rem; }
+  figcaption {
+    font-size: 0.88rem; color: var(--ink-faint); margin-top: 0.7rem;
+    max-width: 44rem;
+  }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; margin-top: 0.7rem;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .swatch { width: 0.75rem; height: 0.75rem; border: 1px solid currentColor; display: inline-block; }
+  .swatch.good { color: var(--petrol); background: var(--petrol-wash); }
+  .swatch.part { color: var(--partial); background: var(--partial-wash); }
+  .swatch.none { color: var(--missing); background: var(--missing-wash); }
+  .swatch.dot { border-radius: 50%; color: var(--human); background: var(--human); }
+
+  /* Diagram styling lives here rather than in presentation attributes: a CSS
+     custom property inside an SVG attribute is far less reliable across
+     renderers than the same value applied through a stylesheet rule. */
+  .flow { color: var(--ink); }
+  .flow .box { fill: var(--surface); stroke-width: 1.6; }
+  .flow .box.part { stroke: var(--partial); }
+  .flow .box.none { stroke: var(--missing); }
+  .flow .box.host { stroke: var(--ink-faint); stroke-width: 1.2; }
+  .flow .box.human { fill: var(--human-wash); stroke: var(--human); stroke-width: 2.2; }
+  .flow .dot { fill: var(--human); }
+  .flow .title { font-family: var(--display); font-size: 15px; fill: var(--ink); text-anchor: middle; }
+  .flow .title.human { fill: var(--human); }
+  .flow .who { font-family: var(--mono); font-size: 9px; fill: var(--ink-faint); text-anchor: middle; }
+  .flow .edge { font-family: var(--mono); font-size: 9.5px; fill: var(--ink-faint); text-anchor: middle; }
+  .flow .link { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; }
+  .flow .back { stroke: var(--missing); stroke-width: 1.6; fill: none; stroke-dasharray: 7 5; }
+  .flow .back-label { font-family: var(--mono); font-size: 10px; fill: var(--missing); text-anchor: middle; }
+  .flow .head { fill: var(--ink-faint); }
+  .flow .head-none { fill: var(--missing); }
 </style>
 
 <div class="wrap">
@@ -191,8 +257,113 @@
   <p class="standfirst">One chain, eight stages, and a human decision that no automation may remove. This is the north star for what gets built and how it gets built.</p>
 </header>
 
+<nav class="toc" aria-label="Contents">
+  <a href="#flow">The flow</a>
+  <a href="#stages">Every stage in detail</a>
+  <a href="#passport">A filled passport</a>
+  <a href="#roles">Who does what</a>
+  <a href="#walks">Four ways to walk it</a>
+  <a href="#rules">The two rules</a>
+  <a href="#gaps">Where the gaps came from</a>
+</nav>
+
+<div class="tally">
+  <div><span class="n good">1</span><span class="k">stage that works</span></div>
+  <div><span class="n part">5</span><span class="k">partly there</span></div>
+  <div><span class="n none">2</span><span class="k">do not exist</span></div>
+  <div><span class="n">4</span><span class="k">points a human decides</span></div>
+</div>
+
+<h2 id="flow">The flow, and the loop nobody has built</h2>
+<p>The chain is usually drawn as a straight line from an idea to a release. It is not a line, it is a loop: what the change actually does in the world is where the next intent comes from. That return edge is drawn here in red because <strong>nothing carries it today</strong>, which is why a defect cannot be entered as a defect and a requirement discovered mid-build tells nobody.</p>
+
+<figure>
+<svg class="flow" viewBox="0 0 1100 330" role="img" aria-label="The delivery chain as a loop: intent, method, execution, passport, assurance, human decision, release, and verified reality, with a return edge from verified reality back to intent that is not built. Four stages carry a human decision point.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+    <marker id="ar-none" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head-none" d="M 0 0 L 10 5 L 0 10 z"/>
+    </marker>
+  </defs>
+
+  <g class="edge">
+    <text x="136" y="101">a goal</text>
+    <text x="274" y="101">a way of working</text>
+    <text x="412" y="101">what actually happened</text>
+    <text x="550" y="101">the passport</text>
+    <text x="688" y="101">proven, and not proven</text>
+    <text x="826" y="101">a yes, from a person</text>
+    <text x="964" y="101">the change, live</text>
+  </g>
+
+  <g class="link" marker-end="url(#ar)">
+    <line x1="122" y1="144" x2="146" y2="144"/>
+    <line x1="260" y1="144" x2="284" y2="144"/>
+    <line x1="398" y1="144" x2="422" y2="144"/>
+    <line x1="536" y1="144" x2="560" y2="144"/>
+    <line x1="674" y1="144" x2="698" y2="144"/>
+    <line x1="812" y1="144" x2="836" y2="144"/>
+    <line x1="950" y1="144" x2="974" y2="144"/>
+  </g>
+
+  <g>
+    <rect class="box part" x="12"  y="110" width="110" height="68"/>
+    <rect class="box part" x="150" y="110" width="110" height="68"/>
+    <rect class="box part" x="288" y="110" width="110" height="68"/>
+    <rect class="box none" x="426" y="110" width="110" height="68"/>
+    <rect class="box part" x="564" y="110" width="110" height="68"/>
+    <rect class="box human" x="702" y="110" width="110" height="68"/>
+    <rect class="box host" x="840" y="110" width="110" height="68"/>
+    <rect class="box none" x="978" y="110" width="110" height="68"/>
+  </g>
+
+  <g class="dot">
+    <circle cx="108" cy="122" r="4.5"/>
+    <circle cx="384" cy="122" r="4.5"/>
+    <circle cx="798" cy="122" r="4.5"/>
+    <circle cx="1074" cy="122" r="4.5"/>
+  </g>
+
+  <g>
+    <text class="title" x="67"   y="141">Intent</text>
+    <text class="title" x="205"  y="141">Method</text>
+    <text class="title" x="343"  y="141">Execution</text>
+    <text class="title" x="481"  y="141">Passport</text>
+    <text class="title" x="619"  y="141">Assurance</text>
+    <text class="title human" x="757" y="141">Decision</text>
+    <text class="title" x="895"  y="141">Release</text>
+    <text class="title" x="1033" y="141">Reality</text>
+  </g>
+  <g>
+    <text class="who" x="67"   y="162">a person</text>
+    <text class="who" x="205"  y="162">theirs, or ours</text>
+    <text class="who" x="343"  y="162">BrotherMode</text>
+    <text class="who" x="481"  y="162">the only seam</text>
+    <text class="who" x="619"  y="162">BrotherSBE</text>
+    <text class="who" x="757"  y="162">a person</text>
+    <text class="who" x="895"  y="162">the host</text>
+    <text class="who" x="1033" y="162">the world</text>
+  </g>
+
+  <path class="back" marker-end="url(#ar-none)"
+        d="M 1033 178 L 1033 258 Q 1033 274 1017 274 L 83 274 Q 67 274 67 258 L 67 186"/>
+  <text class="back-label" x="550" y="295">defects, rollbacks and requirements discovered during the build: nothing carries this today</text>
+</svg>
+<figcaption>Read left to right, then follow the red edge back. The dot marks a point where a person decides, and there are four of them, not one. The passport is the single crossing between the two products, so either side can be replaced as long as it can fill in or read those five fields.</figcaption>
+</figure>
+
+<div class="legend">
+  <span><i class="swatch good"></i> exists and refuses something</span>
+  <span><i class="swatch part"></i> exists and can be walked past</span>
+  <span><i class="swatch none"></i> does not exist</span>
+  <span><i class="swatch dot"></i> a person decides here</span>
+</div>
+
 <p>The colour on each stage is where that stage stands today, not where it is meant to end up. Four of the last five do not exist yet, and saying so is the point: a diagram that only draws the finished shape hides the work.</p>
 
+<h2 id="stages">Every stage in detail</h2>
 <div class="chain">
 
   <div class="stage">
@@ -316,21 +487,8 @@
 
 </div>
 
-<h2>Inside BrotherMode: what &ldquo;execution provenance&rdquo; actually means</h2>
-<p>Provenance is one word for a plain idea: <strong>an account of what happened that somebody else can check.</strong> Not a diary, not a compliance report. Six things produce it, and each produces a record rather than a feeling.</p>
-<div class="numbered">
-  <div><div><strong>The ground map, before anything is written.</strong><p>Files somebody else changed mean coordinate, never overwrite. The cheapest step, and the one that catches the expensive mistake: while this page was being written, seven files changed underneath it because another session was working the same repository. The ground map is how that was noticed instead of merged over.</p></div></div>
-  <div><div><strong>Claims: one writer per file.</strong><p>Before anyone writes, they claim the files they will touch, and a hook refuses a write another live claim covers. Not advice: in this same session it refused an edit by name because a different session held that file, and the work became a delta instead of a collision.</p></div></div>
-  <div><div><strong>The work record, in one place rather than in chat.</strong><p>A project with a goal, scope, success criteria and non-goals. Tasks that walk a ten-state lifecycle and may not skip a stage. Every move records who made it, when and why. Evidence attaches to the task it belongs to.</p></div></div>
-  <div><div><strong>The done-check rule.</strong><p>Nothing is called done without a verifying command run <em>after</em> the last edit, with its output quoted. This single rule is what separates a report from a claim.</p></div></div>
-  <div><div><strong>Handover, so a session ending is not work lost.</strong><p>When a session closes, a pack says what is finished, what is in flight and at exactly which step, what was never started, which claims are still held, and what the person was asked and has not answered. A ceremony refuses a hollow pack or a session still holding claims it never released.</p></div></div>
-  <div><div><strong>Escalation, so a stuck run reaches a person.</strong><p>Four mechanical triggers: a named danger where guessing is the risk, three distinct approaches failed, two failures sharing one root cause, or a declared budget spent with nothing passing. It produces a decision for a person, never an answer of its own.</p></div></div>
-</div>
-<div class="note"><p><strong>What it deliberately does not do,</strong> because the boundary is the whole point: it does not decide whether a change is safe, does not classify risk, does not own review, and does not judge the work. It records what happened accurately enough that somebody else can judge it. A product that both does the work and grades it is grading itself.</p></div>
-
-<h2>The change passport, in full</h2>
-<p><strong>The problem it solves.</strong> Two products must hand work between them. With no defined object, each reaches into the other&rsquo;s internals: assurance starts reading execution state it does not own, execution starts guessing what assurance will want. Both drift and neither can be replaced. One defined object means either side can be swapped for something better, as long as it can fill in or read the same five fields.</p>
-<p>Here is a filled one, so the shape is unambiguous. The change is a new optional field pulled from the content system through the API to the client.</p>
+<h2 id="passport">A filled change passport</h2>
+<p>The card above lists the five fields. This is one filled in, so the shape is unambiguous: a new optional field pulled from the content system through the API to the client.</p>
 <dl class="passport">
   <dt>What was done</dt>
   <dd>Add an optional <span class="mono">fax_account_id</span> field, pulled from the CMS through the API to the client. 4 commits, 6 files.</dd>
@@ -346,29 +504,7 @@
 <p><strong>That fourth field is what makes the passport worth carrying,</strong> and it may never be empty. A reviewer reading it knows in one line where to spend their attention. A tester who keeps finding interface problems nobody wrote down is being handed the exact list of places nobody looked. A passport claiming that nothing is unexamined is the precise lie this whole chain exists to prevent.</p>
 <p><strong>Direction of travel.</strong> BrotherMode produces it, BrotherSBE consumes it, it never travels back. If the assurance side needs something the passport does not carry, that is a defect in the passport, not permission to reach into execution state.</p>
 
-<h2>Release, and why both products stop before it</h2>
-<p>The host performs the release: a merge, a deploy, a published package, on GitHub or Bitbucket or whatever pipeline the team already runs. Neither product does it, for two reasons, and the second is the real one.</p>
-<p>The first is scope: a deployment platform is a different product, and doing it badly would be worse than not doing it. The second is that <strong>a system which can both approve and release has no gap in it for a person to stand in.</strong> The release is the last point where a human can still say no, so the products stay on the near side of that line and the node cannot be optimised away by convenience.</p>
-<p>What must be true before it: the human decision is recorded, who accepted and when and against what. Today that record does not exist, so the honest answer to &ldquo;who accepted this&rdquo; is that nobody knows.</p>
-
-<h2>Verified reality, and why a green gate is not it</h2>
-<p><strong>The distinction that matters most on this page.</strong> A green gate is a claim about <em>proof</em>: the checks that ran, passed. Verified reality is a claim about the <em>world</em>: the thing does what somebody needed.</p>
-<p>The two come apart constantly, and the team review behind this work named exactly how: a green result systematically under-represents how much checking remains, because acceptance criteria describe core functions while the problems a good tester finds are unnatural behaviour, misunderstandings from the design phase, and text a translator wrote without context. Every one of those sits comfortably inside a fully green change.</p>
-<p>Four things would actually count, none of them opinions:</p>
-<div class="scroll">
-<table>
-  <thead><tr><th>Observable</th><th>What it tells you</th></tr></thead>
-  <tbody>
-    <tr><td>no material reopen in seven days</td><td>the change held once people used it</td></tr>
-    <tr><td>no rollback, incident or emergency fix</td><td>it did not break something else</td></tr>
-    <tr><td>the acceptance held</td><td>the person who accepted it did not come back</td></tr>
-    <tr><td>the team&rsquo;s own queue numbers moved</td><td>or did not, which is equally worth knowing</td></tr>
-  </tbody>
-</table>
-</div>
-<p>The seven-day test already exists in the ratified delivery definition, which means the north star was reaching for this stage before the chain was ever drawn. Nothing computes any of the four today.</p>
-
-<h2>Who does what, stage by stage</h2>
+<h2 id="roles">Who does what, stage by stage</h2>
 <p>The short version of the whole page. The last column is the one that may never be automated away.</p>
 <div class="scroll">
 <table>
@@ -386,7 +522,7 @@
 </table>
 </div>
 
-<h2>The same chain, walked four ways</h2>
+<h2 id="walks">The same chain, walked four ways</h2>
 <p>One shape, and it should feel different depending on who you are. If it feels identical for all four, it is too heavy for the first and too light for the last.</p>
 <div class="cases">
   <div class="case">
@@ -407,7 +543,7 @@
   </div>
 </div>
 
-<h2>The two rules this imposes on everything</h2>
+<h2 id="rules">The two rules this imposes on everything</h2>
 <div class="rules">
   <div class="rule">
     <h3>Rule one: the human loop is never optimised away</h3>
@@ -420,7 +556,7 @@
   </div>
 </div>
 
-<h2>Where the gaps came from, which is the part worth trusting</h2>
+<h2 id="gaps">Where the gaps came from, which is the part worth trusting</h2>
 <p>Nine holes were found earlier the same day by walking the lifecycle and asking what has no tool at all, before this chain was written down. Five of the nine turned out to be one hole seen five times: <strong>the system is complete up to the merge and blind after it.</strong></p>
 <p>This chain names that same hole from the opposite direction. Its last four stages are exactly the four that do not exist. The gaps are not scattered debt, they are the unbuilt half of the model, and two independent passes reached it within an hour of each other.</p>
 <div class="scroll">
