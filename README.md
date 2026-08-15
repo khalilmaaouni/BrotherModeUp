@@ -442,13 +442,17 @@ The engine underneath (`tools/bm_*.py`, `scripts/install.py`,
 you want the moving tree rather than the fixed snapshot, use the development
 clone below instead.
 
-**Bitbucket.** The engine speaks plain git and never calls a GitHub API, so a
-project whose remote lives on Bitbucket Cloud gets the same fences, gates and
-ceremony. `docs/BITBUCKET.md` carries the full picture: install from a mirror
-(Claude Code's marketplace command accepts full git URLs, Bitbucket included),
-the pull request flow through Bitbucket's REST API now that app passwords are
-gone, a `bitbucket-pipelines.yml` mirroring the CI gate on Linux, and an
-honest list of what has not yet been executed against a live mirror.
+**Bitbucket and Azure Repos.** The engine speaks plain git and never calls a
+host API, so a project whose remote lives on Bitbucket Cloud or Azure Repos
+gets the same fences, gates and ceremony as one on GitHub; that is a standing
+rule (the tri-host law in this repository's CLAUDE.md), with GitHub as the
+canonical home. `docs/BITBUCKET.md` and `docs/AZURE-REPOS.md` each carry the
+full picture for their host: install from a mirror (Claude Code's marketplace
+command accepts full git URLs for both), the pull request flow through each
+host's own tooling, a CI file beside `.github/workflows/`
+(`bitbucket-pipelines.yml`, `azure-pipelines.yml`) each honest about its
+runner limits, and an explicit list of what has not yet been executed against
+a live mirror, labeled UNVERIFIED on the page rather than implied.
 
 Working on BrotherMode's own code, rather than just using it? Use the separate
 development command instead, which tracks the moving `main` branch on purpose

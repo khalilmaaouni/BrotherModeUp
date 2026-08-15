@@ -1,0 +1,84 @@
+# Runs the BrotherMode gate on Azure Pipelines, the third leg of the
+# tri-host law (CLAUDE.md, founder order 2026-08-16): GitHub canonical,
+# Bitbucket for the the adopter team team, Azure Repos for the client estate.
+#
+# Same intent as bitbucket-pipelines.yml: the documented full gate
+# (PROJECT.md: BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py) on both
+# ends of the supported Python range. Azure's hosted pools also offer macOS
+# and Windows images, which Bitbucket Cloud does not; those legs are written
+# below and commented, to be enabled after a real mirror proves the Linux
+# legs first, so the file never claims platform evidence nobody has run.
+#
+# fetchDepth 0 is load-bearing: the release-truth suite asserts the pinned
+# install tag resolves, and a shallow fetch carries no tags. Same lesson as
+# the GitHub workflow's header and the Bitbucket file's clone depth.
+#
+# UNVERIFIED, stated where the tri-host law requires it: this file has never
+# executed on Azure DevOps, because no mirror exists yet. docs/AZURE-REPOS.md
+# carries the closing steps.
+
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+
+jobs:
+  - job: gate_py39
+    displayName: Full gate on Python 3.9
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: "3.9"
+      - script: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
+        displayName: Run the documented full gate
+
+  - job: gate_py3
+    displayName: Full gate on newest Python 3
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: "3.x"
+      - script: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
+        displayName: Run the documented full gate
+
+# Enable after the Linux legs are proven green on a real mirror; Azure hosts
+# these images, which makes Azure the one non-GitHub host able to reproduce
+# the full three-platform evidence:
+#
+#  - job: gate_macos
+#    displayName: Full gate on macOS
+#    pool:
+#      vmImage: macOS-latest
+#    steps:
+#      - checkout: self
+#        fetchDepth: 0
+#      - script: |
+#          git config --global user.email ci@example.com
+#          git config --global user.name ci
+#          BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
+#        displayName: Run the documented full gate
+#
+#  - job: store_windows
+#    displayName: Store suite on Windows
+#    pool:
+#      vmImage: windows-latest
+#    steps:
+#      - checkout: self
+#        fetchDepth: 0
+#      - script: python tools/test_bm_store.py
+#        displayName: Run the store suite

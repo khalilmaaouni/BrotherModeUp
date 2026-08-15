@@ -58,6 +58,17 @@ prompt). Kill by PID after printing the target.
   `scripts/doctor.py` check 9 FAILing, and no test catches it.
 - Push policy: direct to main. Every gate (secret scan, dash scan, green
   tests, command verification) stays mandatory.
+- Tri-host law (founder order 2026-08-16): every development, past and
+  forward, works on GitHub, Bitbucket Cloud, AND Azure Repos by default.
+  GitHub is the main target and the canonical home; Bitbucket is the the adopter team
+  team's host; Azure Git is the client estate's host. Concretely: the engine speaks
+  plain git only (never gh, never a host API, in tools/ or hooks/); every
+  host-facing feature ships its three legs or labels the missing leg
+  UNVERIFIED by name (docs/BITBUCKET.md and docs/AZURE-REPOS.md are the
+  pattern); CI parity is bitbucket-pipelines.yml and azure-pipelines.yml
+  beside .github/workflows/, each honest about its runner limits. A
+  change that only works on one host is not done until the other two are
+  covered or their gaps are named in the same change.
 - Merge-to-main default (founder order 2026-08-15): every session merges
   its finished work to main before it ends; worktree agent deltas are
   folded by the orchestrator, re-gated on the committed tree, and pushed.
