@@ -23794,6 +23794,149 @@ class TestAForgedHumanMarkerCannotDisableRedaction(unittest.TestCase):
         self.assertEqual(bs.human_block_secret_hits(real), [3])
 
 
+# ---------------------------------------------------------------------------
+# The gap SBE9 and SBE10 (above) sat on top of, closed the same day. Both
+# fixes are point fixes: one crash, one missing set of deletes. Neither
+# touches the reason the second one shipped in the first place.
+#
+# TestPurgeProject's own removed-dict assertion
+# (test_removes_rows_and_writes_attribution_naming_the_purge, tools/
+# test_bm_store.py:15651-15699) pins a dict shape that CATCHES a table
+# ADDED to the purge without a key: the equality fails, because the actual
+# dict now carries a key the pin never listed. It CANNOT catch a table
+# FORGOTTEN: no key appears for it on either side, the dict still matches,
+# the test is green. That asymmetry is exactly how the four sentinel
+# tables (SBE10) survived a release holding raw founder prose behind a
+# purge that reported twenty one cleared keys and said nothing about the
+# four it never touched.
+# ---------------------------------------------------------------------------
+
+
+class TestEveryProjectScopedTableIsPurged(unittest.TestCase):
+    """Closes the asymmetry by reading the table list out of sqlite itself
+    (sqlite_master plus PRAGMA table_info) at test run time, instead of a
+    Python list somebody maintains by hand. A hand-written list would
+    reproduce the original defect: it would only name the tables somebody
+    remembered. A table with a project_id column added to the schema
+    later, purged or not, is caught here without anybody having to
+    remember to update this test's own source: either the 'seeded before
+    purge' assertion below fails (this test was never taught how to put a
+    row in it, so it proves nothing about that table) or the 'zero rows
+    after purge' assertion fails (purge_project forgot it), and either
+    failure names the table by name."""
+
+    # The one deliberate exemption, and it is a decision, not an
+    # oversight: tools/bm_store.py:13284-13296 (purge_project's own
+    # docstring). The attribution row purge_project itself writes to
+    # record the purge is inserted BEFORE the project row is removed, and
+    # every OTHER attribution row a project ever accumulated
+    # (project.upserted, task.created, alert.raised, and the rest) is kept
+    # on purpose: purge_project never touches the attribution table except
+    # to append, because the record that a deletion happened is the one
+    # thing a deletion must not erase. Any OTHER table with a project_id
+    # column that purge_project leaves behind is a defect, and must fail
+    # below rather than sit next to this one under a shared excuse.
+    _EXEMPT = frozenset(["attribution"])
+
+    def _tables_with_project_id(self, store):
+        names = [r["name"] for r in store.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND "
+            "name NOT LIKE 'sqlite_%'").fetchall()]
+        found = []
+        for name in names:
+            cols = [r["name"] for r in store.conn.execute(
+                "PRAGMA table_info(%s)" % name).fetchall()]
+            if "project_id" in cols:
+                found.append(name)
+        return sorted(found)
+
+    def _seed_every_purgeable_table(self, store, pid, actor):
+        """One row naming `pid` in every table the live schema currently
+        gives a project_id column, except attribution. Mirrors the seeding
+        _seeded_project, TestAutonomyPurgeLeavesNoOrphans,
+        TestControllerPurgeLeavesNoOrphans, TestLeadPurgeLeavesNoOrphans,
+        TestViewPurgeLeavesNoOrphans, TestCapabilityReceiptPurgeLeaves
+        NoOrphans and TestSentinelRowsDoNotSurviveAPurge already use
+        elsewhere in this file, combined onto one project so a single
+        purge call proves every table at once. sign_contract always
+        inserts state='live' (tools/bm_store.py:14375), so the run,
+        spend, assumption, interruption, human step and checkpoint calls
+        below all find a live contract without a separate state change."""
+        controller_actor = _controller_actor()
+        run = _open_and_plan(store, pid)
+        store.upsert_units(run["run_id"], [_unit("u1")], controller_actor)
+        store.claim_unit("u1", "f1", controller_actor)
+        store.record_dispatch("u1", 1, 1, "f1", "s", controller_actor)
+
+        store.record_spend(pid, 10, 1, "", "s", controller_actor)
+        store.record_assumption(pid, "text", "", "s", controller_actor)
+        store.record_interruption(pid, "contradiction", "q?", "s",
+                                  controller_actor)
+        store.queue_human_step(pid, "", "l", "w", "", [], "s",
+                               controller_actor)
+        store.record_checkpoint(pid, "ctrl", "k", "n", "s",
+                                controller_actor)
+
+        store.create_task(_task("task1", pid=pid), actor)
+        store.add_forecast(_forecast("fc1", pid=pid), actor)
+
+        store.add_knowledge(pid, "fact", "the api key rotates weekly",
+                            "founder", "sess1", actor)
+        store.add_procedural(pid, "tried the old endpoint", "failed",
+                             "wrong base url", "sess1", actor)
+        store.set_status(pid, "halfway through the migration",
+                         "the vendor has not replied", "sess1", actor)
+        store.record_intervention(pid, "resume", "silent", "", None,
+                                  "nothing worth interrupting for", "sess1",
+                                  actor)
+
+        lead_actor = _lead_actor()
+        store.record_insight(pid, _key_decision(), lead_actor)
+        store.record_briefing(pid, _briefing(), lead_actor)
+        store.record_view(pid, _view(), lead_actor)
+
+        store.add_capability_receipt(
+            _capability_receipt("rcpt1", pid=pid), actor)
+
+    def test_every_table_with_a_project_id_column_is_erased_by_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                self._seed_every_purgeable_table(store, "p1", actor)
+
+                tables = self._tables_with_project_id(store)
+                self.assertIn(
+                    "attribution", tables,
+                    "the exemption names a real table, not a typo that "
+                    "quietly exempts nothing")
+                purgeable = [t for t in tables if t not in self._EXEMPT]
+
+                for t in purgeable:
+                    before = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertGreater(
+                        before, 0,
+                        "%s carries a project_id column but this test's "
+                        "seed helper puts no row in it, so it proves "
+                        "nothing about whether purge erases it; teach "
+                        "_seed_every_purgeable_table to seed %s, or add it "
+                        "to _EXEMPT above with a reason if it must never "
+                        "be purged" % (t, t))
+
+                store.purge_project("p1", actor, "p1")
+
+                for t in purgeable:
+                    after = store.conn.execute(
+                        "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                        % t).fetchone()["c"]
+                    self.assertEqual(
+                        after, 0,
+                        "%s still holds a row naming purged project 'p1'; "
+                        "purge_project must delete it, or the table must "
+                        "be added to _EXEMPT above with a reason" % t)
+
+
 if __name__ == "__main__":
     # The leak check lives in the runner, so it applies to every test without
     # each of the ~40 TestCase classes having to opt in. Running this file
