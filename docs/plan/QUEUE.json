@@ -927,7 +927,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "set a deployed ref one commit behind the evidence commit, status prints DRIFT naming both refs"
+   "done_check": "set a deployed ref one commit behind the evidence commit, status prints DRIFT naming both refs",
+   "stage": "production-observation"
   },
   {
    "id": "H4",
@@ -938,7 +939,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "a defect intake naming a regression row proceeds at T1; one naming no row refuses and prints what is missing"
+   "done_check": "a defect intake naming a regression row proceeds at T1; one naming no row refuses and prints what is missing",
+   "stage": "intent"
   },
   {
    "id": "H5",
@@ -949,7 +951,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA"
+   "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA",
+   "stage": "verified-reality"
   },
   {
    "id": "H6",
@@ -960,7 +963,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "add a behaviour row after generating a sheet, the sheet reports stale naming the new id"
+   "done_check": "add a behaviour row after generating a sheet, the sheet reports stale naming the new id",
+   "stage": "intent"
   },
   {
    "id": "H7",
@@ -971,7 +975,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "route three changes to one reviewer, the third prints a count of three"
+   "done_check": "route three changes to one reviewer, the third prints a count of three",
+   "stage": "accountability"
   },
   {
    "id": "H8",
@@ -982,7 +987,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "a fixture prints a median duration for T1 and NO-DATA for T3"
+   "done_check": "a fixture prints a median duration for T1 and NO-DATA for T3",
+   "stage": "business-impact"
   },
   {
    "id": "H9",
@@ -993,7 +999,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "the fence subcommand prints zero unenforceable lines on a clean tree, and one after a malformed line is added"
+   "done_check": "the fence subcommand prints zero unenforceable lines on a clean tree, and one after a malformed line is added",
+   "stage": "provenance"
   },
   {
    "id": "D4",
@@ -1004,7 +1011,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "an exception carrying an owner and an expiry date suppresses the refusal, and an expired one stops suppressing it"
+   "done_check": "an exception carrying an owner and an expiry date suppresses the refusal, and an expired one stops suppressing it",
+   "stage": "required-proof"
   },
   {
    "id": "H1",
@@ -1015,7 +1023,8 @@
    "files": [
     "tools/"
    ],
-   "done_check": "run it against the 7 August export and reproduce 41, 22, 23, 11, 48, or name which of the five it cannot supply"
+   "done_check": "run it against the 7 August export and reproduce 41, 22, 23, 11, 48, or name which of the five it cannot supply",
+   "stage": "verified-reality"
   },
   {
    "id": "H2",
@@ -1026,7 +1035,8 @@
    "files": [
     "BrotherSBE"
    ],
-   "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists"
+   "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists",
+   "stage": "human-decision"
   }
  ]
 }

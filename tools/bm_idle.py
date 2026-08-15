@@ -81,6 +81,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 #: unrecognised state cannot be trusted.
 VALID_STATES = ("queued", "in_flight", "done", "blocked")
 
+#: The stages of the founder's north-star chain (docs/NORTH-STAR-CHAIN.md,
+#: direction of 2026-08-15), in chain order. An item may name the stage it
+#: serves; one that names a stage NOT on this list is a hard error, because a
+#: typo would file work under a stage that does not exist and nobody would see
+#: it again. "release" is deliberately absent: the host does that, both
+#: products stop at the pull request, so no queue item can serve it.
+CHAIN_STAGES = (
+    "intent",
+    "method",
+    "provenance",
+    "passport",
+    "behaviour",
+    "business-impact",
+    "risk",
+    "required-proof",
+    "evidence-integrity",
+    "accountability",
+    "release-readiness",
+    "production-observation",
+    "human-decision",
+    "verified-reality",
+)
+
 #: Directory names skipped everywhere a watch path is walked. These are
 #: generated or vendored trees whose mtimes say nothing about whether a
 #: human or agent is actually still working.
@@ -172,7 +195,28 @@ def _validate_queue(data):
         if entry["state"] not in VALID_STATES:
             return "item %s has an unknown state: %s" % (
                 entry["id"], entry["state"])
+        stage = entry.get("stage")
+        if stage is not None and stage not in CHAIN_STAGES:
+            return "item %s names a stage that is not on the chain: %s" % (
+                entry["id"], stage)
     return None
+
+
+def unstaged_items(items):
+    """Ids of QUEUED items that name no stage of the north-star chain.
+
+    Reported, never refused. The founder's chain (docs/NORTH-STAR-CHAIN.md,
+    2026-08-15) says an item that cannot name the stage it serves belongs in
+    the parking lot rather than the backlog. Making that a hard error would
+    make the whole file unusable for the 82 items written before the chain
+    existed, and an unusable queue file means NO-DATA for every verb, which
+    would take a reporting rule and turn it into an outage. So a missing
+    stage is a named finding and an UNRECOGNISED stage is a hard error: one
+    is work nobody has classified yet, the other is a typo that would quietly
+    file work under a stage that does not exist.
+    """
+    return [it["id"] for it in items
+            if it["state"] == "queued" and not str(it.get("stage") or "").strip()]
 
 
 def load_queue(path):
@@ -448,6 +492,18 @@ def _run(argv):
         line, exit_code = check_queue(data, root, now_ts)
 
     sys.stdout.write(line + "\n")
+    # The chain finding rides on every verb and changes no exit code, which is
+    # deliberate: it reports which queued work nobody has placed on the
+    # north-star chain, and unplaced work is a planning fact rather than a
+    # reason to fail a machine check. It prints AFTER the verdict so the
+    # verdict stays the first line every caller already parses.
+    unstaged = unstaged_items(data["items"])
+    if unstaged:
+        sys.stdout.write(
+            "CHAIN: %d queued item(s) name no stage of the north-star chain "
+            "(docs/NORTH-STAR-CHAIN.md): %s%s\n"
+            % (len(unstaged), ", ".join(unstaged[:12]),
+               "" if len(unstaged) <= 12 else ", and %d more" % (len(unstaged) - 12)))
     return exit_code
 
 
