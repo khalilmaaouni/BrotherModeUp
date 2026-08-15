@@ -714,17 +714,52 @@ def _run_until_silent(path, silence_limit):
 
     Returns (ok, output, timed_out). Never raises for a suite that merely runs
     long. Reads incrementally on a thread so a suite writing a lot cannot fill
-    the pipe buffer and deadlock, which plain Popen.wait() would allow."""
+    the pipe buffer and deadlock, which plain Popen.wait() would allow.
+
+    THE PUMP READS BY CHUNK, NOT BY LINE, AND THAT IS THE WHOLE POINT (SBE2,
+    2026-08-16). It used to call readline, which returns nothing until a
+    NEWLINE arrives. unittest at default verbosity writes ONE DOT PER TEST
+    WITH NO NEWLINE, so a suite that was working perfectly delivered not one
+    byte to this reader until its entire dot row finished. The silence timer
+    therefore measured the whole suite as silent and killed any suite slower
+    than the limit, reporting `FAIL 0 tests` for a suite making steady
+    progress. That happened three times in one night and is why every long
+    gate looked stalled to the person watching it.
+
+    BOTH HALVES ARE REQUIRED, and finding that out cost two wrong fixes,
+    which is worth recording because each looked sufficient alone:
+
+      1. The reader must not wait for newlines. read(1) here, because a
+         single byte is enough to prove the child is alive, and that is the
+         only question the silence limit asks.
+      2. The CHILD must not sit on those bytes. unittest writes its dots to
+         stderr, and a Python child whose stderr is a pipe line-buffers it,
+         so the dots never leave the child until a newline arrives. `-u`
+         turns that off.
+
+    Fixing only the reader still killed a healthy suite (measured: a three
+    test suite emitting dots against a 3 second limit was killed with an
+    empty capture). An earlier experiment had concluded `-u` changed
+    nothing, and it was wrong for an instructive reason: that experiment
+    measured through a LINE reader, which hid the difference `-u` makes. A
+    measurement can only see what its instrument does not mask.
+
+    The captured text is byte-identical to what readline produced, so the
+    suite-line parser and the test-count extraction downstream are untouched;
+    only the arrival TIME of each byte changes."""
     proc = subprocess.Popen(
-        [sys.executable, path], cwd=HERE,
+        [sys.executable, "-u", path], cwd=HERE,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         universal_newlines=True, bufsize=1)
     chunks = []
     last = [time.time()]
 
     def _pump():
-        for line in iter(proc.stdout.readline, ""):
-            chunks.append(line)
+        while True:
+            piece = proc.stdout.read(1)
+            if piece == "":
+                break
+            chunks.append(piece)
             last[0] = time.time()
         try:
             proc.stdout.close()

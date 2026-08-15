@@ -4988,6 +4988,86 @@ jobs:
 """
 
 
+class TestSBE2SilenceLimitMeasuresSilenceNotProgress(unittest.TestCase):
+    """SBE2, 2026-08-16. The gate killed healthy suites and reported them as
+    `FAIL 0 tests`, three times in one night, and every long run looked
+    stalled to whoever was watching. The cause was never slowness: the pump
+    read whole LINES while unittest writes one dot per test with NO newline,
+    and the child line-buffered those dots because its stderr was a pipe. So
+    a suite making steady progress delivered nothing to the reader, and the
+    SILENCE limit measured a working suite as silent.
+
+    This test is written against the shape of the real failure rather than
+    the shape of the fix: a suite whose individual gaps are WELL under the
+    limit but whose total runtime is well over it. That is exactly
+    test_install.py, which passed alone in 770s and was killed at the 900s
+    limit inside the gate. Calibrated against the pre-fix reader, which is
+    reproduced inline below and which fails this fixture, because a
+    regression test for a reader must prove it can still tell the two
+    readers apart."""
+
+    def _fixture(self):
+        d = tempfile.mkdtemp(prefix="bm-dotsuite-")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "dotsuite.py")
+        lines = ["import time, unittest", "class T(unittest.TestCase):"]
+        for i in range(6):
+            lines.append("    def test_%02d(self): time.sleep(0.6)" % i)
+        lines += ['if __name__ == "__main__":', "    unittest.main(verbosity=1)"]
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        return path
+
+    def _pre_fix_reader(self, path, silence_limit):
+        """The reader as it stood before SBE2, verbatim in the two respects
+        that mattered: no -u on the child, and readline in the pump."""
+        import threading
+        proc = subprocess.Popen(
+            [sys.executable, path], stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
+        last = [time.time()]
+
+        def _pump():
+            for _line in iter(proc.stdout.readline, ""):
+                last[0] = time.time()
+
+        t = threading.Thread(target=_pump)
+        t.daemon = True
+        t.start()
+        timed_out = False
+        while True:
+            if proc.poll() is not None:
+                break
+            if time.time() - last[0] > silence_limit:
+                timed_out = True
+                proc.kill()
+                break
+            time.sleep(0.1)
+        return timed_out
+
+    def test_a_working_suite_slower_than_the_limit_is_not_killed(self):
+        path = self._fixture()
+        ok, out, timed_out = ta._run_until_silent(path, silence_limit=1.5)
+        self.assertFalse(timed_out,
+                         "a suite whose gaps are 0.6s was killed by a 1.5s "
+                         "SILENCE limit, so the limit is measuring total "
+                         "runtime again rather than silence")
+        self.assertTrue(ok, out)
+        self.assertIn("Ran 6 tests", out,
+                      "the captured text must still carry the counts the "
+                      "parser downstream reads: %r" % out[-120:])
+
+    def test_calibrated_the_pre_fix_reader_fails_this_same_fixture(self):
+        """Without this, the test above could pass for the wrong reason
+        (a fixture too easy to kill anything), and the project has a whole
+        failure class about tests that pass for the wrong reason."""
+        path = self._fixture()
+        self.assertTrue(
+            self._pre_fix_reader(path, silence_limit=1.5),
+            "the pre-fix reader survived the fixture, so this fixture no "
+            "longer reproduces SBE2 and proves nothing about the fix")
+
+
 class TestLoopP9GateCiInventoryCountsExecutionNotMentions(unittest.TestCase):
     def test_a_real_step_counts(self):
         self.assertEqual(_inventory_of(self, _WF), {"test_bm_fence_hook.py"})
