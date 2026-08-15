@@ -1,0 +1,82 @@
+diff --git a/tools/test_sbe.py b/tools/test_sbe.py
+index 5369554..32c5d10 100644
+--- a/tools/test_sbe.py
++++ b/tools/test_sbe.py
+@@ -3886,5 +3886,77 @@ class TestEveryShippedLinkResolves(unittest.TestCase):
+                          % (len(broken), "; ".join(broken[:10])))
+ 
+ 
++class TestIntakeContractSplitTiers(unittest.TestCase):
++    """The contract question is three values (no/additive/breaking), and the
++    tier rule reads which one it got.
++
++    A yes on this question alone used to reach T2, which on an architecture
++    where a field added in the CMS is read by the backend, returned through the
++    API and displayed by the client is nearly every change: the pilot team's
++    review named it their most concrete finding. `breaking` (an existing
++    consumer must change) still costs T2. `additive` (nothing that exists today
++    has to change) lands at T1 and no longer forces T2 on its own.
++
++    The second test is the one that keeps the split honest in the other
++    direction. Dossiers written before the split answer this question with a
++    plain yes and say nothing about additive versus breaking, so that legacy
++    answer resolves to `breaking`, the STRICTER side. The opposite mapping would
++    have re-tiered live dossiers downward behind their authors' backs, lowering
++    ceremony on changes nobody re-answered, which is the failure this pair
++    exists to rule out.
++    """
++
++    #: T0 answers: every other rule at its lowest value, so the tier each test
++    #: reads back is decided by the contract answer and nothing else.
++    BASE = {"changes_contract": "no", "crosses_boundary": "n",
++            "reversible_under_hour": "y", "touches_sensitive": "n",
++            "consumers": "none"}
++
++    def setUp(self):
++        spec = importlib.util.spec_from_file_location(
++            "sbe_intake_contract_split", os.path.join(HERE, "sbe_intake.py"))
++        self.intake = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(self.intake)
++
++    def _tier(self, **overrides):
++        answers = dict(self.BASE)
++        answers.update(overrides)
++        return self.intake.compute_tier(answers)
++
++    def test_an_additive_contract_change_with_some_consumers_lands_at_T1(self):
++        self.assertEqual(self._tier(changes_contract="additive", consumers="some"), "T1",
++                         "an additive contract change read by some consumers owes a purpose "
++                         "brief and a behaviour table, not a seven document dossier")
++        self.assertEqual(self._tier(changes_contract="additive"), "T1",
++                         "additive alone is still T1, never T0: the contract moved")
++        self.assertEqual(self._tier(changes_contract="breaking", consumers="some"), "T2",
++                         "the same change described as breaking keeps T2, which is the whole "
++                         "point of splitting the question rather than softening it")
++        self.assertEqual(self._tier(changes_contract="additive", consumers="many"), "T2",
++                         "many consumers still force T2 on their own; the split widened one "
++                         "rule, not the ladder")
++        self.assertEqual(self._tier(changes_contract="additive", touches_sensitive="y"), "T3",
++                         "T3 is untouched by the split")
++
++    def test_a_legacy_yes_on_the_contract_question_resolves_to_breaking(self):
++        for legacy in (True, "y", "yes"):
++            self.assertEqual(self._tier(changes_contract=legacy, consumers="some"), "T2",
++                             "a dossier written before the split says only %r and never says "
++                             "additive; it must read as breaking, the stricter side, so no "
++                             "dossier already on disk is silently re-tiered downward" % (legacy,))
++        for legacy in (False, "n", "no"):
++            self.assertEqual(self._tier(changes_contract=legacy), "T0",
++                             "a legacy no is still a no: this split can only be read in one "
++                             "direction, never both")
++        with self.assertRaises(self.intake.UnreadableIntake) as caught:
++            self._tier(changes_contract="maybe")
++        message = str(caught.exception)
++        for word in ("additive", "breaking", "a yes reads as breaking"):
++            self.assertIn(word, message,
++                          "a value outside both vocabularies is refused by name, and the "
++                          "refusal has to show the person BOTH vocabularies and which side a "
++                          "yes falls on: %r" % message)
++
++
+ if __name__ == "__main__":
+     unittest.main(verbosity=2)

@@ -1,0 +1,546 @@
+diff --git a/tools/sbe_gate.py b/tools/sbe_gate.py
+index 5617441..f38796c 100644
+--- a/tools/sbe_gate.py
++++ b/tools/sbe_gate.py
+@@ -62,6 +62,18 @@ The classes (ratified 2026-07-24):
+             looked, and a second party is the whole content of the word approval.
+   ran       No SQL or pipeline change is done until its reconciliation query or
+             test executed: a receipt with a nonzero-duration run and an exit code.
++            AND the checks it carries are the checks the plan owed. The plan is
++            08-behaviour.md, the fixed ID | Starting point | Trigger | Required
++            outcome | Proof table, parsed by sbe_design's own _behaviour_rows:
++            every row whose Proof names a runnable check must have that check in
++            the receipt the row governs, or the gate FAILs naming the row. A
++            receipt with no behaviour table at or above it is NO-DATA, because
++            evidence nothing says was complete is not evidence a change is done,
++            and a Proof cell of free prose is COUNTED as unmatchable rather than
++            credited as satisfied. Provenance is the other half and it is opt-in:
++            --strict-provenance accepts only a receipt whose `producer` field
++            names a build system and its run, FAILs one that says "local", and
++            reports NO-DATA over one that records no producer at all.
+ 
+ Honesty law inherited from the chassis: absent evidence is NO-DATA, never PASS.
+ Three states, not two, and the difference is load-bearing: a missing receipt is
+@@ -104,7 +116,14 @@ from sbe_checks import (Check, run_guarded, answered, answered_as, numeric, coun
+                         Pruner, scope_note, evidence_problem, unreadable_identity_words,
+                         bidi_reordering_controls, could_render_same, name_sets_could_collide)
+ 
++# The plan side of the `ran` gate: the behaviour table is what says which
++# checks were owed, and sbe_design already parses it. Imported whole rather
++# than reimplemented, because two parsers of one format drifting apart is a
++# recorded failure in this codebase; nothing here writes to that module.
++import sbe_design
++
+ MANIFEST = "numbers-manifest.json"
++BEHAVIOUR = sbe_design.ARTIFACT_FILES["08"]
+ MIGRATION_RECEIPT = "migration-receipt.json"
+ APPROVAL_FILE = "APPROVAL"
+ RAN_RECEIPT = "ran-receipt.json"
+@@ -1429,6 +1448,180 @@ def _run_receipt_as_checks(d):
+     return [{"name": name, "exit_code": d.get("exitCode"), "duration_ms": duration_ms}]
+ 
+ 
++PROVENANCE_FLAG = "--strict-provenance"
++PRODUCER = "producer"
++LOCAL_PRODUCER = "local"
++
++
++def _strict_provenance():
++    """True when the operator asked this run to accept only build-system
++    evidence. Read from sys.argv here rather than threaded through
++    sbe_checks.run_guarded, which passes a gate exactly one argument (the
++    root) and is another lane's file; the module's own __main__ handler
++    already reads `--strict` from sys.argv the same way."""
++    return PROVENANCE_FLAG in sys.argv
++
++
++def _producer_problem(d, rel):
++    """{"fail": sentence, "unknown": sentence} for one receipt's `producer`
++    field under --strict-provenance. At most one of the two is non-empty; both
++    empty means the receipt's provenance is accepted.
++
++    A dict rather than the pair this would naturally be: a 2-tuple return in
++    tools/ is read by evals/test_no_data_class.py's lint as a possible
++    (verdict, evidence) pair from an unregistered check, and a helper that has
++    to be allowlisted to stop looking like a verdict is a helper that should
++    not look like one.
++
++    THE DEFECT THIS CLOSES: `gate_ran` graded the SHAPE of a receipt (a name,
++    a zero exit, a positive duration, a headCommit that binds) and never asked
++    WHERE it came from, so a file typed by hand cleared the gate exactly as
++    well as one an automated build produced. The reviewer's own operating rule
++    is the fix: trust evidence the build system produced, not evidence
++    produced on somebody's laptop.
++
++    The accepted shapes, and nothing else:
++      "local"                                a run on somebody's machine. An
++                                             honest answer, and not what this
++                                             flag accepts.
++      {"ci": <system>, "runId": <id>}        a build system naming itself and
++                                             the run this receipt came out of.
++    A receipt carrying NO producer field at all is neither: it is a receipt
++    written before this field existed, and this project's rule is that absent
++    evidence is never a pass and never a block, so it reports NO-DATA. What is
++    NOT claimed: nothing here resolves the run id against any build system, so
++    this refuses a receipt that ADMITS it was made locally and cannot refuse
++    one that lies. Resolving the id in CI is the control that would; this is
++    the honest half that needs no network.
++    """
++    if PRODUCER not in d:
++        return {"fail": "", "unknown": (
++            "%s: records no %s, so where it came from is unknown; a receipt written before this "
++            "field existed is not a laptop receipt and not a build one" % (rel, PRODUCER))}
++    p = d.get(PRODUCER)
++    if isinstance(p, str):
++        if p.strip().lower() == LOCAL_PRODUCER:
++            return {"unknown": "", "fail": (
++                "%s: %s is %r, and this run accepts only evidence a build system produced"
++                % (rel, PRODUCER, p))}
++        return {"unknown": "", "fail": (
++            "%s: %s is the string %r; the only string this field accepts is %r, and a build "
++            "system names itself as {\"ci\": ..., \"runId\": ...}"
++            % (rel, PRODUCER, p, LOCAL_PRODUCER))}
++    if not isinstance(p, dict):
++        return {"unknown": "", "fail": (
++            "%s: %s is %s, not a string or an object naming the build system and its run"
++            % (rel, PRODUCER, type(p).__name__))}
++    ci, run_id = answered(p.get("ci")), answered(p.get("runId"))
++    if ci is None or run_id is None:
++        return {"unknown": "", "fail": (
++            "%s: %s names no build system and run (ci=%r, runId=%r); a producer object has to "
++            "say which system ran it and which run it was"
++            % (rel, PRODUCER, p.get("ci"), p.get("runId")))}
++    return {"fail": "", "unknown": ""}
++
++
++# A Proof cell names a check when it names something runnable: a path-shaped
++# token, which is how the behaviour tables in this repository actually write
++# one ("python3 tools/test_sbe_status.py, extended with ..."). A cell of free
++# prose ("Manual check: place a first order and confirm ...") names nothing a
++# receipt could carry, and is counted as unmatchable rather than credited as
++# satisfied, because a rule nobody automated is not a rule that ran.
++_PROOF_CHECK = re.compile(r"[A-Za-z0-9_.@-]*/[A-Za-z0-9_.@/-]*[A-Za-z0-9_-]\.[A-Za-z0-9]+")
++
++
++def _plan_rows(root, receipt_path):
++    """(rows, source, problem) for the behaviour table governing one receipt:
++    the nearest 08-behaviour.md at or above the receipt's own directory,
++    inside root. rows is None when there is none anywhere on that path.
++
++    The parser is sbe_design's own `_behaviour_rows`, imported rather than
++    re-written: two parsers of one format drifting apart is a recorded failure
++    in this codebase, and the columns this reads (ID and Proof) are the
++    columns that file's contract already names.
++
++    The shipped template's UNFILLED marker is treated as no plan at all, the
++    same call sbe_design.check_behaviour makes over the same marker: the
++    example's rows are somebody else's design and certifying evidence against
++    them would be grading a fixture.
++    """
++    d = os.path.abspath(os.path.dirname(receipt_path))
++    stop = os.path.abspath(root)
++    while True:
++        problem = sbe_design.read_problem(d, BEHAVIOUR)
++        if problem:
++            return None, os.path.join(d, BEHAVIOUR), problem
++        text = sbe_design.read(d, BEHAVIOUR)
++        if text is not None:
++            if sbe_design._MARKER_COMMENT.search(text):
++                return None, os.path.join(d, BEHAVIOUR), ""
++            rows, malformed = sbe_design._behaviour_rows(text)
++            if malformed:
++                return None, os.path.join(d, BEHAVIOUR), (
++                    "%d row(s) under its ID | Starting point | Trigger | Required outcome | "
++                    "Proof table do not carry 5 cells" % len(malformed))
++            return rows, os.path.join(d, BEHAVIOUR), ""
++        if d == stop or os.path.dirname(d) == d:
++            return None, "", ""
++        d = os.path.dirname(d)
++
++
++def _owed(root, by_receipt):
++    """(fail sentences, unmatchable row count, planless sentences) for every
++    receipt graded against the plan that governs it.
++
++    THE DEFECT THIS CLOSES: this gate read the evidence and never the plan
++    that says which checks were owed, so a receipt carrying one check was
++    graded exactly as green as one carrying all of them.
++
++    Receipts sharing one plan are graded as a POOL, not one at a time: a
++    monorepo whose behaviour table sits at the root and whose packages each
++    carry their own receipt owes each row ONCE, and demanding every row of
++    every package's receipt would fail a tree where the plan is satisfied
++    between them. The nearest table wins for each receipt (see _plan_rows), so
++    a package with its own table is still graded against that one alone.
++    """
++    plans, fails, unmatchable, planless = {}, [], 0, []
++    for rel, path, names in by_receipt:
++        rows, source, problem = _plan_rows(root, path)
++        if problem:
++            fails.append("%s: %s is %s, and a plan that cannot be read is a broken claim, not "
++                         "an absent one" % (rel, os.path.relpath(source, root), problem))
++            continue
++        if rows is None:
++            # Two ways to have no plan, and they are different sentences: no
++            # table anywhere above this receipt, or a table that is still the
++            # shipped example. Saying the first about the second would be a
++            # false sentence in a report whose whole point is true ones.
++            planless.append("%s: %s" % (rel, (
++                "no %s at or above it, so nothing here says which checks were owed" % BEHAVIOUR
++                if not source else
++                "%s still carries its %s marker, so it is the shipped example rather than this "
++                "deliverable's plan" % (os.path.relpath(source, root),
++                                        sbe_design.UNFILLED_MARKER))))
++            continue
++        if not rows:
++            planless.append("%s: %s holds no behaviour rows, so nothing there says which checks "
++                            "were owed" % (rel, os.path.relpath(source, root)))
++            continue
++        pool = plans.setdefault(source, {"names": [], "receipts": [], "rows": rows})
++        pool["names"].extend(str(n).lower() for n in names)
++        pool["receipts"].append(rel)
++    for source, pool in sorted(plans.items()):
++        lowered, covered = pool["names"], pool["receipts"]
++        for row in pool["rows"]:
++            proofs = _PROOF_CHECK.findall(row.get("proof") or "")
++            if not proofs:
++                unmatchable += 1
++                continue
++            missing = [p for p in proofs if not any(p.lower() in n for n in lowered)]
++            if missing:
++                fails.append("%s row %s: its Proof names %s, which no check in %s recorded"
++                             % (os.path.relpath(source, root), row.get("id") or "(no id)",
++                                ", ".join(missing[:3]), ", ".join(covered[:3])))
++    return fails, unmatchable, planless
++
++
+ def gate_ran(root):
+     receipts, waived, _refused, scope = find(root, RAN_RECEIPT, "ran")
+     if not receipts:
+@@ -1443,7 +1636,10 @@ def gate_ran(root):
+     nothing = []
+     checked = 0
+     entries = []     # every check object, for the shared dedupe rule
++    by_receipt = []  # [(relpath, [recorded check name])], for the plan comparison
++    no_producer = []
+     head = _current_head(root)
++    strict_provenance = _strict_provenance()
+     for m in receipts:
+         d, err = load_receipt(m)
+         if d is None:
+@@ -1452,6 +1648,12 @@ def gate_ran(root):
+         bp = _commit_problem(d, head, os.path.relpath(m, root))
+         if bp:
+             problems.append(bp)
++        if strict_provenance:
++            provenance = _producer_problem(d, os.path.relpath(m, root))
++            if provenance["fail"]:
++                problems.append(provenance["fail"])
++            if provenance["unknown"]:
++                no_producer.append(provenance["unknown"])
+         chks, note = _items(d, "checks")
+         if not chks:
+             chks = _run_receipt_as_checks(d)
+@@ -1459,6 +1661,9 @@ def gate_ran(root):
+                 nothing.append("%s: %s" % (os.path.relpath(m, root), note))
+                 continue
+         entries.extend(chks)
++        by_receipt.append((os.path.relpath(m, root), m,
++                           [c.get("name") for c in chks
++                            if isinstance(c, dict) and answered(c.get("name")) is not None]))
+         for chk in chks:
+             checked += 1
+             if not isinstance(chk, dict):
+@@ -1495,24 +1700,45 @@ def gate_ran(root):
+                                 "measured duration" % (name, ms))
+             elif ms <= 0:
+                 problems.append("%s: zero or negative duration (a check that took no time did not run)" % name)
++    # The plan, opened at last: every behaviour row whose Proof names a check
++    # must have a check of that name in the receipt the row governs, or the
++    # rule was never shown true and this gate says which row.
++    owed, unmatchable, planless = _owed(root, by_receipt)
+     if unreadable:
+         return "FAIL", ("ran-receipt present but unparseable: %s; a receipt that cannot be read is a broken claim, not an absent one"
+                         % ", ".join(unreadable))
+     if problems:
+         return "FAIL", "; ".join(problems[:6])
++    if owed:
++        return "FAIL", ("%d behaviour row(s) whose Proof names a check no receipt recorded: %s; "
++                        "evidence carrying one of the checks a plan owed is not evidence the plan "
++                        "ran" % (len(owed), "; ".join(owed[:6])))
+     if not checked:
+         return "NO-DATA", ("ran-receipt present but records no checks (%s); a receipt with nothing in it is exactly what a run that never happened produces, so it is NO-DATA, never a pass"
+                            % "; ".join(nothing))
+     if nothing:
+         return _partial(nothing, checked, "ran-receipt", "check(s)")
++    if planless:
++        return "NO-DATA", ("%d receipt(s) with no plan behind them (%s); the checks a receipt "
++                           "carries are green, and nothing here says they are the checks that "
++                           "were owed, so this is NO-DATA rather than a pass"
++                           % (len(planless), "; ".join(planless[:4])))
++    if no_producer:
++        return "NO-DATA", ("%s asked for build-system evidence and %d receipt(s) record no "
++                           "producer (%s); a receipt written before the field existed is never a "
++                           "pass and never a block"
++                           % (PROVENANCE_FLAG, len(no_producer), "; ".join(no_producer[:4])))
+     # One check object written five times is one check: sbe_checks.distinct,
+     # whose docstring already named this gate as a sibling that had not learned
+     # the rule its neighbour had.
+     unique, dupes = distinct(entries)
+-    return "PASS", ("%d recorded check(s), each with a zero exit and a nonzero duration%s%s"
++    return "PASS", ("%d recorded check(s), each with a zero exit and a nonzero duration%s%s%s"
+                     % (len(unique),
+                        "" if not dupes else
+-                       "; %d identical entry/entries counted once" % dupes, scope))
++                       "; %d identical entry/entries counted once" % dupes,
++                       "" if not unmatchable else
++                       "; %d behaviour row(s) whose Proof names no check and could not be matched "
++                       "to one" % unmatchable, scope))
+ 
+ 
+ # The registry is the contract. Each gate declares the evidence it opens, what its
+@@ -1554,19 +1780,40 @@ GATES = {
+             "honest verdict is NO-DATA, so that is what the worked example asserts")),
+     "ran": Check(
+         gate_ran, reads=(RAN_RECEIPT,), kind="json", severity="gate", item_key="checks",
+-        full_fixture={"files": {RAN_RECEIPT: {"checks": [
+-            {"name": "reconcile", "exit_code": 0, "duration_ms": 812}]}}}),
++        full_fixture={"files": {
++            RAN_RECEIPT: {"checks": [
++                {"name": "python3 tools/test_reconcile.py", "exit_code": 0, "duration_ms": 812}]},
++            # The plan the receipt is graded against. A worked example with no
++            # behaviour table is a receipt nothing says was complete, which is
++            # this gate's NO-DATA, so the worked example carries one row and
++            # the receipt carries the check that row's Proof names.
++            # ONE heading, and the table directly under it: the honesty test
++            # drops each section's BODY in turn and demands the PASS go away,
++            # so a table parked under a second heading would survive the
++            # hollowing of the first and report a PASS over a plan that had
++            # been emptied.
++            BEHAVIOUR: ("# 08. Behaviour table\n\n"
++                        "| ID | Starting point | Trigger | Required outcome | Proof |\n"
++                        "|---|---|---|---|---|\n"
++                        "| B1 | a settled batch | the batch closes | the totals reconcile "
++                        "| python3 tools/test_reconcile.py, every pull request |\n")}}),
+ }
+ 
+ 
+ GATE_USAGE = (
+-    "usage: sbe_gate.py [gate-name] [directory] [--strict] [--strict-waivers] [--json]\n"
++    "usage: sbe_gate.py [gate-name] [directory] [--strict] [--strict-waivers]\n"
++    "                   [--strict-provenance] [--json]\n"
+     "  reads: the receipts and dossier files under the directory (default .).\n"
+     "  writes: nothing.\n"
+     "  gates (pass one name for a single gate): %s\n"
+     "  flags:\n"
+     "    --strict          make a FAIL block the exit code\n"
+     "    --strict-waivers  make a WAIVED gate artifact block as well\n"
++    "    --strict-provenance\n"
++    "                      accept only ran-receipts a build system produced: a receipt\n"
++    "                      whose producer field is \"local\" FAILs, one that records no\n"
++    "                      producer at all is NO-DATA. CI sets it by adding the flag to\n"
++    "                      its own gate step; without it nothing about the verdict moves\n"
+     "    --json            print one machine-readable verdict document instead of the\n"
+     "                      human report, and nothing else to stdout. No detail text is\n"
+     "                      included: a receipt or a file name is attacker-controlled\n"
+@@ -1584,7 +1831,8 @@ def main():
+         for usage_line in (GATE_USAGE % ", ".join(GATES)).splitlines():
+             say(usage_line)
+         sys.exit(0)
+-    argv = [a for a in sys.argv[1:] if a not in ("--strict", "--strict-waivers", "--json")]
++    argv = [a for a in sys.argv[1:]
++            if a not in ("--strict", "--strict-waivers", "--json", PROVENANCE_FLAG)]
+     strict = "--strict" in sys.argv
+     # A waiver is not a pass, so CI must be able to act on one without reading
+     # prose, exactly as sbe_design.py's own --strict-waivers already lets it:
+diff --git a/tools/test_sbe_bypass.py b/tools/test_sbe_bypass.py
+index f84c74e..4c2ee2a 100644
+--- a/tools/test_sbe_bypass.py
++++ b/tools/test_sbe_bypass.py
+@@ -348,6 +348,17 @@ class TestOnePackageCannotAnswerForAnother(BypassFixture):
+     def monorepo(self):
+         write_json(self.dir, "packages/checkout/ran-receipt.json", {"checks": [
+             {"name": "reconcile", "exit_code": 0, "duration_ms": 812}]})
++        # The plan the receipt is graded against. `gate_ran` opens the
++        # behaviour table now, and a receipt with no plan behind it is NO-DATA
++        # rather than PASS; this scenario is about the scope SENTENCE printed
++        # over a PASS, so the fixture carries the one row that keeps it one.
++        # The Proof is prose, so it is counted as unmatchable, never credited.
++        write(self.dir, "packages/checkout/08-behaviour.md",
++              "# 08. Behaviour table\n\n## Rules\n\n"
++              "| ID | Starting point | Trigger | Required outcome | Proof |\n"
++              "|---|---|---|---|---|\n"
++              "| B1 | a checkout | the batch closes | the totals reconcile "
++              "| Reconciliation query comparing the two totals, every load |\n")
+         os.makedirs(os.path.join(self.dir, "packages", "ledger"))
+         write(self.dir, "packages/ledger/query.sql", "SELECT 1;\n")
+         return os.path.join(self.dir, "packages")
+diff --git a/tools/test_sbe_receipt_shapes.py b/tools/test_sbe_receipt_shapes.py
+index 4d70eaa..0f1a245 100644
+--- a/tools/test_sbe_receipt_shapes.py
++++ b/tools/test_sbe_receipt_shapes.py
+@@ -114,11 +114,25 @@ class ReceiptShapeFixture(unittest.TestCase):
+         proc = subprocess.run(argv, capture_output=True, text=True)
+         return out_path, proc.returncode, proc.stdout + proc.stderr
+ 
+-    def run_gate_ran(self):
+-        proc = subprocess.run([sys.executable, GATE, "ran", self.repo],
++    def run_gate_ran(self, *flags):
++        proc = subprocess.run([sys.executable, GATE, "ran", self.repo] + list(flags),
+                               capture_output=True, text=True)
+         return proc.stdout + proc.stderr
+ 
++    def plan(self, *rows):
++        """Write a behaviour table at the repository root, one row per
++        (id, proof) pair, in the fixed ID | Starting point | Trigger |
++        Required outcome | Proof contract `sbe_design._behaviour_rows` parses.
++        The three middle cells are filler: this gate reads the ID and the
++        Proof, and every other column belongs to the design checks."""
++        body = ("# 08. Behaviour table\n\n## Rules\n\n"
++                "| ID | Starting point | Trigger | Required outcome | Proof |\n"
++                "|---|---|---|---|---|\n")
++        for rid, proof in rows:
++            body += ("| %s | a fixture repository | the gate runs | the row is graded | %s |\n"
++                     % (rid, proof))
++        return write(self.repo, "08-behaviour.md", body)
++
+ 
+ class TestTheReproduction(ReceiptShapeFixture):
+     """The bug as the two strangers found it, reproduced end to end and then
+@@ -126,6 +140,12 @@ class TestTheReproduction(ReceiptShapeFixture):
+     <command>`, then run `sbe gate ran <dir>` against exactly that file."""
+ 
+     def test_a_receipt_evidence_run_actually_wrote_satisfies_gate_ran(self):
++        # The plan this receipt is graded against. Its Proof is prose, so the
++        # row is counted as unmatchable rather than credited, and the verdict
++        # turns on the receipt shape this fixture is about. Without any
++        # behaviour table at all the gate is NO-DATA now, by design: evidence
++        # with no plan behind it is not evidence the plan ran.
++        self.plan(("B1", "Manual check: an operator runs the suite and reads the output"))
+         receipt, mint_code, mint_out = self.mint(
+             "evidence/ran-receipt.json",
+             ["python3", "-c", "print('the suite ran')"])
+@@ -236,5 +256,123 @@ class TestUnrelatedJsonIsUntouched(ReceiptShapeFixture):
+         self.assertIn("no 'checks' list", line)
+ 
+ 
++class TestProvenance(ReceiptShapeFixture):
++    """DEFECT TWO of the two the architecture reviewer named: `gate_ran` graded
++    the SHAPE of a receipt and never asked WHERE it came from, so a receipt
++    typed by hand on somebody's laptop cleared the gate exactly as well as one
++    an automated build produced. `--strict-provenance` is the opt-in that
++    refuses the laptop; without it nothing about today's behaviour moves.
++
++    A receipt that records no producer AT ALL is NO-DATA under the flag and
++    never PASS or FAIL: it is an older receipt written before the field
++    existed, and this project's own rule is that absent evidence is neither.
++    """
++
++    def receipt(self, producer=None):
++        """A hand-written receipt with one honest check, plus a behaviour
++        table whose Proof is free prose, so the plan check leaves the verdict
++        to the provenance rule alone."""
++        self.plan(("B1", "Manual check: an operator reads the report"))
++        body = {"checks": [{"name": "reconcile", "exit_code": 0, "duration_ms": 812}],
++                "headCommit": self.head}
++        if producer is not None:
++            body["producer"] = producer
++        return write_json(self.repo, "evidence/ran-receipt.json", body)
++
++    def test_a_hand_written_local_receipt_passes_today_and_fails_under_the_flag(self):
++        """THE REPRODUCTION, both halves in one fixture: the same file, one
++        run without the flag and one with it."""
++        self.receipt(producer="local")
++        without = verdict_line(self.run_gate_ran(), "ran")
++        self.assertEqual(verdict_of(self.run_gate_ran(), "ran"), "PASS",
++                         "the flag is opt-in; without it a local receipt still gets today's "
++                         "verdict: %s" % without)
++        report = self.run_gate_ran("--strict-provenance")
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "FAIL",
++                         "a receipt naming itself local cleared --strict-provenance: %s" % line)
++        self.assertIn("local", line)
++
++    def test_a_receipt_with_no_producer_field_is_no_data_under_the_flag(self):
++        self.receipt()
++        report = self.run_gate_ran("--strict-provenance")
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "NO-DATA",
++                         "a receipt predating the producer field is neither a pass nor a "
++                         "block: %s" % line)
++        self.assertIn("producer", line)
++
++    def test_a_receipt_a_build_system_produced_passes_under_the_flag(self):
++        """The guard: the flag must still let real CI evidence through, or it
++        is an off switch rather than a control."""
++        self.receipt(producer={"ci": "github-actions", "runId": "18442100773"})
++        report = self.run_gate_ran("--strict-provenance")
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "PASS", line)
++
++
++class TestThePlanIsOpened(ReceiptShapeFixture):
++    """DEFECT ONE: the gate read the evidence and never the plan that says
++    which checks were owed, so a receipt carrying one check passed exactly as
++    green as one carrying all of them. The behaviour table is the plan, and
++    its Proof column names how each rule is checked."""
++
++    def receipt(self, *names):
++        return write_json(self.repo, "evidence/ran-receipt.json", {
++            "checks": [{"name": n, "exit_code": 0, "duration_ms": 400} for n in names],
++            "headCommit": self.head})
++
++    def test_a_receipt_missing_a_check_the_plan_owed_fails_naming_the_row(self):
++        self.plan(("B1", "python3 tools/test_settlement.py, every pull request"),
++                  ("B2", "python3 tools/test_payout.py, every pull request"))
++        self.receipt("python3 tools/test_settlement.py")
++        report = self.run_gate_ran()
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "FAIL",
++                         "a receipt holding one of the two checks the plan owed was graded "
++                         "green: %s" % line)
++        self.assertIn("B2", line)
++        self.assertIn("tools/test_payout.py", line)
++        self.assertNotIn("B1", line, "the row whose proof did run must not be named: %s" % line)
++
++    def test_every_owed_check_present_passes(self):
++        self.plan(("B1", "python3 tools/test_settlement.py, every pull request"))
++        self.receipt("python3 tools/test_settlement.py")
++        report = self.run_gate_ran()
++        self.assertEqual(verdict_of(report, "ran"), "PASS", verdict_line(report, "ran"))
++
++    def test_two_receipts_under_one_plan_are_graded_as_a_pool(self):
++        """A monorepo whose behaviour table sits above two packages owes each
++        row ONCE. Grading each receipt against the whole table separately
++        would fail a tree where the plan is satisfied between them, which is
++        a gate that refuses correct work, and a gate that refuses correct work
++        gets switched off."""
++        self.plan(("B1", "python3 tools/test_settlement.py, every pull request"),
++                  ("B2", "python3 tools/test_payout.py, every pull request"))
++        write_json(self.repo, "packages/a/ran-receipt.json", {"headCommit": self.head, "checks": [
++            {"name": "python3 tools/test_settlement.py", "exit_code": 0, "duration_ms": 400}]})
++        write_json(self.repo, "packages/b/ran-receipt.json", {"headCommit": self.head, "checks": [
++            {"name": "python3 tools/test_payout.py", "exit_code": 0, "duration_ms": 400}]})
++        report = self.run_gate_ran()
++        self.assertEqual(verdict_of(report, "ran"), "PASS", verdict_line(report, "ran"))
++
++    def test_a_proof_cell_that_names_no_check_is_counted_not_credited(self):
++        self.plan(("B1", "Manual check: someone eyeballs the dashboard"),
++                  ("B2", "Integration test asserting one job row, every pull request"))
++        self.receipt("reconcile")
++        report = self.run_gate_ran()
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "PASS", line)
++        self.assertIn("2 behaviour row(s) whose Proof names no check", line)
++
++    def test_a_tree_with_no_behaviour_table_is_no_data(self):
++        self.receipt("reconcile")
++        report = self.run_gate_ran()
++        line = verdict_line(report, "ran")
++        self.assertEqual(verdict_of(report, "ran"), "NO-DATA",
++                         "evidence with no plan behind it cannot be graded complete: %s" % line)
++        self.assertIn("08-behaviour.md", line)
++
++
+ if __name__ == "__main__":
+     unittest.main(verbosity=2)

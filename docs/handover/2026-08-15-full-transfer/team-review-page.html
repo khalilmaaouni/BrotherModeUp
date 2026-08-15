@@ -1,0 +1,491 @@
+<title>Fourteen Problems, Answered</title>
+<style>
+  :root {
+    --paper: #F7F8F6;
+    --surface: #FFFFFF;
+    --ink: #141B22;
+    --ink-soft: #4A5560;
+    --ink-faint: #7C8791;
+    --rule: #DFE3DE;
+    --petrol: #0E7A6F;
+    --petrol-wash: #E7F1EF;
+    --open: #9B3A2F;
+    --open-wash: #F6E9E6;
+    --mixed: #8A6410;
+    --mixed-wash: #F5EEDC;
+    --outside: #5A6570;
+    --outside-wash: #ECEEEC;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Seravek, "Gill Sans Nova", Avenir, "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #101720;
+      --surface: #16202A;
+      --ink: #E8ECE9;
+      --ink-soft: #AEB8C0;
+      --ink-faint: #7E8A94;
+      --rule: #26323D;
+      --petrol: #3AA893;
+      --petrol-wash: #10302C;
+      --open: #E0806F;
+      --open-wash: #341E1A;
+      --mixed: #D6A94A;
+      --mixed-wash: #2E2716;
+      --outside: #9AA5AF;
+      --outside-wash: #1D2731;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101720;
+    --surface: #16202A;
+    --ink: #E8ECE9;
+    --ink-soft: #AEB8C0;
+    --ink-faint: #7E8A94;
+    --rule: #26323D;
+    --petrol: #3AA893;
+    --petrol-wash: #10302C;
+    --open: #E0806F;
+    --open-wash: #341E1A;
+    --mixed: #D6A94A;
+    --mixed-wash: #2E2716;
+    --outside: #9AA5AF;
+    --outside-wash: #1D2731;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 5vw 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; }
+
+  header.masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 4.5rem 0 2.2rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--petrol);
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(2.4rem, 6vw, 3.9rem);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.12rem;
+    color: var(--ink-soft);
+    max-width: 44rem;
+    margin: 0;
+  }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-faint);
+    letter-spacing: 0.03em;
+  }
+
+  .lede {
+    display: grid;
+    gap: 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--petrol);
+    padding: 1.7rem 1.8rem;
+    margin: 2.6rem 0;
+  }
+  .lede h2 { margin: 0; }
+  .lede p { margin: 0; max-width: 52rem; }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 1.6rem;
+    letter-spacing: -0.01em;
+    margin: 3.4rem 0 0.4rem;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 1.24rem;
+    margin: 0;
+    text-wrap: balance;
+  }
+  p { max-width: 46rem; }
+
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 2rem 0 3rem;
+  }
+  .tally div { background: var(--surface); padding: 1.1rem 1.2rem; display: grid; gap: 0.3rem; }
+  .tally .n {
+    font-family: var(--display);
+    font-size: 2.1rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .tally .k {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .problem {
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 0 2rem;
+    padding: 1.9rem 0;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+  .gutter { display: grid; gap: 0.55rem; position: sticky; top: 1rem; }
+  .pid {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+  }
+  .chip {
+    justify-self: start;
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.28rem 0.5rem;
+    border: 1px solid currentColor;
+    line-height: 1.2;
+  }
+  .chip.open { color: var(--open); background: var(--open-wash); }
+  .chip.closed { color: var(--petrol); background: var(--petrol-wash); }
+  .chip.mixed { color: var(--mixed); background: var(--mixed-wash); }
+  .chip.outside { color: var(--outside); background: var(--outside-wash); }
+  .who {
+    font-size: 0.8rem;
+    color: var(--ink-faint);
+    line-height: 1.35;
+  }
+  .body-col { display: grid; gap: 0.75rem; }
+  .body-col p { margin: 0; }
+  .status { color: var(--ink-soft); }
+  .rec {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 0.85rem 1rem;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .rec .label {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--petrol);
+  }
+  .rec p { margin: 0; }
+  ul.alts { margin: 0; padding-left: 1.1rem; color: var(--ink-soft); font-size: 0.95rem; }
+  ul.alts li { margin: 0.15rem 0; }
+
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.94rem; }
+  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border-bottom: 1px solid var(--ink-soft);
+  }
+  td:first-child { font-family: var(--mono); font-size: 0.82rem; white-space: nowrap; }
+
+  ol.order { max-width: 46rem; padding-left: 1.3rem; }
+  ol.order li { margin: 0.5rem 0; }
+  ol.order li::marker { font-family: var(--mono); color: var(--petrol); }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.4rem;
+    border-top: 2px solid var(--ink);
+    font-size: 0.9rem;
+    color: var(--ink-faint);
+    max-width: 46rem;
+  }
+  a { color: var(--petrol); }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+
+  @media (max-width: 700px) {
+    .problem { grid-template-columns: 1fr; gap: 0.8rem; }
+    .gutter { position: static; grid-auto-flow: column; justify-content: start; align-items: center; gap: 0.7rem; }
+    .who { display: none; }
+  }
+</style>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="eyebrow">Verified delivery review</div>
+  <h1>Fourteen Problems, Answered</h1>
+  <p class="standfirst">Every issue five reviewers raised, checked against the code as it stands today, with the status, the cause, and up to three ways out of each one.</p>
+  <div class="stamp">Reviewed 15 August 2026 &middot; verified against source, not against the review&rsquo;s description of it</div>
+</header>
+
+<section class="lede">
+  <h2>Read this first, because it changes the rest</h2>
+  <p>The review was run against an installed build that is generations behind the source: <span class="mono">1.0.0-rc.2</span> installed, <span class="mono">3.2.0</span> in the repository. The two heaviest findings, that nothing in the design folder says what the software must do, and that a green gate says nothing about the problems a QC lead actually finds, both have working answers that landed on 15 August, after the review was written.</p>
+  <p>That is not a reason to discount the review. It is the review&rsquo;s own argument made a second way: a fix nobody has installed is not a fix, and the version string did not warn anyone.</p>
+  <p><strong>Corrected the same day, twice more.</strong> An adversarial check was asked to disprove this page and disproved two of its claims. The published version tag carries the version <em>string</em> and neither of the two fixes: they sit in 43 unpushed commits, so shipping needs a push and a new number, not a link. And the sizing defect below was fixed by a parallel session 28 minutes after this page first called it open. Three instances in one day of a single failure: nothing anywhere binds a version to what is inside it.</p>
+</section>
+
+<div class="tally">
+  <div><span class="n">3</span><span class="k">Confirmed open</span></div>
+  <div><span class="n">4</span><span class="k">Closed or fixed</span></div>
+  <div><span class="n">4</span><span class="k">Partly answered</span></div>
+  <div><span class="n">3</span><span class="k">Not the tool&rsquo;s to fix</span></div>
+  <div><span class="n">9</span><span class="k">Holes nobody raised</span></div>
+</div>
+
+<h2>What is working, and what it constrains</h2>
+<p>Four of these are load bearing, so every solution below has to keep them: checks written before the build catch real contradictions in the specification; bad news comes first, with no flattery and no jargon; NO-DATA is a real answer, so absent evidence is never a pass; and every rule names what enforces it, with the parts no software computes marked as such. A solution that is only a sentence in a document is written here as UNENFORCED, in those words.</p>
+
+<h2>The problems, one by one</h2>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P1</span><span class="chip mixed">Partly answered</span><span class="who">the non-developer reviewer</span></div>
+  <div class="body-col">
+    <h3>Setting up is hard without a developer background</h3>
+    <p class="status">Half fixed. The tools are now tested on Windows in CI. The first hour on a fresh Windows machine is unchanged: no installer puts the command on the PATH, and two prerequisites still have to be satisfied alone.</p>
+    <div class="rec"><span class="label">Recommended</span><p>A first-run script that installs nothing silently, prints exactly what is missing with the one command that fixes it, and repairs the PATH. Proven by a clean Windows runner in CI reaching <span class="mono">--help</span> at exit 0.</p></div>
+    <ul class="alts"><li>A doctor command listing what is wrong: cheaper, and useless to someone who cannot run the command in the first place.</li><li>Remove the prerequisite entirely: largest change, deletes the CI story, filed as a direction rather than a fix.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P2</span><span class="chip open">Confirmed open</span><span class="who">the analyst lead</span></div>
+  <div class="body-col">
+    <h3>The guide describes how analysts work here, incorrectly</h3>
+    <p class="status">The guide says analysts hand over a conversation. They hand over a specification document, with the core acceptance criteria in the ticket. The warning matters more than the error: people stop trusting a document that describes their own job wrongly.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Rewrite the section around the specification as the source of context, keeping the real principle: the assistant needs the specification, not the chat.</p></div>
+    <ul class="alts"><li>Go further and make the specification the declared input to the behaviour table, so the correction is worth more than an apology.</li><li>Drop the practice-to-stop list entirely: least effort, loses a real teaching point.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P3</span><span class="chip open">Confirmed open</span><span class="who">the first-time user, the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>Discussion before planning is not enforced</h3>
+    <p class="status">Confirmed, and wider than reported. Searching the whole repository for any enforcement of a discussion step returns nothing. It was written as an instruction to the model, and an instruction to the model is not a control, which is this product&rsquo;s own first law applied against itself.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Make it a state rather than a sentence: sizing cannot be recorded until a clarify record exists, and the refusal names the command that creates one. This is the only version nothing can silently skip.</p></div>
+    <ul class="alts"><li>Detect and report at session close: softer, and it fails toward silence, which is the complaint.</li><li>Put the questions in the first turn, so skipping is the deliberate act: cheapest, still unenforced, and it changes the default.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P4</span><span class="chip mixed">Partly answered</span><span class="who">the first-time user, the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>The decisions record stays empty while decisions get made</h3>
+    <p class="status">Real, and half owned. Three memory systems run in parallel and none is aware of the others; the built-in one stayed empty for a whole project. The conflict class is at least named now and honestly reported as NO-DATA, because no detector exists.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Harvest instead of asking. Decisions already get written, into commit messages and a notes file. Scan that range, propose rows, write only what a person confirms. Nobody types anything twice and the empty table fills from real history.</p></div>
+    <ul class="alts"><li>Refuse to close a change whose decision record cites an unexplained alternative: stronger, and it adds an obligation to a team already over-obligated.</li><li>Name one system the authority and demote the others to pointers: the real fix, and it needs a ratification rather than an engineer.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P5</span><span class="chip mixed">Partly answered</span><span class="who">the first-time user</span></div>
+  <div class="body-col">
+    <h3>Hard for a first-time user, and status goes stale after clearing</h3>
+    <p class="status">Three things. The next-command suggestion already exists in the current build. The wall of text is real. The stale status after clearing a session could not be reproduced, and the failure mode it resembles is documented here: four separately written next-action ladders once gave three different answers to the same change.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Ask for one reproduction, the commands in order and both outputs, and re-test on the current build first. One message, and it may close the item.</p></div>
+    <ul class="alts"><li>If it reproduces: stamp every status line with the commit it was derived from, so an out-of-date answer announces its own age.</li><li>Short form by default, long form behind a flag.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P6</span><span class="chip open">Confirmed open</span><span class="who">the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>The check that confirms a check ran grades only the shape</h3>
+    <p class="status">Confirmed, and narrower than it was: evidence produced before the code moved is now refused. What the gate still never asks is where the evidence came from. A hand-written file and a real build run are indistinguishable to it.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Adopt the reviewer&rsquo;s own operating rule mechanically. Evidence records its producer, and strict mode accepts only evidence the build system made. One configuration value in the pipeline sets it. A laptop run still gets a verdict; it just cannot be the one that closes a change.</p></div>
+    <ul class="alts"><li>Sign the evidence: stronger, and it needs key handling the team does not have today.</li><li>Leave it and publish the limit, which by this product&rsquo;s own rule means writing it UNENFORCED.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P7</span><span class="chip open">Confirmed open</span><span class="who">the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>The gate never opens the plan that says which checks were owed</h3>
+    <p class="status">Confirmed, with one new exception: a verification plan citing a behaviour rule that no longer exists now fails. The other direction, every owed check appearing in the evidence, is still unchecked, so evidence containing one check passes as green as evidence containing all of them.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Close the loop the behaviour table opened: every rule&rsquo;s proof names a check, and the evidence must contain a check of that name or the gate fails naming the rows it is missing. Cheap, because it reuses a table that now exists instead of inventing a plan format.</p></div>
+    <ul class="alts"><li>Adopt the reviewer&rsquo;s own extra check and ship it with credit: fastest, and it turns a reporter into a contributor.</li><li>Count and report only, NO-DATA when the plan cannot be read: weakest, honest, never blocks.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P8</span><span class="chip closed">Fixed today</span><span class="who">the analyst lead, proven on the live change</span></div>
+  <div class="body-col">
+    <h3>Ordinary changes are sized as heavy ones</h3>
+    <p class="status">The sharpest finding in the review, and it was four lines of code. Answering yes to the contract question alone produced the heavy tier, with no other answer needed. On an architecture where nearly every change touches an API contract, one question decided the ceremony for everything.</p>
+    <p class="status">Fixed on 15 August. Verified here by running the live change&rsquo;s own five answers rather than trusting the commit message: additive now lands one tier lower, breaking stays where it was, and a legacy answer of plain yes still resolves to the stricter side so no existing design is silently re-sized. The concrete win is the artifact count for that same ordinary change: <strong>two documents instead of seven</strong>.</p>
+    <div class="scroll"><pre>if sensitive or not reversible_within_an_hour:  T3
+if changes_contract or consumers == "many":    T2   &lt;- one question, on its own
+if crosses_boundary or consumers == "some":    T1
+otherwise:                                     T0</pre></div>
+    <div class="rec"><span class="label">Recommended</span><p>Split the contract question in two: additive or breaking. Adding an optional field no existing consumer reads is not the same risk as changing what a field means. Additive with few consumers lands one tier lower; breaking stays where it is. The live change re-sized is the done-check.</p></div>
+    <ul class="alts"><li>Let the diff answer instead of the person, derived from the API schema: more accurate, much more work, NO-DATA where no machine-readable schema exists.</li><li>Keep the tier and cut what it costs: same felt outcome, and it weakens what a tier means.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P9</span><span class="chip closed">Closed in source</span><span class="who">the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>Nothing in the design folder says what the software must do</h3>
+    <p class="status">Called the largest gap, and answered on 15 August in a build the reviewers did not have. There is now a behaviour table, required from the second tier upward, reading <span class="mono">ID | Starting point | Trigger | Required outcome | Proof</span>, and the check behind it refuses four distinct ways to fake it: a rule with no agreed proof, rows that are still the shipped example, a verification plan citing a rule that was deleted, and an unreadable table, which fails rather than passing quietly.</p>
+    <p class="status">One clause of the finding stands: it does not say who writes the table. The observation behind it stands too, that the one step with no tooling is the step where behaviour is defined.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Ship the current build and ask the architecture reviewer to re-audit this one item. No engineering, and it turns the biggest open finding into either a close or a much sharper reopen.</p></div>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P10</span><span class="chip open">Confirmed open</span><span class="who">the architecture reviewer, the analyst lead</span></div>
+  <div class="body-col">
+    <h3>Nothing handles a requirement changing</h3>
+    <p class="status">Confirmed open, and the most structurally serious item here, because it gets worse with time rather than staying constant. No design version, no way to mark one superseded, no staleness clock. A design describing an intention abandoned two months ago stays green indefinitely. From the other end: developers find edge cases during coding, the specification changes, and the proof list written early has to be revisited instead of testing what is ready.</p>
+    <div class="rec"><span class="label">Recommended, and smallest</span><p>A staleness clock with no new concepts. A design records the commit it was written against, and once the code has moved past it, checks report NO-DATA with a stale-since line. NO-DATA rather than a failure, because a stale design is an unknown, and an unknown must never read as a pass.</p></div>
+    <ul class="alts"><li>Supersession as a link, so a design can name the one it replaces and status refuses to read a superseded one as current.</li><li>Re-size on churn, not risk alone: if the change grew past a threshold, recompute and report the delta.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P11</span><span class="chip open">Confirmed open</span><span class="who">the whole team, on the live run</span></div>
+  <div class="body-col">
+    <h3>The step called PROVE checks the paperwork, not the work</h3>
+    <p class="status">Confirmed. Everyone assumed it compares what was built against what was designed. It checks that documents exist, are not empty, and that certain evidence files are present. The comparison is a different command the step never runs, and it never looks at review findings at all.</p>
+    <div class="rec"><span class="label">Recommended, and it is documentation, not code</span><p>Re-describe the step as a completeness check, name the comparison command beside it so it actually gets run, and move the step off QC and onto the engineer, because what it checks is whether the engineer produced the documents they owe.</p></div>
+    <ul class="alts"><li>Have the completeness step invoke the comparison itself, so neither verdict can be skipped by not knowing about it.</li><li>Give QC&rsquo;s real question a tool of its own, which is the exploratory sheet in P14.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P12</span><span class="chip mixed">Partly answered</span><span class="who">the whole team</span></div>
+  <div class="body-col">
+    <h3>We use Bitbucket, not GitHub</h3>
+    <p class="status">Shipped on the orchestration side and now standing law: GitHub canonical, Bitbucket first class, with a full pipeline definition and honest UNVERIFIED labels where a leg has not been observed. Open on the assurance side, whose approval and pipeline steps are still worded in GitHub terms. One blocker sits outside the code entirely: the test workspace is read-only because it exceeds its user limit, so that half of any two-host check is BLOCKED rather than merely unverified.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Port the two-host pattern across: host-neutral scripts, one thin pipeline definition per host, and any host-specific command reporting NO-DATA naming the host rather than erroring or passing quietly.</p></div>
+    <ul class="alts"><li>Make the approval check host independent: a signed trailer verified locally beats any provider API and works identically on both.</li><li>Decide first, build second, which is what the team actually asked for.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P13</span><span class="chip open">Confirmed open</span><span class="who">the architecture reviewer</span></div>
+  <div class="body-col">
+    <h3>Fifty point-in-time designs after a year, none describing the system</h3>
+    <p class="status">Confirmed, and it is P10 observed later. Nothing merges, supersedes or indexes designs, so a newcomer reads fifty of them in no particular order to reconstruct a system nobody ever described.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Supersession links plus one command that walks every design and prints the current behaviour rules across all of them, newest winning and conflicts named. A system description assembled from what exists is the only version that survives, because nobody has to maintain it.</p></div>
+    <ul class="alts"><li>A living system document every change updates: better to read, and it reintroduces the maintenance burden that made the first one go stale.</li><li>Accept it and say so, which is what happens today by default rather than by decision.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P14</span><span class="chip closed">Closed in source</span><span class="who">the analyst lead, the QC lead</span></div>
+  <div class="body-col">
+    <h3>The question nobody could answer</h3>
+    <p class="status">The QC lead will not accept against a numbered criteria list, because what she finds is unnatural behaviour, interface problems once she is hands on, misunderstandings missed during design, and awkward text where the translator lacked context. None of that is an acceptance criterion, so a green gate systematically under-represents how much checking remains.</p>
+    <p class="status">The tooling half landed on 15 August. The behaviour table becomes the tester&rsquo;s own working sheet, one case per rule, plus an exploratory tail whose first charter is named <span class="mono">unnatural-behaviour</span>: the software does something nobody asked it to. A filled sheet reads back, and drafts new behaviour rules from what was found, so a discovery becomes a rule for next time instead of a comment on a ticket. Deliberately it is not a gate on what a tester finds: an empty table and malformed rows both pass, named in the sheet rather than refused, because the moment exploratory testing becomes a gate it stops being exploratory. One precision from the adversarial check: it does exit non-zero on an unreadable file or bad usage, so it can still turn a pipeline step red on an input error.</p>
+    <div class="rec"><span class="label">Recommended</span><p>Run the sheet once on the live change and ask the QC lead the only question that matters: did it catch what she would have caught anyway. That answer is the acceptance test for the whole idea.</p></div>
+    <ul class="alts"><li>Print what was NOT examined, by name, on every all-green summary: regression, cross-device, performance, interface. The cheapest way to stop a green verdict from lying about its own scope.</li><li>Measure the queue before and after, and publish the delta whether or not it moved.</li></ul>
+  </div>
+</article>
+
+<article class="problem">
+  <div class="gutter"><span class="pid">P15</span><span class="chip outside">Not ours</span><span class="who">named, never gated by the tool</span></div>
+  <div class="body-col">
+    <h3>The part no tool fixes</h3>
+    <p class="status">QC verifies far more slowly than developers now build with an assistant. That is a capacity fact, not a defect, and writing a proof list earlier adds a step without removing the bottleneck. The honest posture is to measure it, reveal it, remove labour that feeds it, and never add an obligation and call it a fix. The only measure that decides whether any of this worked stays the team&rsquo;s own queue numbers, not a gate verdict.</p>
+  </div>
+</article>
+
+<h2>The holes nobody complained about</h2>
+<p>Every problem above was <em>raised</em>. That makes the list a good sample of the visible failures and a poor sample of the silent ones. A separate pass walked the whole lifecycle, from having an idea to a change somebody accepts, asking only one question: what has no tool at all? Nine, ranked by damage per unit of effort to close.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Stage</th><th>What is missing</th><th>Owner</th></tr></thead>
+  <tbody>
+    <tr><td>H1 measurement</td><td>Nothing computes the five queue numbers that everyone agreed decide whether this worked. They were hand-counted once and cannot be recomputed.</td><td>reveal only</td></tr>
+    <tr><td>H2 acceptance</td><td>There is no accepted state. The last thing the system knows is that evidence passed, never that a person accepted the result.</td><td>assurance</td></tr>
+    <tr><td>H3 deployment</td><td>Evidence binds to a commit, never to what is running. This is exactly how a week of review went into a build generations behind, with no verdict noticing.</td><td>assurance</td></tr>
+    <tr><td>H4 defects</td><td>A bug fix cannot be entered as one. It must be described as new work, so an escaped defect leaves no trace in the table that should have caught it.</td><td>assurance</td></tr>
+    <tr><td>H5 after merge</td><td>No reopen, rollback or escaped defect is recorded against the change that caused it, so no tier can ever be compared with its real outcome.</td><td>assurance</td></tr>
+    <tr><td>H6 discovered work</td><td>A requirement that appears mid-build has no event. A rule added after a test sheet was generated leaves that sheet short one case, silently.</td><td>assurance</td></tr>
+    <tr><td>H7 concentration</td><td>23 changes waiting on one reviewer and 11 in one tester&rsquo;s column are invisible to the router, which selects by capability and prints no load.</td><td>reveal only</td></tr>
+    <tr><td>H8 duration</td><td>No change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side and 48 undated tasks compare to nothing.</td><td>assurance</td></tr>
+    <tr><td>H9 one writer</td><td>The single-writer control is inert in the assurance repository: roughly twenty legacy claim lines it cannot parse, each reported as not enforced.</td><td>assurance</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>Five of those are one hole seen five times.</strong> H1, H2, H3, H5 and H8 all say the same thing: the system is complete up to the merge and blind after it. Everything it knows is about whether a change was <em>proven</em>. Almost nothing it knows is about whether the change <em>worked</em>.</p>
+<p>The pass also named what it found adequately covered, because a gap hunt that finds gaps everywhere has not hunted: design, single-person build execution, review routing and reviewer independence, test design, evidence execution, migration rollback, and handover between people.</p>
+
+<h2>Knowing when to stop and ask</h2>
+<p>A separate ask, and it is built rather than described. Three partial answers already existed: an automated controller that gives up after two failures, a sentence in a worker brief, and two watchdogs that notice a stuck machine. None of them noticed a stuck line of reasoning. Nothing counted that the same objective had defeated three different methods.</p>
+<p>There is now one small tool that records attempts and answers one question, continue or escalate.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Trigger</th><th>Fires when</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td>forcing condition</td><td>a named danger is recorded, at zero attempts</td><td>guessing is the risk, so no number of tries changes the answer</td></tr>
+    <tr><td>approaches exhausted</td><td>three distinct approaches have failed</td><td>the problem has beaten the methods this session can name</td></tr>
+    <tr><td>no new information</td><td>two failures share one observed root cause</td><td>the second attempt bought nothing, which is the real signal</td></tr>
+    <tr><td>budget spent</td><td>a declared attempt budget is gone with nothing passing</td><td>the work was sized and the size was wrong</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Never on a single failure, with one exception: a failure affecting what the system reports as true escalates immediately, because a wrong status standing longer is the whole cost. When it escalates it prints who is being asked, what it found, its recommendation, the alternatives it has not tried, the risk if it guesses, the one decision it needs, and what it will do if nobody answers. It refuses to print that without a recommendation and a default action, because handing a person a problem with no proposal moves the work without reducing it.</p>
+<p>It never answers the question itself, never retries on its own, and never decides for the human.</p>
+
+<h2>The order, and the one next action</h2>
+<ol class="order">
+  <li><strong>Take the baseline first.</strong> The five queue numbers, counted once, however crudely. The sizing fix has already shipped, so part of the before-picture is already gone and every further hour loses more of it. Minutes of work, and the only item here that cannot be done later.</li>
+  <li>Push the work and cut a new version, then send the note. The published tag does not contain the two answers, so there is nothing to re-read until this happens.</li>
+  <li>The Windows first run. The earlier version of this order left it out, even though a non-developer being unable to reach a command line is the thing standing between this work and its own success measure.</li>
+  <li>Print the unexamined classes as NO-DATA on every green summary. Small, and it permanently fixes the honesty of a green verdict.</li>
+  <li>Then the gate reading the plan, the PROVE rename, evidence provenance, and the staleness clock.</li>
+</ol>
+<p><strong>The one next action:</strong> count the five queue numbers today, before anything else lands, because it is the only thing on this list that gets harder every hour and it is the measure everything else will be judged by.</p>
+
+<footer>
+  Status lines were verified against source read on 15 August 2026, not against the review&rsquo;s description of the code. Where something could not be reproduced in the time available, it says so rather than being filed. Nothing here claims more than a check that ran.
+</footer>
+</div>
