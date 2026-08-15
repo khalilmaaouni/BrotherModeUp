@@ -657,14 +657,25 @@
   {
    "id": "O22",
    "title": "Azure Repos to proven: founder creates the DevOps project, one session pushes the release, runs both installs against the mirror, quotes one green Pipelines run, verifies az repos pr create live, closes every UNVERIFIED label on docs/AZURE-REPOS.md",
-   "state": "parked",
+   "state": "blocked",
    "clock": "agent",
    "forecast_minutes": 40,
    "files": [
     "docs/AZURE-REPOS.md"
    ],
    "done_check": "every UNVERIFIED label on docs/AZURE-REPOS.md closed with quoted output",
-   "note": "parked 2026-08-16: Azure removed from the target the same day it was ordered (PRODUCT-DIRECTION.md amendment, founder words: the Azure distraction removed); page and CI file stay dormant; flip: a named Azure client"
+   "note": "dormant 2026-08-16: Azure removed from the target (PRODUCT-DIRECTION.md amendment); blocked is the valid state closest to dormant and keeps it out of queue depth per bm_idle rules; flip: a named Azure client. Earlier invalid state \"parked\" broke bm_idle.py check (NO-DATA exit 2) and was caught by the Opus review."
+  },
+  {
+   "id": "O23",
+   "title": "Sibling ownership overlap, the architecture 6.5: take the one decision the parity map ranks first (retire sbe_fence_hook.py in favour of bm_fence_hook.py behind BrotherSBE coordination), designed with BrotherSBE, founder-ratified",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "docs/plan/PARITY-READ-2026-08-15.md"
+   ],
+   "done_check": "a ratified ownership decision recorded in both repositories naming the single fence owner"
   }
  ]
 }
