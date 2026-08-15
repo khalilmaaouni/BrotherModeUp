@@ -267,9 +267,35 @@ class HollowValueTests(unittest.TestCase):
         self.assertTrue(len(deposit["whatWasNotEstablished"]) > 0)
 
     def test_no_field_in_the_deposit_is_ever_an_empty_or_null_value(self):
-        """Belt and suspenders across every state this tool can hit: no key
-        in the written JSON is ever '', [], or null, whichever states are
-        reached."""
+        """Belt and suspenders across ALL THREE store states, not one.
+
+        This docstring used to claim "every state this tool can hit" while the
+        body exercised exactly one (a bare root with no git identity). An
+        adversarial review caught the gap: a claim of breadth with a body of
+        one is the same overclaim this tool exists to report, in the suite
+        that polices it."""
+        for label, build in (
+                ("absent", lambda d: None),
+                ("corrupt", lambda d: write_text(
+                    d, os.path.join(".brothermode", "store.sqlite3"),
+                    "not a real sqlite file" * 5)),
+                ("healthy", lambda d: claim_one(d))):
+            with tempfile.TemporaryDirectory() as tmp:
+                build(tmp)
+                result = run_cli("--root", tmp,
+                                 env_over=_no_git_identity_env(tmp))
+                self.assertEqual(result.returncode, 0,
+                                 "%s: %s%s" % (label, result.stdout,
+                                               result.stderr))
+                deposit = read_deposit(tmp)
+            for key, value in deposit.items():
+                self.assertNotEqual(value, "", "%s: %s is an empty string"
+                                    % (label, key))
+                self.assertNotEqual(value, [], "%s: %s is an empty list"
+                                    % (label, key))
+                self.assertIsNotNone(value, "%s: %s is null" % (label, key))
+
+    def test_the_single_state_version_of_the_check_still_holds(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = run_cli("--root", tmp, env_over=_no_git_identity_env(tmp))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -459,6 +485,58 @@ class PathFlagTests(unittest.TestCase):
         result = run_cli("--root", "", "--accountable", "P")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("empty value", result.stderr)
+
+    def test_an_unresolvable_root_is_exit_2_and_says_NO_DATA(self):
+        """The exit 2 path, which the docstring documents and nothing asserted.
+
+        Three exits are documented: 0 when a deposit was written whatever it
+        could establish, 1 when the deposit could not be written, and 2 for a
+        usage error or a root that could not be resolved at all. The last is
+        not a finding about a change, it is a failure to find a change to
+        report on, and reporting it as 0 would be the tool claiming it looked
+        when it did not."""
+        missing = os.path.join(tempfile.gettempdir(),
+                               "bm-passport-no-such-dir-xyzzy")
+        self.assertFalse(os.path.exists(missing))
+        result = run_cli("--root", missing, "--accountable", "P")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("NO-DATA", result.stdout)
+
+    def test_a_failed_write_leaves_the_previous_deposit_intact(self):
+        """What temp-plus-replace actually buys, asserted rather than assumed.
+
+        Writing the deposit in place truncates it first, so a failure mid-write
+        leaves a half-written file that the consumer classifies as CORRUPT,
+        which is a worse answer than the previous deposit or than none at all.
+        The failure is injected by making the temp path unwritable (a directory
+        sits where the temp FILE must go), which is the closest reachable
+        analogue of a disk failure without root."""
+        with tempfile.TemporaryDirectory() as tmp:
+            claim_one(tmp)
+            out = os.path.join(tmp, "deposit.json")
+
+            first = run_cli("--root", tmp, "--out", out, "--accountable", "First")
+            self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+            with io.open(out, encoding="utf-8") as fh:
+                before = fh.read()
+            self.assertIn("First", before)
+
+            # A directory where the temp FILE must be written: open() raises
+            # IsADirectoryError, an OSError, on the temp path only.
+            os.mkdir(out + ".tmp")
+
+            second = run_cli("--root", tmp, "--out", out,
+                             "--accountable", "Second")
+            self.assertEqual(second.returncode, 1,
+                             second.stdout + second.stderr)
+            self.assertIn("could not write", second.stderr)
+
+            with io.open(out, encoding="utf-8") as fh:
+                after = fh.read()
+        self.assertEqual(before, after,
+                         "the failed write changed the previous deposit; "
+                         "temp-plus-replace is not protecting it")
+        json.loads(after)   # still parseable, so never classified CORRUPT
 
     def test_no_temp_file_is_left_behind_by_a_successful_write(self):
         """The deposit is written to a .tmp path and moved into place, so a
