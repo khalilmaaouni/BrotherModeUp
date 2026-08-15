@@ -287,7 +287,8 @@
   <div class="stamp">
     Refreshed 2026-08-16 by the Opus 5 successor session, overnight, two streams coordinating.<br>
     TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages count records, never impressions.<br>
-    STATUS: RATIFIED and BUILDING. Eight decisions answered 2026-08-15 and recorded in the store against work record e082b639. The first build item is landed, gated and pushed: main is 586a20d, full gate ALL GREEN, 3257 tests across 37 suites, 1624.7s.
+    STATUS: RATIFIED and BUILDING. Fourteen decisions recorded in the store against work record e082b639. Main is 2af8ef9, equal to upstream, working tree clean, full gate ALL GREEN: 3278 tests across 37 suites, 5 skipped, 1136.9s. Doctor 11 of 13 proven, 0 failed.<br>
+    Overnight, 15 to 16 August: nine commits landed and one was reverted deliberately when it turned three suites red. The revert and its cause are on the board below rather than tidied away, because the cause is the most useful thing the night produced.
   </div>
 </header>
 
@@ -484,7 +485,27 @@
   </div>
 </div>
 
-<h2>Risk management, insights and alerts <span class="count">9</span></h2>
+<h2>Risk management, insights and alerts <span class="count">11</span></h2>
+<div class="risks" style="margin-bottom:1rem">
+  <div class="riskitem">
+    <div class="t">One sentence explains six separate defects found this night</div>
+    <dl>
+      <dt>What</dt><dd><strong>A check that cannot reach an actionable verdict reads to a person as a check that passed</strong>, because the summary line says zero failed. Six instances, each found independently before the pattern was named. An install check silenced by its own test fixtures, which copied the tree with git history ignored so the stamp was always unknown. A purge test pinning a dictionary by full equality, which catches a table ADDED and never one FORGOTTEN, and forgotten is the direction data leaks through. A problems page listing three defects that had already closed. Two guards enforcing from a rendered page the database does not back. A lint reporting 150 hits whose sampled true-positive rate looks near zero, so nobody acts on it and a real one would hide among them.</dd>
+      <dt>Why</dt><dd>Every one of these was a control doing something worse than failing: reassuring. The product's entire argument is that it tells you what it did and did not prove, so a check that quietly examines nothing is not a small bug in it, it is the thesis inverted.</dd>
+      <dt>Action</dt><dd>Four are closed and pushed. The lint needs triage by someone who knows the design intent, and is recorded as a decision NOT to sweep, because sweeping would turn correct degradation into crashes. The two guards need the seam fix already on this board.</dd>
+      <dt>When</dt><dd>Closed overnight. The lint triage and the guards are founder-scale, not overnight work.</dd>
+    </dl>
+  </div>
+  <div class="riskitem warnlevel">
+    <div class="t">A commit was pushed red and reverted within the hour, and the cause was a rule this session had just quoted to someone else</div>
+    <dl>
+      <dt>What</dt><dd>The erasure fix landed, turned three suites red, and was reverted. Not one of the three failures was about the feature. All three were registries that two new command line verbs had to join: the effect-class registry, the runtime adapters, and the founder-facing refusal table. This project's PO-6 rule says to open the file that reads a registry before adding to it, and that rule had been forwarded to another agent an hour earlier by the same session that then broke it.</dd>
+      <dt>Why</dt><dd>Knowing a rule and applying it are different acts, and the gap between them is where this class of defect lives. Worth keeping on the board rather than in a commit message nobody rereads.</dd>
+      <dt>Action</dt><dd>Reverted to green immediately rather than left broken. The capability then landed a second time WITHOUT the command line verbs, so no registry was owed at all, which is a smaller and cleaner change than the one that failed. The verbs are held, with all three requirements written down so the next attempt is one change.</dd>
+      <dt>When</dt><dd>Done. The held verbs wait on the fence decision.</dd>
+    </dl>
+  </div>
+</div>
 <div class="risks">
   <div class="riskitem">
     <div class="t">Two of our controls disagree about who holds a fence, and one of them is reading a page</div>
