@@ -189,6 +189,13 @@ jobs:
       # than a healthy depth. An item nobody can start cannot rescue a night.
       - name: Run the idle and queue-depth suite
         run: python3 tools/test_bm_idle.py
+      # The change passport producer suite, added 2026-08-15. The passport is
+      # the only seam between execution provenance and assurance, and this is
+      # the producer half. Its load bearing test is that a hollow value is
+      # never deposited, because an empty string reads as absence on the
+      # consuming side and depositing one fills nothing while looking filled.
+      - name: Run the change passport producer suite
+        run: python3 tools/test_bm_passport.py
       # The Toolkit inventory suite, added 2026-08-12. Its load bearing test
       # is the false-versus-null distinction on whether a plugin is enabled:
       # one is a fact, the other is could-not-tell, and a conflict report

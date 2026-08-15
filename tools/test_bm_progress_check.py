@@ -173,6 +173,36 @@ class PageGlobTests(unittest.TestCase):
             result = run_cli("status", "--root", tmp)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_docs_plan_star_board_star_html_is_recognised(self):
+        """The regression for a control that had gone blind. A session
+        published docs/plan/NORTH-STAR-PUSH-BOARD.html, linked it from
+        PROJECT.md as the project's stable artifact, and this check kept
+        reporting OWED (stale) against an older GANTT file because no
+        pattern matched the word the founder actually uses. The page that
+        exists to be SEEN was invisible to the check that exists to make
+        sure it gets refreshed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = write_file(tmp, "PLAN.md")
+            stamp(plan, EARLIER)
+            page = write_file(tmp, "docs/plan/NORTH-STAR-PUSH-BOARD.html")
+            stamp(page, LATER)
+            result = run_cli("status", "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("NORTH-STAR-PUSH-BOARD.html", result.stdout)
+
+    def test_a_board_page_older_than_the_plan_is_still_owed(self):
+        """The control for the test above: matching the new pattern must not
+        turn every BOARD file into an automatic pass. A stale board is still
+        a stale page, and the verdict must say so."""
+        with tempfile.TemporaryDirectory() as tmp:
+            page = write_file(tmp, "docs/plan/NORTH-STAR-PUSH-BOARD.html")
+            stamp(page, EARLIER)
+            plan = write_file(tmp, "PLAN.md")
+            stamp(plan, LATER)
+            result = run_cli("status", "--root", tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("OWED (stale)", result.stdout)
+
 
 class NoDataTests(unittest.TestCase):
     """The root cannot be resolved: NEVER a pass, and the line names it."""

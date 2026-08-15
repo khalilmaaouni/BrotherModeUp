@@ -7,7 +7,16 @@ then record the answer here so it is never hunted again.
 
 - Canonical path: /Users/khalil.maaouni/Documents/BrotherModeUp
 - Repo remote: origin https://github.com/khalilmaaouni/BrotherModeUp.git (verified with git remote -v, 2026-08-10)
-- Published artifact URL: https://claude.ai/code/artifact/784c3ecc-e81d-45e1-af6e-b35c2127ebc0 (the progress page stable link, founder confirmed 2026-08-10)
+- Published artifact URL: https://claude.ai/code/artifact/a9ed7de2-aa6e-48bb-bfc7-15c8867491e1
+  (the progress page stable link, founder decision 2026-08-15: the north star
+  push board is the one current board and is republished at every closed loop.)
+  SUPERSEDES https://claude.ai/code/artifact/784c3ecc-e81d-45e1-af6e-b35c2127ebc0,
+  which was the link confirmed 2026-08-10. The founder asked for the board to
+  be republished onto that older URL; the publish was REFUSED because another
+  session had written newer content there that this session had never seen, and
+  forcing it would have discarded that session's work. The old link is left
+  intact rather than overwritten blind. Whoever holds the baton next may fetch
+  it, merge, and consolidate if the founder still wants the original address.
 - Vault space: /Users/khalil.maaouni/Documents/Kay Vault/10-Projects/brothermode
 - Codex port spec (third-party, deliberately outside this public repo):
   /Users/khalil.maaouni/Documents/ChatGPT/BrotherModeUp/CODEX_PORT_AND_HYBRID_HARNESS_IMPLEMENTATION_SPEC.md

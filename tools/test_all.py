@@ -209,6 +209,15 @@ SUITES = (
     # exists to remove. Like the progress check above it is pure_read and its
     # suite asserts that. NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE.
     "test_bm_idle.py",
+    # The change passport producer suite, added 2026-08-15. Its load bearing
+    # test is that a hollow value is never deposited: an empty string, a
+    # whitespace string, an empty list and a null all read as absence on the
+    # consuming side, so writing one to make a field look filled fills
+    # nothing and lies to the reader. Its second is direction of travel,
+    # asserted by pointing the producer at a root holding a poisoned
+    # assurance file and showing the output does not move. Reaching across
+    # the seam to fill a field is the failure the seam exists to prevent.
+    "test_bm_passport.py",
     # The first Toolkit verb, added 2026-08-12. bm_toolkit.py inventories
     # every capability the runtime can see: marketplaces, plugins and their
     # versions, hook events, skills, MCP servers and settings layers. The
