@@ -285,7 +285,7 @@
   <h1>The North Star Push</h1>
   <p class="standfirst">Connect the two products at one seam, get the install into other people's hands, and close the loop after the merge. Everything else waits.</p>
   <div class="stamp">
-    Refreshed 2026-08-16 00:20 JST by the Opus 5 successor session, holding the baton.<br>
+    Refreshed 2026-08-16 by the Opus 5 successor session, overnight, two streams coordinating.<br>
     TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages count records, never impressions.<br>
     STATUS: RATIFIED and BUILDING. Eight decisions answered 2026-08-15 and recorded in the store against work record e082b639. The first build item is landed, gated and pushed: main is 586a20d, full gate ALL GREEN, 3257 tests across 37 suites, 1624.7s.
   </div>
@@ -484,8 +484,26 @@
   </div>
 </div>
 
-<h2>Risk management, insights and alerts <span class="count">7</span></h2>
+<h2>Risk management, insights and alerts <span class="count">9</span></h2>
 <div class="risks">
+  <div class="riskitem">
+    <div class="t">Two of our controls disagree about who holds a fence, and one of them is reading a page</div>
+    <dl>
+      <dt>What</dt><dd>Two sessions were refused an edit to <code>docs/SETUP.md</code> by the write guard, which named its own source in the refusal: a live fence in <code>STATE.md</code>. The store was then asked directly and holds two active records, neither of them that session, neither claiming any file. <code>STATE.md</code> is a GENERATED VIEW: <code>bm_store.py</code> renders it, its header says anything inside the markers is overwritten on the next render, and its docstring says nothing else is allowed to be the source of truth for who owns what work.</dd>
+      <dt>Why</dt><dd>The guard is refusing writers on the strength of a rendered page while the database it is rendered from holds no such claim. Worse, its own remediation makes it self-contradictory: two of the three ways out instruct the caller to HAND-EDIT that generated view. So a session obeying the guard is told to do the thing the store forbids, and a session obeying the store is told it is writing across a live fence. There is no correct action inside the two rules as written.</dd>
+      <dt>Action</dt><dd>This is queue item O23 and it is no longer a design opinion: it is demonstrated, with both controls' own output quoted, and it is blocking a real documentation fix right now. Nothing was written across the fence and <code>STATE.md</code> was not hand-edited. The fix is that the assurance side asks the store through its API instead of parsing the view.</dd>
+      <dt>When</dt><dd>Ahead of its planned slot, because it now blocks work rather than merely being wrong.</dd>
+    </dl>
+  </div>
+  <div class="riskitem">
+    <div class="t">The mute control was mute because of its own test fixtures, not because of the product</div>
+    <dl>
+      <dt>What</dt><dd>The install-identity check could only ever report SKIP. The diagnosis on this board said the installer never wrote the stamp. That was wrong. <code>scripts/install.py</code> already writes it correctly for the documented flow. The real fault was that every fixture in <code>tools/test_install.py</code> copied the tree with <code>.git</code> ignored, so the stamp was always "unknown" and the check could not reach a verdict across the entire suite.</dd>
+      <dt>Why</dt><dd>It is the same class, one layer further in, and it is the more uncomfortable version: the control was silenced by the tests that were supposed to prove it worked. A reader saw "0 failed" and a suite that passed, and both were true and neither meant anything.</dd>
+      <dt>Action</dt><dd>Closed, and the done-check was the strict one: check 11 OBSERVED MOVING from SKIP to PASS on a fresh clone into a scratch directory, with its own installer and its own doctor, quoting <code>this tree is running the same commit (a528fbdf941c) it was installed from</code>. Pinned by a new test so it cannot silently return to SKIP. The plugin-registry half is deliberately NOT fixed: writing into Claude Code's own vendor-owned state, which nothing here reads, was refused on purpose.</dd>
+      <dt>When</dt><dd>Done overnight 15 to 16 Aug.</dd>
+    </dl>
+  </div>
   <div class="riskitem">
     <div class="t">Both products leave private state where a routine command would commit it</div>
     <dl>
