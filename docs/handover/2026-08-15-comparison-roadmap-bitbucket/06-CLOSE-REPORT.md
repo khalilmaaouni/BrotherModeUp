@@ -11,9 +11,43 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FINISHED
+UNFINISHED, and the baton lies on ONE test: local main sits at a5037aa
+carrying TK4 routing, the O18 help fix, the WBS page, the merge-to-main
+law and the queue reconciliation, but the gate is red on
+test_bm.py::TestP17PackagingManifestMatchesTheRepository (the new
+tools/toolkit_routes.json needs its REPO_ONLY_ASSETS entry), and the fix
+file tools/test_bm.py is under LIVE fence L2 of session b2f17984 (agent
+stopwatch-purge, wall-clock test conversions), which this session
+respected rather than crossed. DO NOT PUSH main until that entry lands
+and the full gate reads ALL GREEN. The exact classification text to add
+after the toolkit_conflict_classes.json entry in REPO_ONLY_ASSETS of
+tools/test_bm.py, written and ready:
 
-The founder's three asks landed and pushed at bf2380b: the fair
+    "toolkit_routes.json": (
+        "the founder-editable OVERRIDE for the Toolkit's routing "
+        "table, the same decision-34 shape as its sibling above "
+        "(TK4, 2026-08-15): the shipped default routes live in "
+        "bm_toolkit.py as a module constant, byte-identical to this "
+        "file, so a packaged install always has working routes, and "
+        "this file only overrides them where it exists. Which "
+        "capability a team routes a task class to is a judgement "
+        "about how that team works, so the override path is the "
+        "point of the file here too."),
+
+When the fence closes, or its owner lands it per L13's queue rule: add
+that block, run the P17 test, run the full gate, push main. Everything
+BEFORE a5037aa is already pushed and green at 95a6db8.
+
+Also waiting, founder-delivered at the session's very end: the 2041 line
+integrity-system vision, persisted at
+docs/vision/INTEGRITY-SYSTEM-2026-08-15.md, intake and first-pass mapping
+at docs/plan/INTEGRITY-SYSTEM-INTAKE-2026-08-15.md. Next session's first
+lane after the P17 unblock, founder-ratified through question windows
+before any build.
+
+What was true at the first close of this pack remains true through
+95a6db8: the founder's three original asks landed and pushed at bf2380b:
+the fair
 orchestration-layer comparison and the five-phase finalization roadmap
 (docs/plan/FINALIZATION-ROADMAP-2026-08-15.md), and Bitbucket support as
 code and docs (bitbucket-pipelines.yml, docs/BITBUCKET.md, README pointer),
