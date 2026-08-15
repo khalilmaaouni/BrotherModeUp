@@ -2,6 +2,30 @@
 
 Status: FOUNDER DIRECTION
 
+## Amendment, founder direction 2026-08-16
+
+The company sentence, the founder's own words:
+
+> BrotherMode makes AI execution trustworthy. BrotherSBE keeps that trust
+> intact when the work crosses people. Together, they preserve human
+> intent from instruction to verified delivery.
+
+The target, explicitly constrained the same day:
+
+> Built for individual contributors and 2 to 15 person technical teams
+> using GitHub or Bitbucket.
+
+Narrow enough to perfect, large enough to become a category. Azure Repos
+is removed from the target ("the Azure distraction removed", the
+founder's words); the Azure page and pipelines file already landed stay
+in the tree as dormant, honestly labeled, and no further Azure work is
+scheduled. The three scored weaknesses this amendment orders fixed, in
+priority order: market proof (1 of 10, the main weakness, ahead of any
+feature), the contract-and-evidence ownership overlap between the two
+products (the parity map in docs/plan/PARITY-READ-2026-08-15.md is the
+starting point), and Bitbucket certification (blocked only on the mirror
+account step).
+
 Purpose: Re-scope and finalize BrotherMode around a clear market position, a measurable north star, a small independent core, and a Toolkit Mode that composes trusted external skills, MCP servers, CLIs, and agent runtimes instead of duplicating them.
 
 Recommended repository location: `PRODUCT-DIRECTION.md` at the repository root.

@@ -1,10 +1,15 @@
-Status: CURRENT.
+Status: CURRENT, and DORMANT by founder direction: hours after this page
+landed, the target was constrained to GitHub or Bitbucket
+(PRODUCT-DIRECTION.md amendment 2026-08-16, "the Azure distraction
+removed") and no further Azure work is scheduled. The page stays because
+what it records was executed and stays true; nothing below is a promise
+of coming work. Flip condition: the founder naming a client on Azure.
 
 # Using BrotherMode with Azure Repos
 
-The third leg of the tri-host law (CLAUDE.md, founder order 2026-08-16):
-GitHub is the canonical home, Bitbucket carries the the adopter team team, and Azure
-Repos (Azure DevOps Git) carries the client estate. BrotherMode's engine speaks plain
+Written under the original tri-host order of 2026-08-16, superseded the
+same day by the two-host law in CLAUDE.md: GitHub canonical, Bitbucket
+for the the adopter team team. BrotherMode's engine speaks plain
 git and calls no host API, so the enforcement layer runs identically on an
 Azure remote. This page follows docs/BITBUCKET.md's pattern exactly: what
 was executed is quoted, and what nobody has executed is labeled UNVERIFIED

@@ -657,14 +657,14 @@
   {
    "id": "O22",
    "title": "Azure Repos to proven: founder creates the DevOps project, one session pushes the release, runs both installs against the mirror, quotes one green Pipelines run, verifies az repos pr create live, closes every UNVERIFIED label on docs/AZURE-REPOS.md",
-   "state": "blocked",
+   "state": "parked",
    "clock": "agent",
    "forecast_minutes": 40,
    "files": [
     "docs/AZURE-REPOS.md"
    ],
    "done_check": "every UNVERIFIED label on docs/AZURE-REPOS.md closed with quoted output",
-   "note": "blocked on the founder account step, same shape as the Bitbucket mirror item"
+   "note": "parked 2026-08-16: Azure removed from the target the same day it was ordered (PRODUCT-DIRECTION.md amendment, founder words: the Azure distraction removed); page and CI file stay dormant; flip: a named Azure client"
   }
  ]
 }
