@@ -5772,6 +5772,16 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
             "toolkit would end up silently classless. Severity is a "
             "judgement about how one team works, so the override path is "
             "the point of the file, not the defaults."),
+        "toolkit_routes.json": (
+            "the founder-editable OVERRIDE for the Toolkit's routing "
+            "table, the same decision-34 shape as its sibling above "
+            "(TK4, 2026-08-15): the shipped default routes live in "
+            "bm_toolkit.py as a module constant, byte-identical to this "
+            "file, so a packaged install always has working routes, and "
+            "this file only overrides them where it exists. Which "
+            "capability a team routes a task class to is a judgement "
+            "about how that team works, so the override path is the "
+            "point of the file here too."),
     }
 
     #: name -> why it must reach an installed user. Empty today, on purpose:

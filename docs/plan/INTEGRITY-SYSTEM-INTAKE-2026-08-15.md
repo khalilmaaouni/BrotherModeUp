@@ -54,14 +54,41 @@ the delivery contract and evidence graph are the natural shared objects
 and must be designed ONCE, not twice; O11 (parity read) is the natural
 first step and sits queued.
 
+## Second source document, same evening
+
+The founder delivered a second framework the same night:
+docs/vision/STARTUP-10-10-WBS-2026-08-15.md (1876 lines), an
+implementation blueprint pairing BrotherMode and BrotherSBE explicitly:
+a Fable execution contract with separation of duties, a model routing
+policy by risk tier, an agent catalog with permission rules, canonical
+shared data objects (Change, Evidence record, Risk finding, Policy
+decision), and a twelve-part WBS running from the change contract through
+the evidence ledger, risk and policy engines, a provider-neutral VCS
+contract with GitHub, Bitbucket and Azure integrations, to a cross-repo
+collision graph and human review routing.
+
+First-pass read: this and the integrity-system document describe ONE
+program from two angles (the vision and its WBS). The founder's binding
+constraint applies doubly: complementarity, never duplication. The
+canonical data objects are the exact place the two products must share
+one definition (BrotherMode already holds change ownership, receipts and
+evidence in schema 20; BrotherSBE holds intake, gates and approvals), so
+the adaptation designs those objects ONCE with a named owner per object
+and a consumer contract for the sibling. The VCS contract section maps
+directly onto docs/BITBUCKET.md's pattern, extended to Azure. The model
+routing and agent catalog sections largely restate laws this repository
+already enforces (tier per brief, one writer per file); the adaptation
+imports only their deltas, never a parallel copy.
+
 ## Next session's order
 
-1. Copy the source document into docs/vision/ under git.
-2. Read it end to end against docs/plan/FINALIZATION-ROADMAP-2026-08-15.md
+1. Both source documents are under git in docs/vision/ (done 2026-08-15).
+2. Read both end to end against docs/plan/FINALIZATION-ROADMAP-2026-08-15.md
    and PRODUCT-DIRECTION.md; PRODUCT-DIRECTION.md is the authority and any
    conflict goes to the founder through question windows, never resolved
    silently.
-3. Produce the long-range plan amendment: phases 6 plus for the roadmap,
-   each new mechanism named with its nearest existing seam, its labour
-   test, and its BrotherSBE shared-object decision.
+3. Produce ONE long-range plan amendment covering both: phases 6 plus for
+   the roadmap, each new mechanism named with its nearest existing seam,
+   its labour test, its owner (BrotherMode or BrotherSBE, never both), and
+   the sibling's consumer contract where the object is shared.
 4. Founder ratifies through question windows before any build starts.
