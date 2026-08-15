@@ -14809,10 +14809,17 @@ def _evidence(eid="ev1", subject_id="task1", **kw):
 
 
 def _capability_receipt(rid="rcpt1", pid="proj1", **kw):
+    # SBE12: the default state here is 'verified', the strongest claim the
+    # table can carry, so the fixture now also carries the two things that
+    # claim costs (who ran it, what was run). It used to carry neither,
+    # which is how a store that accepted a proofless 'verified' passed
+    # every test in this file.
     d = {"receipt_id": rid, "project_id": pid,
          "capability_name": "some-plugin",
          "task_description": "do the thing",
+         "executor_identity": "claude-code",
          "verification_state": "verified",
+         "verification_evidence": "rerun matched the claim",
          "created_at": "2026-08-01T00:00:00Z"}
     d.update(kw)
     return d
@@ -15677,7 +15684,19 @@ class TestPurgeProject(unittest.TestCase):
                               # foreign_keys=ON, so an unpurged receipt
                               # does not merely orphan, it refuses this
                               # very purge's own DELETE FROM projects.
-                              "capability_receipts": 0})
+                              "capability_receipts": 0,
+                              # SBE10: the four Memory Sentinel tables.
+                              # The pin performing its designed function
+                              # for the fifth time, and the case it was
+                              # written for: these four carry NO
+                              # references clause, so nothing except this
+                              # assertion would ever have noticed the
+                              # purge walking past four tables of raw
+                              # founder prose.
+                              "sentinel_knowledge": 0,
+                              "sentinel_procedural": 0,
+                              "sentinel_status": 0,
+                              "sentinel_interventions": 0})
                 # Every entity row this project owned is gone.
                 self.assertIsNone(store.get_project("proj1"))
                 self.assertEqual(store.list_tasks("proj1"), [])
@@ -22139,8 +22158,13 @@ class TestCapabilityReceiptPurgeLeavesNoOrphans(unittest.TestCase):
                 actor = _actor()
                 store.add_capability_receipt(
                     _capability_receipt("r1", pid="p1"), actor)
+                # SBE9: r2 NAMES A TASK. This fixture used to file both
+                # receipts with task_id NULL, which is the easy half of the
+                # column, and the purge crashed on the other half with a
+                # bare sqlite3.IntegrityError for two schema versions.
+                store.create_task(_task("t1", pid="p1"), actor)
                 store.add_capability_receipt(
-                    _capability_receipt("r2", pid="p1",
+                    _capability_receipt("r2", pid="p1", task_id="t1",
                                         capability_name="other-plugin"),
                     actor)
 
@@ -23441,6 +23465,333 @@ class TestSystemProjectsAreNotFounderWork(unittest.TestCase):
                 sorted(p["project_id"] for p in dumped["projects"]),
                 sorted(["proj1", self.SYS]))
             self.assertEqual(bs.verify(d), [])
+
+
+# ---------------------------------------------------------------------------
+# SBE9 to SBE14 (2026-08-15). Five defects a reviewer EXECUTED and reproduced
+# against this module before one line was changed. Every test in this section
+# was written and run RED first, against the untouched store, and the red
+# output is quoted in the delta report that carries them.
+# ---------------------------------------------------------------------------
+
+
+class TestPurgeWithATaskLinkedCapabilityReceipt(unittest.TestCase):
+    """SBE9. capability_receipts.task_id REFERENCES tasks(task_id) with no
+    ON DELETE clause, foreign_keys=ON, and purge_project deleted the tasks
+    BEFORE the receipts. So any project holding one receipt that named a
+    task raised a bare sqlite3.IntegrityError out of purge_project: not a
+    refusal a founder can read, a crash, on the single command that exists
+    to erase their own data. This suite missed it for one reason worth
+    naming: no fixture anywhere ever set task_id, so every purge test ran
+    the easy half of the table."""
+
+    def test_a_receipt_naming_a_task_does_not_crash_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                _seed(store, "p1")
+                store.create_task(_task("t1", pid="p1"), actor)
+                store.add_capability_receipt(
+                    _capability_receipt("r-task", pid="p1", task_id="t1"),
+                    actor)
+                removed = store.purge_project("p1", actor, "p1")
+                self.assertEqual(removed["capability_receipts"], 1)
+                self.assertEqual(removed["tasks"], 1)
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT COUNT(*) c FROM capability_receipts"
+                    ).fetchone()["c"], 0)
+
+
+class TestSentinelRowsDoNotSurviveAPurge(unittest.TestCase):
+    """SBE10, a privacy defect. The four sentinel tables carry project_id
+    TEXT NOT NULL and NO references clause, so nothing refused when
+    purge_project skipped them entirely: the project row went, every other
+    table's rows went, and four tables holding raw founder prose (stored
+    deliberately unscrubbed, see the sentinel section's own module note)
+    stayed behind for good, attached to a project id that no longer
+    resolves. A purge that leaves the most sensitive text in the store is
+    the worst possible shape for this bug."""
+
+    def _seed_sentinel(self, store, pid, actor):
+        store.add_knowledge(pid, "fact", "the api key rotates weekly",
+                            "founder", "sess1", actor)
+        store.add_procedural(pid, "tried the old endpoint", "failed",
+                             "wrong base url", "sess1", actor)
+        store.set_status(pid, "halfway through the migration",
+                         "the vendor has not replied", "sess1", actor)
+        store.record_intervention(pid, "resume", "silent", "", None,
+                                  "nothing worth interrupting for", "sess1",
+                                  actor)
+
+    def test_purge_removes_every_row_in_all_four_sentinel_tables(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                _seed(store, "p1")
+                self._seed_sentinel(store, "p1", actor)
+                for t in bs._TABLES_SENTINEL:
+                    self.assertGreater(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                            % t).fetchone()["c"], 0,
+                        "%s must be seeded before the purge proves it "
+                        "empties" % t)
+
+                removed = store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_SENTINEL:
+                    self.assertIn(t, removed)
+                    self.assertGreater(removed[t], 0)
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE project_id='p1'"
+                            % t).fetchone()["c"], 0,
+                        "%s still holds founder prose for a purged project"
+                        % t)
+
+    def test_another_projects_sentinel_rows_survive_the_purge(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                _seed(store, "p1")
+                _seed(store, "p2")
+                self._seed_sentinel(store, "p1", actor)
+                self._seed_sentinel(store, "p2", actor)
+                store.purge_project("p1", actor, "p1")
+                for t in bs._TABLES_SENTINEL:
+                    self.assertEqual(
+                        store.conn.execute(
+                            "SELECT COUNT(*) c FROM %s WHERE project_id='p2'"
+                            % t).fetchone()["c"], 1,
+                        "%s lost another project's row to this purge" % t)
+
+    def test_a_sentinel_write_against_a_project_that_never_existed_refuses(self):
+        """The other half of the same defect: a typo'd project id was
+        accepted, so the prose landed where no purge would ever look for
+        it. tools/bm_sentinel.py's own _require_project already guarded its
+        four CLI commands against exactly this, and named the reproduction
+        in its docstring; the store underneath took the write from anybody
+        else."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                _seed(store, "p1")
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_knowledge("typo-project", "fact", "content",
+                                        "founder", "sess1", actor)
+                self.assertEqual(ctx.exception.reason, "not-found")
+                self.assertIn("typo-project", str(ctx.exception))
+                self.assertEqual(
+                    store.conn.execute(
+                        "SELECT COUNT(*) c FROM sentinel_knowledge"
+                    ).fetchone()["c"], 0,
+                    "the refusal must write nothing at all")
+
+    def test_the_other_three_sentinel_writes_refuse_the_same_way(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                actor = _actor()
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.add_procedural("ghost", "a", "failed", None,
+                                         "s", actor)
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.set_status("ghost", "s", None, "s", actor)
+                with self.assertRaises(bs.OwnershipRefused):
+                    store.record_intervention("ghost", "resume", "silent",
+                                              "", None, "r", "s", actor)
+
+
+class TestTheViewCheckIsTwoDirectional(unittest.TestCase):
+    """SBE11. The GATE B check asked only "is every active record in the
+    file", never "is everything the file calls active still active". So a
+    record completed after the last render stayed listed under `## active`
+    in STATE.md and verify() called the store healthy: the founder-facing
+    document said one thing, the store said another, and the health check
+    agreed with neither."""
+
+    def _completed_record_with_a_stale_view(self, d):
+        store = bs.Store(d)
+        try:
+            rec = store.claim("thing", "ephemeral", "obj", [])
+        finally:
+            store.close()
+        bs.write_state_view(d)
+        store = bs.Store(d)
+        try:
+            store.transition(rec.lifecycle_uuid, rec.version, "complete",
+                             evidence="the gate ran green")
+        finally:
+            store.close()
+        return rec
+
+    def test_a_completed_record_still_listed_as_active_is_a_problem(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec = self._completed_record_with_a_stale_view(d)
+            problems = bs.verify(d)
+            self.assertTrue(
+                any(rec.lifecycle_uuid[:8] in p and "active" in p
+                    for p in problems),
+                "a stale STATE.md listing a completed record as active must "
+                "be reported: %r" % (problems,))
+
+    def test_a_freshly_rendered_view_is_healthy_in_both_directions(self):
+        """The calibration: the check above must not fire on a view that is
+        actually current, including one holding legitimately rendered
+        parked and complete sections."""
+        with tempfile.TemporaryDirectory() as d:
+            self._completed_record_with_a_stale_view(d)
+            bs.write_state_view(d)
+            self.assertEqual(bs.verify(d), [])
+
+
+class TestAVerifiedReceiptCarriesItsProof(unittest.TestCase):
+    """SBE12. verification_state='verified' was accepted with no executor
+    and no evidence at all, both columns defaulting to the empty string, so
+    the strongest claim the receipt table can make was also its cheapest:
+    a receipt saying "verified" that named nobody who ran it and nothing
+    that was run. 'no_data' stays first class, which is the whole point:
+    the honest state must be cheaper than the flattering one."""
+
+    def test_verified_without_an_executor_identity_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                r = _capability_receipt(verification_state="verified",
+                                        verification_evidence="pytest: 3 passed")
+                del r["executor_identity"]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(r, _actor())
+                self.assertIn("executor_identity", str(ctx.exception))
+                self.assertEqual(store.list_capability_receipts("proj1"), [])
+
+    def test_verified_without_verification_evidence_is_refused_by_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                r = _capability_receipt(verification_state="verified",
+                                        executor_identity="claude-code")
+                del r["verification_evidence"]
+                with self.assertRaises(bs.OwnershipRefused) as ctx:
+                    store.add_capability_receipt(r, _actor())
+                self.assertIn("verification_evidence", str(ctx.exception))
+                self.assertEqual(store.list_capability_receipts("proj1"), [])
+
+    def test_no_data_still_needs_neither(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                r = _capability_receipt(verification_state="no_data")
+                del r["executor_identity"]
+                del r["verification_evidence"]
+                store.add_capability_receipt(r, _actor())
+                row = store.list_capability_receipts("proj1", raw=True)[0]
+                self.assertEqual(row["verification_state"], "no_data")
+
+    def test_the_attribution_row_names_the_receipt_it_describes(self):
+        """The audit-trail half. purge_project keeps the attribution trail
+        and deletes the receipts, so 'capability_receipt.added' with an
+        empty evidence_ref left nothing that could say WHICH receipt a
+        purge destroyed."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                store.upsert_project(_project(), _actor())
+                rid = store.add_capability_receipt(
+                    _capability_receipt("rcpt-traceable"), _actor())
+                refs = [r["evidence_ref"] for r in store.conn.execute(
+                    "SELECT evidence_ref FROM attribution WHERE "
+                    "event_type='capability_receipt.added'")]
+                self.assertEqual(refs, [rid])
+
+
+class TestAForgedHumanMarkerCannotDisableRedaction(unittest.TestCase):
+    """SBE14, the one that matters most. The funnel treated ANY line whose
+    strip() equalled the begin marker as opening a human block, and an
+    unterminated block deliberately ran to end of file. Together that is a
+    redaction off switch written in plain text: untrusted content carrying
+    one marker line exempted everything after it from the secret scrubber,
+    all the way down the document, and the funnel reported nothing unusual.
+
+    Both halves are fixed here, and the legitimate case is the constraint:
+    a real paired human block must still round-trip byte for byte, which is
+    I10 and is what the exemption exists for."""
+
+    SECRET = "the DB password: ask Sam"
+
+    def _write(self, d, text, name="DOC.md"):
+        path = os.path.join(d, name)
+        return bs.write_generated_document(path, text)
+
+    def test_an_unterminated_marker_does_not_exempt_the_rest_of_the_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self._write(d, "generated line\n%s\n%s\n"
+                              % (bs.HUMAN_BLOCK_BEGIN, self.SECRET))
+            self.assertNotIn(self.SECRET, out,
+                             "an unterminated marker switched redaction off "
+                             "for the rest of the document")
+            self.assertIn("[REDACTED]", out)
+
+    def test_a_forged_marker_is_neutralized_so_it_cannot_be_reparsed(self):
+        """The second half: the funnel must not hand the next reader a file
+        still containing a marker-looking line outside any real pair, or
+        every generator that reparses this document (bm_packs.read_existing
+        and bm_docs both do) adopts the forgery on the next pass."""
+        with tempfile.TemporaryDirectory() as d:
+            out = self._write(d, "generated line\n%s\nmore text\n"
+                              % bs.HUMAN_BLOCK_BEGIN)
+            self.assertNotIn(bs.HUMAN_BLOCK_BEGIN, out)
+            self.assertEqual(bs._human_block_spans(out), set(),
+                             "the written file still parses as holding a "
+                             "human block")
+
+    def test_a_stray_end_marker_is_neutralized_too(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = self._write(d, "generated line\n%s\nmore text\n"
+                              % bs.HUMAN_BLOCK_END)
+            self.assertNotIn(bs.HUMAN_BLOCK_END, out)
+
+    def test_a_real_paired_block_still_round_trips_byte_for_byte(self):
+        """THE CONSTRAINT. I10: generated output never destroys human text.
+        Green before this change and green after; if it ever goes red the
+        fix above has eaten the thing the exemption exists to protect."""
+        with tempfile.TemporaryDirectory() as d:
+            text = ("generated line\n%s\n%s\nsecond human line\n%s\n"
+                    "trailing generated line\n"
+                    % (bs.HUMAN_BLOCK_BEGIN, self.SECRET, bs.HUMAN_BLOCK_END))
+            out = self._write(d, text)
+            self.assertEqual(out, text,
+                             "a real human block was rewritten by the funnel")
+
+    def test_an_empty_paired_block_keeps_both_of_its_markers(self):
+        """A pack renders its human block empty until somebody writes in
+        it, so begin immediately followed by end is the COMMON case, not an
+        edge one, and neutralizing those markers would delete the invitation
+        every pack makes."""
+        with tempfile.TemporaryDirectory() as d:
+            text = "generated\n%s\n%s\nmore generated\n" % (
+                bs.HUMAN_BLOCK_BEGIN, bs.HUMAN_BLOCK_END)
+            self.assertEqual(self._write(d, text), text)
+
+    def test_a_second_begin_marker_inside_a_real_block_is_still_content(self):
+        """tools/test_bm_docs.py's own
+        test_a_stray_begin_marker_inside_a_block_keeps_the_paragraph, held
+        at this layer: a marker a human typed INSIDE their own block is
+        their prose, carried through untouched, never neutralized."""
+        with tempfile.TemporaryDirectory() as d:
+            text = ("%s\nDana, still here.\n%s\nquoting it back\n%s\n"
+                    % (bs.HUMAN_BLOCK_BEGIN, bs.HUMAN_BLOCK_BEGIN,
+                       bs.HUMAN_BLOCK_END))
+            self.assertEqual(self._write(d, text), text)
+
+    def test_secret_hits_are_reported_only_for_a_block_that_is_real(self):
+        """human_block_secret_hits tells a founder "this line of YOURS was
+        preserved and looks secret-shaped". After the fix an unterminated
+        marker preserves nothing, so claiming a hit there would be a
+        promise the funnel no longer keeps."""
+        forged = "generated\n%s\n%s\n" % (bs.HUMAN_BLOCK_BEGIN, self.SECRET)
+        self.assertEqual(bs.human_block_secret_hits(forged), [])
+        real = "generated\n%s\n%s\n%s\n" % (
+            bs.HUMAN_BLOCK_BEGIN, self.SECRET, bs.HUMAN_BLOCK_END)
+        self.assertEqual(bs.human_block_secret_hits(real), [3])
 
 
 if __name__ == "__main__":

@@ -3607,6 +3607,23 @@ _CAPABILITY_RECEIPT_REQUIRED = ("receipt_id", "project_id", "capability_name",
                                 "task_description", "verification_state",
                                 "created_at")
 
+# What 'verified' COSTS (SBE12 fix, 2026-08-15). Both of these columns
+# default to '' in the DDL above, and neither was required by anything, so
+# the strongest claim this table can carry was also its cheapest: a receipt
+# saying verification_state='verified' that named nobody who ran the check
+# and nothing that was run. That is precisely the receipt an unverified
+# capability produces when somebody wants a green row, and it read
+# identically to a real one on every list and every dump.
+#
+# Required ONLY when the state is 'verified', never for the other two.
+# 'failed' and 'no_data' are the honest states (T5: "no_data is a
+# first-class value, not a null"), and making the honest answer more
+# expensive than the flattering one is how a table teaches people to lie to
+# it. Refused by name, before the INSERT, the same discipline
+# _VERIFICATION_STATES already follows.
+_CAPABILITY_RECEIPT_VERIFIED_REQUIRED = ("executor_identity",
+                                         "verification_evidence")
+
 # The four JSON-list fields of a capability receipt (inputs field 3,
 # permissions_declared field 4, changed_artifacts field 6, omissions field
 # 9), decoded by list_capability_receipts the same way Forecast.LIST_FIELDS
@@ -12805,6 +12822,14 @@ class Store(object):
         runnable gets a receipt that says so, honestly, rather than one
         that silently passes.
 
+        A receipt claiming 'verified' must also carry executor_identity
+        and verification_evidence (_CAPABILITY_RECEIPT_VERIFIED_REQUIRED,
+        SBE12), refused by name when it does not. Both columns default to
+        '' in the DDL and neither was required by anything, so the
+        strongest claim this table can make used to cost nothing at all.
+        The other two states still require neither, on purpose: the honest
+        answer must never be the expensive one.
+
         The project (and, when given, the task) this receipt names must
         already exist, and a named task must belong to the named project,
         the same subject-integrity check add_evidence's own
@@ -12848,6 +12873,23 @@ class Store(object):
                         "capability receipt must be filed under the "
                         "task's own project"
                         % (task_id, trow["project_id"], project_id))
+            # SBE12: what 'verified' costs, checked LAST of the four
+            # refusals and deliberately after the project and task lookups.
+            # A receipt with nowhere to be filed is refused for having
+            # nowhere to be filed; grading the proof of a claim about a
+            # project that does not exist would answer the less useful of
+            # two true objections. Inside the transaction, before the
+            # INSERT, so a refusal still writes nothing.
+            if state == "verified":
+                unproved = [k for k in _CAPABILITY_RECEIPT_VERIFIED_REQUIRED
+                            if not (receipt_dict.get(k) or "").strip()]
+                if unproved:
+                    raise OwnershipRefused(
+                        "unproved-verification",
+                        "verification_state 'verified' requires %s; file "
+                        "the receipt as 'no_data' instead if there is "
+                        "nothing runnable to point at"
+                        % ", ".join(unproved))
             _exec(self,
                   "INSERT INTO capability_receipts (receipt_id, "
                   "project_id, task_id, capability_name, "
@@ -12872,9 +12914,16 @@ class Store(object):
                    receipt_dict.get("verification_evidence") or "",
                    json.dumps(receipt_dict.get("omissions") or []),
                    receipt_dict["created_at"]))
+            # evidence_ref carries the receipt id (SBE12 fix, 2026-08-15):
+            # this write passed none, and purge_project deliberately keeps
+            # the attribution trail while deleting the receipts, so the one
+            # surviving record of a destroyed receipt could not say WHICH
+            # receipt it described. Same use every sentinel write already
+            # makes of the field.
             self._write_attribution(project_id, task_id,
                                      "capability_receipt.added", actor,
-                                     action="add_capability_receipt")
+                                     action="add_capability_receipt",
+                                     evidence_ref=receipt_dict["receipt_id"])
         return receipt_dict["receipt_id"]
 
     def create_task(self, task_dict, actor):
@@ -13393,6 +13442,28 @@ class Store(object):
             removed["forecasts"] = _exec(
                 self, "DELETE FROM forecasts WHERE project_id=?",
                 (project_id,)).rowcount
+
+            # T5 extension (schema 20), MOVED ABOVE THE TASKS DELETE by the
+            # SBE9 fix (2026-08-15). capability_receipts carries a
+            # REFERENCES projects(project_id) FK like every table below it,
+            # which is why it was added to this method at all; what nobody
+            # noticed is that it ALSO carries task_id REFERENCES
+            # tasks(task_id) with no ON DELETE clause. Deleting the tasks
+            # first, with foreign_keys=ON (see Store.__init__), therefore
+            # raised a bare sqlite3.IntegrityError out of the DELETE above
+            # for any project holding a receipt that named a task: a crash,
+            # not a refusal a founder can read, on the one command that
+            # exists to erase their own data. Reproduced with a
+            # task-linked receipt, which no fixture in this project had
+            # ever built. Children before parents, the same ordering rule
+            # the controller and autonomy blocks below already follow.
+            # Like every other table here, the attribution trail these rows
+            # left behind (capability_receipt.added) is KEPT: purge_project
+            # never touches attribution except to append.
+            removed["capability_receipts"] = _exec(
+                self, "DELETE FROM capability_receipts WHERE project_id=?",
+                (project_id,)).rowcount
+
             removed["tasks"] = _exec(
                 self, "DELETE FROM tasks WHERE project_id=?",
                 (project_id,)).rowcount
@@ -13486,18 +13557,38 @@ class Store(object):
                 self, "DELETE FROM views WHERE project_id=?",
                 (project_id,)).rowcount
 
-            # T5 extension (schema 20): capability_receipts carries a
-            # REFERENCES projects(project_id) FK, like every table above
-            # it, so a purge that stopped short of it would not merely
-            # leave an orphan behind, it would refuse this very method's
-            # own DELETE FROM projects below (foreign_keys=ON, see
-            # Store.__init__). Disclosed out of scope by the builder who
-            # added the table (T5) and closed here. Like every other
-            # table here, the attribution trail these rows left behind
-            # (capability_receipt.added) is KEPT: purge_project never
-            # touches attribution except to append.
-            removed["capability_receipts"] = _exec(
-                self, "DELETE FROM capability_receipts WHERE project_id=?",
+            # SBE10 fix (2026-08-15), and the most serious gap this method
+            # ever had. The four Memory Sentinel tables carry project_id
+            # TEXT NOT NULL and NO references clause, so nothing refused,
+            # nothing dangled, and nothing complained when the purge simply
+            # skipped them: the project row went, every other table's rows
+            # went, and four tables full of RAW FOUNDER PROSE stayed. That
+            # prose is stored deliberately unscrubbed (the sentinel section
+            # above says why: the reminder printed has to be the verbatim
+            # sentence somebody recorded), and after a purge it was
+            # attached to a project id that resolves to nothing, so no
+            # later purge could find it either. A purge that leaves the
+            # most sensitive text in the store behind is the worst possible
+            # shape for this defect, which is why the missing FK is what
+            # hid it: the tables that DO reference projects announced
+            # themselves by refusing the DELETE FROM projects below.
+            # Order between the four is free (none references another) and
+            # they are removed before the project row for the same reason
+            # every block above is. The attribution trail these writes left
+            # (sentinel.knowledge.added and its siblings) is KEPT, like
+            # every other table's.
+            removed["sentinel_knowledge"] = _exec(
+                self, "DELETE FROM sentinel_knowledge WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["sentinel_procedural"] = _exec(
+                self, "DELETE FROM sentinel_procedural WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["sentinel_status"] = _exec(
+                self, "DELETE FROM sentinel_status WHERE project_id=?",
+                (project_id,)).rowcount
+            removed["sentinel_interventions"] = _exec(
+                self,
+                "DELETE FROM sentinel_interventions WHERE project_id=?",
                 (project_id,)).rowcount
 
             self._write_attribution(
@@ -13784,6 +13875,35 @@ class Store(object):
     # remains the export surface and still withholds every one of these
     # columns.
 
+    def _require_sentinel_project(self, project_id):
+        """Refuse a sentinel write against a project that does not exist,
+        naming it (SBE10 fix, 2026-08-15).
+
+        The four sentinel tables deliberately carry no REFERENCES clause,
+        so sqlite accepted any string at all as a project_id and the row
+        landed somewhere nothing could reach: purge_project refuses an
+        unknown project outright, so prose filed under a typo could never
+        be purged by the command that exists to purge it. The attribution
+        row each of these writes also produces made the same store's own
+        verify() report a dangling project reference.
+
+        tools/bm_sentinel.py already ran this exact check in front of its
+        four CLI commands, and its _require_project docstring carries the
+        reproduction that put it there. That guard protected the CLI and
+        nothing else. This is the same refusal moved to where every caller
+        routes through it, so the CLI's own check now fires first and this
+        one catches everybody else. Called INSIDE each write's transaction,
+        like add_capability_receipt's own project check, so a refusal
+        leaves nothing behind."""
+        row = _exec(self, "SELECT project_id FROM projects WHERE "
+                    "project_id=?", (project_id,)).fetchone()
+        if row is None:
+            raise OwnershipRefused(
+                "not-found",
+                "no project %r in this store; a sentinel memory attaches to "
+                "a project, and one written against a project that does not "
+                "exist can never be purged with it" % (project_id,))
+
     def add_knowledge(self, project_id, kind, content, source, session_id,
                        actor):
         """Record ONE verified fact, with its attribution event
@@ -13799,6 +13919,7 @@ class Store(object):
         _sentinel_enum("kind", kind, SENTINEL_KNOWLEDGE_KINDS)
         memory_id = uuid.uuid4().hex
         with self._transaction():
+            self._require_sentinel_project(project_id)
             _exec(self,
                   "INSERT INTO sentinel_knowledge (id, project_id, "
                   "session_id, kind, content, source, created_at, "
@@ -13827,6 +13948,7 @@ class Store(object):
         _sentinel_enum("outcome", outcome, SENTINEL_PROCEDURAL_OUTCOMES)
         memory_id = uuid.uuid4().hex
         with self._transaction():
+            self._require_sentinel_project(project_id)
             _exec(self,
                   "INSERT INTO sentinel_procedural (id, project_id, "
                   "session_id, attempt, outcome, diagnosis, created_at, "
@@ -13854,6 +13976,7 @@ class Store(object):
         anywhere near a reminder."""
         status_id = uuid.uuid4().hex
         with self._transaction():
+            self._require_sentinel_project(project_id)
             _exec(self,
                   "INSERT INTO sentinel_status (id, project_id, session_id, "
                   "summary, open_risks, created_at) VALUES (?,?,?,?,?,?)",
@@ -14022,6 +14145,7 @@ class Store(object):
         _sentinel_enum("decision", decision, SENTINEL_DECISIONS)
         intervention_id = uuid.uuid4().hex
         with self._transaction():
+            self._require_sentinel_project(project_id)
             _exec(self,
                   "INSERT INTO sentinel_interventions (id, project_id, "
                   "session_id, trigger, decision, memory_ids, reminder, "
@@ -17891,7 +18015,56 @@ def _verify_view_reflects_active_records(store, root):
                 "active record %r (%s) does not appear in the generated STATE.md view"
                 % (mask_absolute_paths(redact_text(r["name"] or "")),
                    r["lifecycle_uuid"][:8]))
+    # SBE11 fix (2026-08-15): THE OTHER DIRECTION. Everything above asks
+    # "is every active record in the file" and nothing asked "is everything
+    # the file calls active still active", so a record completed or parked
+    # after the last render kept its place under `## active` in STATE.md
+    # and verify() called the store healthy. The document a human reads
+    # said one thing, the store said another, and the health check whose
+    # whole job is that disagreement agreed with neither. One direction of
+    # a two-directional invariant is the same class of miss GATE B's own
+    # tautology was; it is fixed here rather than in verify() proper so the
+    # reinjection test that monkeypatches this symbol still covers both.
+    #
+    # Scoped to the `## active` SECTION, never the whole block:
+    # render_state_md prints parked, complete and adopted records under
+    # their own headings on purpose, so a uuid appearing anywhere in the
+    # document proves nothing.
+    stale_section = _state_active_section(generated_block)
+    if stale_section:
+        for r in _exec(store,
+                "SELECT lifecycle_uuid, name, state FROM records "
+                "WHERE state != 'active'").fetchall():
+            if r["lifecycle_uuid"][:8] in stale_section:
+                problems.append(
+                    "record %r (%s) is %s in the store but the generated "
+                    "STATE.md view still lists it as active; the file is "
+                    "stale, run `%s dashboard` to regenerate it"
+                    % (mask_absolute_paths(redact_text(r["name"] or "")),
+                       r["lifecycle_uuid"][:8], r["state"], _cmd()))
     return problems
+
+
+def _state_active_section(generated_block):
+    """The lines of STATE.md's generated block that sit under its `##
+    active` heading, as one string, or '' when it has no such heading.
+
+    Its own function for the same reason the check above is: the heading
+    text is render_state_md's ("## %s" % state, with state 'active'), and
+    one place that knows that spelling is one place to fix if the renderer
+    ever changes it."""
+    heading = "## active"
+    out = []
+    collecting = False
+    for line in generated_block.split("\n"):
+        if line.strip() == heading:
+            collecting = True
+            continue
+        if collecting and line.startswith("## "):
+            break
+        if collecting:
+            out.append(line)
+    return "\n".join(out)
 
 
 def verify(root):
@@ -18126,30 +18299,81 @@ HUMAN_BLOCK_BEGIN = "<!-- bm-human:begin -->"
 HUMAN_BLOCK_END = "<!-- bm-human:end -->"
 
 
-def _human_block_spans(text):
-    """1-based line numbers of the lines INSIDE human blocks, as a set.
+def _human_block_regions(text):
+    """(inside, markers): 1-based line numbers of the lines INSIDE closed
+    human blocks, and of the marker lines that CLOSE around them, as two
+    sets.
 
-    The markers themselves are generated structure and are not included: they
-    are redacted with the rest of the document, which changes nothing because
-    they are fixed strings this project writes.
+    ONLY A TERMINATED PAIR COUNTS (SBE14 fix, 2026-08-15). This used to be
+    deliberately tolerant the way read_existing in bm_packs.py is: an
+    unterminated block ran to the end of the file rather than being treated
+    as absent, because guessing "no human text here" is the guess that
+    destroys human text. That reasoning is right for a READER deciding what
+    to carry forward and exactly wrong for the REDACTION funnel, and this
+    function fed both. A single line reading as the begin marker, in
+    content this project did not write, therefore switched the secret
+    scrubber off for every line after it, all the way down the document,
+    and nothing anywhere reported it: a redaction off switch, written in
+    plain text, in the one file whose job is to make sure that cannot
+    happen. Tolerance here costs a leak; strictness costs nothing but a
+    pattern scrub over prose that was never inside a real block. So an
+    unterminated marker now yields NO human block and the whole document is
+    redacted.
 
-    Deliberately tolerant, for the same reason read_existing in bm_packs.py is:
-    an unterminated block runs to the end of the file rather than being treated
-    as absent, because guessing "no human text here" is the guess that destroys
-    it. A second begin marker INSIDE a block is content, not a nested block."""
-    inside = set()
-    depth = 0
+    A second begin marker INSIDE a block is still content, not a nested
+    block: a human quoting the marker in their own paragraph keeps their
+    paragraph (tools/test_bm_docs.py holds that case by name).
+
+    The marker lines are returned SEPARATELY rather than lumped in with the
+    inside lines, because the two get different treatment downstream: the
+    inside lines are carried through byte for byte, while the markers of a
+    real pair are structure this project wrote and are the only
+    marker-looking lines allowed to survive a write unchanged."""
+    inside, markers = set(), set()
+    open_at = None
+    pending = set()
     for i, line in enumerate(text.split("\n"), 1):
         stripped = line.strip()
-        if stripped == HUMAN_BLOCK_BEGIN and not depth:
-            depth = 1
+        if stripped == HUMAN_BLOCK_BEGIN and open_at is None:
+            open_at = i
+            pending = set()
             continue
-        if stripped == HUMAN_BLOCK_END and depth:
-            depth = 0
+        if stripped == HUMAN_BLOCK_END and open_at is not None:
+            inside |= pending
+            markers.add(open_at)
+            markers.add(i)
+            open_at = None
+            pending = set()
             continue
-        if depth:
-            inside.add(i)
-    return inside
+        if open_at is not None:
+            pending.add(i)
+    return inside, markers
+
+
+def _human_block_spans(text):
+    """1-based line numbers of the lines INSIDE human blocks, as a set.
+    The lines a caller may rely on being carried through verbatim, which is
+    why the markers themselves (generated structure) are not in it."""
+    return _human_block_regions(text)[0]
+
+
+def _neutralize_stray_marker(line):
+    """Break a marker-looking line that belongs to no real pair, so nothing
+    downstream can read it as one (SBE14 fix, second half, 2026-08-15).
+
+    Redacting past a forged marker (the first half) protects THIS write and
+    nothing else: the forged line is still sitting in the file afterwards,
+    and every generator that reparses its own output on the next run
+    (bm_packs.read_existing, bm_docs, bm_handover._pack_file_blocks) would
+    adopt the text under it as somebody's preserved prose and carry it
+    forward exempt. So the funnel does not hand the next reader a weapon it
+    just disarmed. Only 'bm-human' is rewritten, so the line stays a
+    readable comment saying what it is, and running this twice changes
+    nothing the second time."""
+    stripped = line.strip()
+    if stripped == HUMAN_BLOCK_BEGIN or stripped == HUMAN_BLOCK_END:
+        return line.replace("bm-human:", "bm-human-inert:")
+    return line
 
 
 def human_block_secret_hits(text):
@@ -18207,9 +18431,7 @@ def _redact_outside_human_blocks(text):
     protects that text byte for byte, and a path mask is exactly as
     destructive to human prose as the secret scrubber it already stays
     away from."""
-    inside = _human_block_spans(text or "")
-    if not inside:
-        return mask_absolute_paths(redact_text(text or ""))
+    inside, markers = _human_block_regions(text or "")
     out = []
     generated = []
 
@@ -18220,11 +18442,18 @@ def _redact_outside_human_blocks(text):
             del generated[:]
 
     for i, line in enumerate((text or "").split("\n"), 1):
-        if i in inside:
+        if i in inside or i in markers:
+            # Verbatim: the human's own lines, and the two markers of the
+            # real pair around them, which this project wrote itself.
             _flush()
             out.append(line)
         else:
-            generated.append(line)
+            # SBE14: everything else is generated text, and a marker-looking
+            # line down here belongs to no pair, so it is broken before it is
+            # spliced back in. The document with no markers at all still takes
+            # exactly the path it always did: one segment, one redact_text
+            # call over the whole of it.
+            generated.append(_neutralize_stray_marker(line))
     _flush()
     return "\n".join(out)
 
