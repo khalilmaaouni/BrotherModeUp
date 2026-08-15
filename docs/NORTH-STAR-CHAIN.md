@@ -213,6 +213,30 @@ the chain ends in observed reality rather than in a verdict. Where the older
 documents describe outcomes, this one describes the path, and the path is
 what a backlog item has to name.
 
+## The correction this document has to carry about itself
+
+Measured 2026-08-15, after this file claimed the chain "arrives at every
+session start":
+
+    ~/.claude/skills/brothermode/VERSION   3.3.0
+    <repo>/VERSION                         3.3.0
+    SKILL.md                               DIFFERS (197 lines installed, 217 here)
+    DIGEST.md                              DIFFERS, and the installed copy
+                                           carries ZERO lines matching NORTH STAR
+
+So the digest line was verified by running the session-start script IN THIS
+REPOSITORY, and real sessions read the INSTALLED clone, which does not have
+it. The claim was true about the wrong copy. The chain does not yet reach a
+running session, and it will not until the installed tree is refreshed.
+
+This is the same defect as the assurance product's SBE1, on this side of the
+house, and it is the third form of finding H3 to appear in one day: a version
+string that does not describe what it labels. It also decides something about
+the native floor above. A floor that exists only in this repository is not a
+floor, because the surface a person actually runs is the installed clone. Any
+work on the method floor is finished when it runs THERE, verified across the
+install boundary, not when the repository tests pass.
+
 ## What is enforced, and what is not, stated plainly
 
 ENFORCED today: nothing in this file. It is a direction document, and a
