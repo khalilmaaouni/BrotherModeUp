@@ -20,7 +20,7 @@ full gate run was corrupted by the tree moving underneath it. Before you fold
 anything, re-read `git status` and `git log --oneline -1`, not just at session
 start but again immediately before every fold.
 
-STATE: BrotherModeUp main is 79fe596, pushed, verified by ls-remote, tree
+STATE: this repository, main, is at 79fe596, pushed, verified by ls-remote, tree
 clean, full gate ALL GREEN (3233 tests, 36 suites, exit 0). BrotherSBE is
 BLOCKED and NOT pushed, on purpose: see the close report.
 <!-- bm-human:end -->

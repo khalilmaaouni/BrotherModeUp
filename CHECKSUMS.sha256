@@ -78,8 +78,8 @@ eefe53b59d172b34f8a1647cbe8f29b0ba08eeb48f75ba33bf4c31a864e6dd90  docs/HANDOVER-
 e4d04d37784e21ee380edfc15fb9b748786a2d2114f2494477985de918516a3d  docs/HOOKS.md
 2ef215a0267d9a12145669af9a9bccd91ef84d67a0c68e4019298b7d0416287c  docs/HOW-IT-WORKS.md
 fbd9b5b7f347f02b42d61cada190790a1017f62ae1b4880d7bdf2d02a402c306  docs/INTAKE-TEMPLATE.md
-a21b8f1b3e7035d1dfad300e50257f62ecbceace0e9140ae73cab3fdd920cacd  docs/KNOWN-LIMITS.md
-1e3f9354343cc988c883cf5741f5cbc396a71a7b17e98463802adfcd6b68f7ed  docs/NORTH-STAR-CHAIN.md
+c78f25a7f4b5871bcad47592cd23036b7c57ab6a720d8fc7a00da2ef4f8c39e8  docs/KNOWN-LIMITS.md
+cc6d10fdf88976c661cbfba4645682957a6b543f6364c66f355c29ff2546820a  docs/NORTH-STAR-CHAIN.md
 e3c60c3dcf5d070d3cdcf3c4145eba810473c84481f5ed70ad1c55d243980ac3  docs/NOT-FINALIZED.md
 697d7962f7f16b81b440999c9b5cb75ce7d2535ea01250319bad3a7ec3988d0a  docs/OBSIDIAN.md
 839b443e7ee61c331c3565385be01fb47299055bd1620fb6fae39a29fcdc4734  docs/PACKAGING.md
@@ -326,13 +326,13 @@ dd565cd4bcb3e1144c28cc6450c9a91cf85bd1a8e551904f1c70db4b6245984b  docs/handover/
 76c0f862d1d4dd5cd784acf7f3f36e004d7c8d4a101581819f8bba9db0f73f2d  docs/handover/2026-08-15-next-session-plan/10-BROTHERSBE-INTEGRATION-MAP.md
 6480bf31e09f62e1a997b623e889573e03f9341d50a68ece34f374f78ed0c4e8  docs/handover/2026-08-15-next-session-plan/11-EMERGENCY-PLAN-2026-08-15.md
 cdcccc0fa04c5c766d30b91c30cc634060f65f89afe66c9ebb51fb01a8205037  docs/handover/2026-08-15-next-session-plan/COMMAND-CENTER.html
-6864fd26f5c8e52a4a00e6cdd415c21e8038c2cdbf5b8347b950264c1611a5cf  docs/handover/2026-08-15-adopter-review-and-north-star/00-READ-ME-FIRST.md
+b5ff64ae310b1a4432e84cde2fd6311f8411780a5d36148764a10dc4f9f70018  docs/handover/2026-08-15-adopter-review-and-north-star/00-READ-ME-FIRST.md
 22ed95ff9fb55a82c4c8e399dea24b7375acd52e951d0a2a2af3d61905e4ba68  docs/handover/2026-08-15-adopter-review-and-north-star/01-HANDOVER.md
 773f03968bf13f8562546894026732cee9c2c3975d4e1251448032f4488ea9b3  docs/handover/2026-08-15-adopter-review-and-north-star/02-LEARNINGS-AND-MISTAKES.md
 99391e6c4a077a6c484385eb10fcd7e0525a603ec074b3b448c9253c949b1b62  docs/handover/2026-08-15-adopter-review-and-north-star/03-RULES-AND-PROCESS-FIXES.md
 75550edc5b413387182398f55d2fc0a4812533c09e47163f04353cd8bcc891f0  docs/handover/2026-08-15-adopter-review-and-north-star/04-NEXT-LOOPS-PRIORITIZED.md
 d9631dac1ad760278d48681a1f68646e5c8f6417c7fe5825adedf2bf9cc71c49  docs/handover/2026-08-15-adopter-review-and-north-star/05-VAULT-AND-OBSIDIAN.md
-c8daa2b8ed98ccebead68fe9881e616e8659f1fd84390180c02ecf0c8032a6e6  docs/handover/2026-08-15-adopter-review-and-north-star/06-CLOSE-REPORT.md
+f2a7739b122c437f516bc2902c8c4033c5bd1b59998441a4db8cb637fb829b55  docs/handover/2026-08-15-adopter-review-and-north-star/06-CLOSE-REPORT.md
 cdcccc0fa04c5c766d30b91c30cc634060f65f89afe66c9ebb51fb01a8205037  docs/handover/2026-08-15-adopter-review-and-north-star/COMMAND-CENTER.html
 dd565cd4bcb3e1144c28cc6450c9a91cf85bd1a8e551904f1c70db4b6245984b  docs/handover/2026-08-16-NEXT-SESSION-PLAN.md
 4a0aa5d30e262ae8559aefd7ff33d1e13dae1cc3e7297206e8d2a9b34bf285de  docs/handover/README.md
@@ -386,7 +386,7 @@ a38a99107d25860984b2cf646847c09c644e145ca675d2d69e55a3bc7dac7e76  docs/plan/NOTE
 6313d4b735fb4be6ba9af73cc831807bd67b5c6ebf84d7b70f1943a1b852ddf5  docs/plan/PROBLEMS-2026-08-16.md
 3f5475246d030d3d00df62037e431b6167bd3219881313dead741b77a1b44743  docs/plan/PROGRAM-PLAN-2026-08-10.md
 525c448e893d84394d656a32411bfe947ff16d87ffa25e06656054a1dc850ffb  docs/plan/PROGRAM-PLAN-2026-08-11-RATIFIED.md
-c1358f84d9fe6f3a131b858f917bf73295fce22afbb105f9d9354dc045aa855d  docs/plan/QUEUE.json
+ae2857cb8f33fe8a759947fc9ad3bdd353d260deafc418756709c4fa5695fbe3  docs/plan/QUEUE.json
 5727776acb1256400d653cd55253a4adf0cefbadc0490762f8682b822386679f  docs/plan/RECLASSIFICATION-2026-08-11.md
 b591664342d85a2785be091f3f2f6c628ded339248053f84078cd9c17de6fc49  docs/plan/RELEASE-v3.1.0-GANTT.html
 1a4c1aa7e3c258b86fb1df24d357c657b9a3e2a991b683a2f9d0420ef163d354  docs/plan/RELEASE-v3.1.0-PLAN.md
@@ -406,7 +406,7 @@ d749d35433dbfb67902ff6cc214da8d8fd95d6b4428de2aa15f2af67b69f6832  docs/plan/loop
 5a0bf29410fa059f8bad5cba9ef7f0a6ef7b79256d830fb8414a92ca195c848c  docs/plan/loops/LOOP-C1-convergence.md
 3aad1861718fc9dabaabc1c29bf4f6ce36e400d963fc309a30c315f6279e5e1a  docs/plan/loops/LOOP-G1-governor.md
 ae7bcd738dd82a887c95bc37fc4714f48021b68dfbce7fc7e2b076976e705801  docs/plan/loops/LOOP-V1-verifier.md
-16793b9dbfbd1a9bdb4ee0e858d8efbb92e06bc16ad513ae753db507109a2232  docs/plan/north-star-chain.html
+0c27ec6f3e532addc201b77a8bdc0e4c879c7282c8ff8adb70db50485f6ffb00  docs/plan/north-star-chain.html
 12f852f1d49c7560aca0ce45cdd11e54ae13118b4ea407f7e7335ffe8cc8fba8  docs/plan/team-review-page.html
 954480acac9d10421c9406204a2540ef54251b0cdb703143c8a19b1672c29fc8  docs/program/BASELINE-AFTER-HANDOVER-2026-08-04.md
 5bda9306b8eb9bd99e0975af71f0297f857dbe0f945e4e4f3c1317aa30d059eb  docs/program/absolute-lead/DESIGN-L04.md

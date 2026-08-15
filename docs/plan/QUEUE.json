@@ -1040,7 +1040,7 @@
   },
   {
    "id": "M1",
-   "title": "BrotherMode is not a registered plugin on the founder's own machine, so its hooks and agents load nowhere: installed_plugins.json holds 68 plugins and no brothermode, while brothersbe is present. Every control claimed by a hook or an agent is inert on the shape people actually install",
+   "title": "BrotherMode's own hooks and agents load NOWHERE on the install shape people use: it is a directory copy under ~/.claude/skills carrying a hooks.json declaring six events and a plugin manifest, and nothing reads either, because a skill copy is not a plugin install. Measured: absent from 68 registered plugins, bm_fence_hook appears zero times in every settings file, and the fence refusal observed this session came from the SIBLING's registered hook, not ours",
    "state": "queued",
    "stage": "method",
    "clock": "agent",
@@ -1049,7 +1049,7 @@
     "scripts/install.py",
     "docs/KNOWN-LIMITS.md"
    ],
-   "done_check": "grep brothermode ~/.claude/plugins/installed_plugins.json returns a match, or the limits page states the skill-copy install has no hooks and no agents, by name"
+   "done_check": "either the product is registered so its own hooks.json events fire, proven by observing one of its own hooks run, or docs/KNOWN-LIMITS.md states by name which declared hooks and agents do not load on a skill-copy install and which mechanisms still do"
   },
   {
    "id": "M2",

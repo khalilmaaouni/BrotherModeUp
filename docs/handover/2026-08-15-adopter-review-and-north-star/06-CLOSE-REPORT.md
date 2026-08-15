@@ -16,7 +16,7 @@ NOT pushed, because commit 161b2a6 carries a forbidden Co-Authored-By trailer
 and is the oldest of them, so it cannot be amended in place. The founder
 decided the session that owns that repository removes it, and that session has
 been told, with the SHA and the scan results it does not need to repeat.
-Everything in BrotherModeUp is finished, pushed and verified.
+Everything in this repository is finished, pushed and verified.
 
 WHAT WAS ASKED, AND WHAT CAME BACK
 

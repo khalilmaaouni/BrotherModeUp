@@ -395,13 +395,14 @@
     <div><p class="what"><strong>Execution provenance:</strong> an account of what happened that somebody else can check. Not process compliance, not a diary. The record as it really occurred, including the parts that went badly. Six mechanisms produce it, and each produces a record rather than a feeling.</p>
       <div class="concerns">
         <span class="good">ground map before any write</span>
-        <span class="good">claims, one writer per file</span>
+        <span class="none">claims, one writer per file</span>
         <span class="good">the work record and its lifecycle</span>
         <span class="good">the done-check rule</span>
         <span class="good">handover when a session ends</span>
         <span class="good">escalation when stuck</span>
       </div>
-      <p class="what" style="margin-top:0.6rem"><strong>Where the hole is:</strong> the one-writer control is inert in the assurance repository, roughly twenty legacy claim lines it cannot parse and does not enforce. Everything else on this list ran during the session that wrote this page.</p>
+      <p class="what" style="margin-top:0.6rem"><strong>Where the hole is, and it turned out to be worse than first drawn.</strong> The one-writer control is inert in two ways. In the assurance repository, roughly twenty legacy claim lines cannot be parsed and are not enforced. And on the machine that wrote this page, <strong>BrotherMode&rsquo;s fence hook is not running at all</strong>: it appears zero times in every settings file, and this product is absent from the 68 registered plugins. A write across a live claim WAS refused during this session, and that refusal came from the sibling&rsquo;s hook, which is registered. The protection was real and it was the other product&rsquo;s.</p>
+      <p class="what" style="margin-top:0.4rem">The other five mechanisms ran. Everything invoked as a command works exactly as documented, because a command is not a hook. It is the automatic half, the part meant to fire without being remembered, that is inert on the install shape people actually use.</p>
       <p class="what" style="margin-top:0.4rem"><em>It does not decide whether a change is safe, classify risk, own review, or judge the work. A product that both does the work and grades it is grading itself.</em></p>
     </div>
   </div>
