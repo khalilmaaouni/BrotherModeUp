@@ -33,8 +33,23 @@ is not a fix, and the version string did not warn anybody, which is
 already filed as SBE1 (the installed clone and the repository can
 disagree while both report the same version).
 
-So the first action is not engineering. It is shipping 3.2.0 to the five
-reviewers and asking for a re-read of items P9 and P14 specifically.
+So the first action is not engineering. It is getting that work in front of
+the five reviewers and asking for a re-read of items P9 and P14 specifically.
+
+CORRECTION, added after an adversarial check was asked to disprove this page
+and did: an earlier version of this section said the work could be shipped
+with no push, because the tag `v3.2.0` is already public. The tag is public.
+It does not contain the work. `git ls-tree` on the tag and on `origin/main`
+returns nothing for `templates/dossier/08-behaviour.md` or
+`tools/sbe_testkit.py`, and 43 local commits are unpushed. The public 3.2.0
+carries the version STRING and neither of the two answers. Shipping needs a
+push and a NEW version number, and both are founder decisions.
+
+Three instances of one failure in a single day, then: an installed clone
+generations behind while reporting a version, this page calling a defect open
+28 minutes after it was fixed, and a published tag promising contents it does
+not carry. Nothing anywhere binds a version to what is inside it. That is
+finding G3 below, and it has now produced every error in this document.
 
 ## What is working, and what that costs us
 
@@ -322,8 +337,17 @@ Solutions.
 Raised by the analyst lead, and proven on the live change: the reference change, a
 new field pulled through Strapi and the API to the client, was sized T2.
 
-Status today. CONFIRMED, exactly as the reviewers described it, and the
-code is four lines:
+Status today. FIXED AT 15:39 ON 2026-08-15, in commit `4912bd8`, by a
+concurrent session, 28 minutes after this page was committed saying it was
+open. `compute_tier` now reads `v[CONTRACT] == "breaking"` for T2 and
+`v[CONTRACT] == "additive"` for T1, which is solution 1 below, landed.
+
+That correction is left in place rather than tidied away, because it is this
+document reproducing the exact failure it opens with: a page describing a
+build that has already moved. The lesson is the same one, and it now has two
+instances in one day.
+
+What was true when this page was written, and what the reviewers hit:
 
     if v["touches_sensitive"] or not v["reversible_under_hour"]:
         return "T3"
@@ -347,12 +371,24 @@ on.
 
 Solutions.
 
-1. RECOMMENDED. Split the contract question in two: additive or
-   breaking. Additive plus few consumers lands at T1, breaking stays at
-   T2, and T3 is untouched. This is a change to `compute_tier` plus its
-   fixtures, and it is the smallest edit that fixes the reported case.
-   Done-check: the the reference change answers re-run produce T1, with
-   the existing tier fixtures still green.
+1. RECOMMENDED, AND LANDED at `4912bd8`. Split the contract question in
+   two: additive or breaking. Additive plus few consumers lands at T1,
+   breaking stays at T2, and T3 is untouched. The remaining work is a
+   check rather than a build, and that check has now been run here rather
+   than taken from the commit message. The live change's own five answers,
+   through `compute_tier` at HEAD:
+
+       the live change, additive: T1
+       same change, breaking:     T2
+       legacy yes answer:         T2
+       required artifacts T1:     ['01', '08']
+       required artifacts T2:     ['01', '02', '03', '05', '06', '07', '08']
+
+   Three things that output proves, beyond the tier moving. The vocabulary
+   is now `('no', 'additive', 'breaking')`. A legacy answer of plain `yes`
+   still resolves to T2, the stricter side, so no existing dossier is
+   silently re-sized downward. And the concrete win is the last two lines:
+   the same ordinary change now owes two artifacts instead of seven.
 2. Let the diff answer instead of the person: derive additive versus
    breaking from the API schema where one exists. More accurate, much
    more work, and it returns NO-DATA on estates with no machine-readable
@@ -556,9 +592,16 @@ appends an exploratory tail of charters. The first charter is named
 asked it to". That is the QC lead's category, in her words, in a tool. The tool
 also reads a filled sheet back and drafts new behaviour rows from every
 finding, so what the QC lead discovers becomes a rule for next time instead of a
-comment on a ticket. Deliberately, nothing here is a gate: it cannot fail
-a build, which is right, because the moment exploratory testing becomes a
-gate it stops being exploratory.
+comment on a ticket. Deliberately, it is not a CONTENT gate: an empty table
+and malformed rows both exit 0, named in the sheet rather than refused, which
+is right, because the moment exploratory testing becomes a gate it stops
+being exploratory.
+
+One precision, from the adversarial check that refuted the looser wording
+this page first carried: it is NOT true that it cannot fail a build. Executed:
+exit 1 on an unreadable behaviour file, exit 2 on bad usage. So a CI step
+invoking it can go red on an input or usage error, never on what a tester
+found. Worth knowing before anybody wires it into a pipeline.
 
 The queue half is NOT ours and must never be gated by us. QC being slower
 than AI-assisted development is a capacity fact. No tool fixes it. The
@@ -662,6 +705,107 @@ Never ours, and the tooling must keep saying so: QC capacity, the QC lead's
 acceptance standard, and whether the first phase runs on this repository.
 The team's five queue numbers remain the only measure that decides
 whether any of this worked.
+
+## The holes nobody complained about
+
+The fourteen problems above share one weakness: every one was RAISED. The
+list is therefore shaped by what five people happened to hit in one review of
+one change, which is a good sample of the visible failures and a poor sample
+of the silent ones. A separate pass walked the whole lifecycle, ideation to
+acceptance, asking what has no tool at all. Eight findings, ranked by damage
+per unit of effort to close. Each names its owner, because three of them are
+not ours to fix.
+
+G1. THE AGREED SUCCESS MEASURE IS NOT COMPUTED BY ANYTHING. The five queue
+numbers are named throughout as the only thing that decides whether any of
+this worked, and they were hand-counted from a report. Nobody can recompute
+them today, so a before-and-after would be a second hand count. Reveal only,
+the decision is the team's. Smallest close: one command that reads a tracker
+export and prints each number it can compute, reporting NO-DATA by name for
+any the export cannot supply. Check: reproduce 41, 22, 23, 11, 48 from the
+7 August export, or name which of the five it cannot.
+
+G2. THERE IS NO ACCEPTED STATE. The chain ends at a green gate and a merge.
+No acceptance record, no accepting party, no status line for it. So the last
+thing the system knows about a change is that its evidence passed, and
+whether anybody accepted it is not represented at all. This is the same gap
+the QC lead's position describes, seen from the data model. BrotherSBE.
+Smallest close: an acceptance record (who, when, against what) with status
+printing acceptance as NO-DATA until one exists, never FAIL. Check: an
+all-green change reports acceptance NO-DATA, then accepted once written.
+
+G3. EVIDENCE BINDS TO A COMMIT, NEVER TO WHAT IS RUNNING. A change can be
+certified against a commit with nothing recorded about which build a human
+actually exercised. That is precisely how five reviewers spent a week on a
+build generations behind the source and no verdict noticed. BrotherSBE.
+Smallest close: a deployed-ref field on the delivery record, and a status
+line reporting DRIFT when it differs from the evidence commit. Check: set a
+deployed ref one commit behind, status prints DRIFT naming both refs.
+
+G4. A DEFECT CANNOT BE ENTERED AS A DEFECT. Intake has no origin field and no
+path for work that starts from a broken behaviour rather than a
+specification. A bug fix must be described as if it were new work, and the
+fix carries no link to the behaviour that failed, so an escaped defect leaves
+no trace in the table that should have caught it. Whether people therefore
+skip the tool is UNMEASURED and is not claimed here. BrotherSBE. Smallest
+close: intake accepts a defect origin and requires exactly one artifact, the
+behaviour row that should have caught it, instead of the tier's full list.
+Check: a defect intake naming a regression row proceeds at T1; one naming no
+row refuses and prints what is missing.
+
+G5. NOTHING RECORDS WHAT HAPPENED AFTER MERGE. No reopen, rollback, escaped
+defect or emergency fix is captured against the change that caused it, so no
+data exists to compare a tier against its real outcome. Concretely: the tier
+split that just landed will ship with no way to measure whether it classifies
+better than the rule it replaced. BrotherSBE. Smallest close: an outcome
+field stamped at close, plus one report of tier against outcome that refuses
+to compute under five samples. Check: six closed changes print the table,
+four print NO-DATA.
+
+G6. A REQUIREMENT DISCOVERED DURING THE BUILD TELLS NOBODY. P10 covers a
+requirement that changes and goes stale. A requirement that APPEARS mid-build
+is the opposite direction and has no event at all. A behaviour row added
+after a test sheet was generated leaves that sheet unchanged and unmarked, so
+the sheet is one case short with nothing saying so. This is the analyst
+lead's own account of how a sprint actually goes, and it is the half of it
+that has no answer. BrotherSBE. Smallest close: a new row stamps itself as
+discovered in build and marks any already-generated verification plan or
+sheet stale by row id. Check: add a row after generating a sheet, the sheet
+reports stale naming the new id.
+
+G7. REVIEWER AND TESTER CONCENTRATION IS INVISIBLE TO THE ROUTER. 23 changes
+wait on one reviewer and 11 sit in one tester's column. The reviewer route
+selects by capability and prints no count of what that person already holds.
+Whether routing worsens the concentration is unmeasured; the point is that
+the router cannot see it either way. Reveal only, staffing is the team's
+decision. Smallest close: the route prints how many open changes are already
+routed to that name. Check: route three to one reviewer, the third prints
+three.
+
+G8. NO CHANGE CARRIES AN OPENED-AT AND CLOSED-AT PAIR. Commitment and end
+dates are the team's own call and no tool should set them. The tooling answer
+is narrower: the duration of a T1 or a T2 is not recorded anywhere, so the
+whole tier-cost argument has no measurement on either side, and 48 undated
+tasks cannot be compared against anything. BrotherSBE. Smallest close: stamp
+both timestamps on the change record and print median duration by tier,
+refusing under five samples per tier. Check: a fixture prints a median for T1
+and NO-DATA for T3.
+
+WHAT THE SAME PASS FOUND ADEQUATELY COVERED, which matters as much, because a
+gap hunt that reports gaps everywhere has not hunted: design (the eight
+artifacts, the decision record with real alternatives, the behaviour check
+refusing four distinct fake-outs), build execution for one person (claims,
+fences, single writer, worker dispatch), code review routing and reviewer
+independence, test design (the behaviour table, the verification plan, the
+exploratory charters), evidence execution and its binding to a commit,
+migration rollback specifically (a migration plan with no reverse task is
+refused), and cross-person handover.
+
+THE PATTERN IN G1, G2, G3, G5 AND G8, worth naming because it is one hole
+seen five times: the system is complete up to the merge and blind after it.
+Everything it knows is about whether a change was PROVEN. Almost nothing it
+knows is about whether the change WORKED. That is also where the north star
+lives, so this is not a tidy-up list.
 
 ## The outside architecture proposal, judged
 
