@@ -30,6 +30,18 @@ review, this amendment supersedes that gating: the pair of products
 serves that audience now, with BrotherMode governing each person's
 session and BrotherSBE the passage between them.
 
+AMENDMENT, founder direction 2026-08-15: the shape of the whole system is
+[docs/NORTH-STAR-CHAIN.md](docs/NORTH-STAR-CHAIN.md), the chain from human
+intent through an interchangeable development method, BrotherMode for
+execution provenance, a change passport, BrotherSBE's eight concerns, a human
+decision, release, and finally verified reality. Read it beside section 3.
+It does not replace the metric below; it supplies the PATH the metric measures
+and the stage names every backlog item must claim. Three things in it are
+binding and new: the development method layer is interchangeable and neither
+product may require one, the change passport is the only seam between the two
+products, and the chain terminates in observed reality rather than in a green
+verdict. The human decision node is unconditional.
+
 Purpose: Re-scope and finalize BrotherMode around a clear market position, a measurable north star, a small independent core, and a Toolkit Mode that composes trusted external skills, MCP servers, CLIs, and agent runtimes instead of duplicating them.
 
 Recommended repository location: `PRODUCT-DIRECTION.md` at the repository root.
