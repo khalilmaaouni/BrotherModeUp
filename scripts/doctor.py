@@ -499,6 +499,7 @@ CHECK_TITLES = collections.OrderedDict((
     ("fence", "the write-protection check (fence hook) wired and live"),
     ("version", "VERSION matches the plugin manifest"),
     ("runtime", "python3 3.9+ and git are available"),
+    ("windows_hooks", "Windows can run this project's automatic hooks"),
     ("consent", "setup has been completed"),
     ("vault", "vault path exists and is writable"),
     ("duplicate_install", "only one install method is wired"),
@@ -612,6 +613,108 @@ def check_runtime():
         return _result("runtime", STATUS_FAIL, "FAIL: " + " ".join(problems))
     return _result("runtime", STATUS_PASS,
                    "PASS: python3 %s, git on PATH." % platform.python_version())
+
+
+def _sh_wired_events(hooks_path):
+    """Reads hooks/hooks.json and returns (event, statusMessage) for every
+    event that wires at least one command starting with `sh` (matched on
+    the command's first shell word, the same way find_fence_entries above
+    matches a basename rather than guessing from raw text). Raises the
+    same exceptions io.open/json.loads would; callers turn those into a
+    FAIL rather than a crash, same as every other check in this file."""
+    with io.open(hooks_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    events = data.get("hooks") if isinstance(data, dict) else None
+    found = []
+    for event, groups in sorted((events or {}).items()):
+        if not isinstance(groups, list):
+            continue
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            for entry in group.get("hooks", []) or []:
+                if not isinstance(entry, dict):
+                    continue
+                command = entry.get("command")
+                if not isinstance(command, str):
+                    continue
+                try:
+                    words = shlex.split(command)
+                except ValueError:
+                    words = command.split()
+                if words and os.path.basename(words[0]) == "sh":
+                    label = entry.get("statusMessage") or command
+                    found.append("%s (%s)" % (event, label))
+                    break
+    return found
+
+
+def check_windows_hooks(root):
+    """V3 adoption defect: a Windows user who installs via the recommended
+    path (docs/QUICKSTART.md Path 1, `claude plugin install`) never runs
+    scripts/install.py, so its own Windows refusal (check_platform, around
+    line 694) never fires, and Claude Code reports the install a success
+    while several automatic hooks are wired to a POSIX shell that cmd.exe
+    and PowerShell cannot run. This check is the thing that tells that
+    user, since nothing else on that path will.
+
+    Windows: always FAILS, and names the affected events by reading
+    hooks/hooks.json directly rather than repeating a fixed list, so a
+    future hook that starts using `sh` is caught here without an edit to
+    this check.
+
+    Every other platform: SKIPs, never PASSes. A PASS would claim this
+    machine was examined and found fine; it was not examined at all, so
+    the only honest report is a SKIP naming what would have been checked
+    (the same shape check_vault above uses for "setup never ran")."""
+    hooks_path = os.path.join(root, "hooks", "hooks.json")
+    if os.name != "nt":
+        return _result("windows_hooks", STATUS_SKIP,
+                       "SKIP: this machine is not Windows, so there is "
+                       "nothing to check here. On Windows, this would read "
+                       "%s and name which automatic behaviors cannot run, "
+                       "because some of them are wired through a command "
+                       "(`sh`) that only a POSIX shell can run."
+                       % _mask_home(hooks_path))
+
+    try:
+        broken = _sh_wired_events(hooks_path)
+    except (IOError, OSError, ValueError) as exc:
+        return _result("windows_hooks", STATUS_FAIL,
+                       "FAIL: this is Windows, where this project cannot "
+                       "confirm its automatic behaviors work, and %s could "
+                       "not even be read to say which ones (%s). Recommended: "
+                       "install inside WSL (Windows Subsystem for Linux) "
+                       "instead of directly on Windows; everything in this "
+                       "project runs there normally."
+                       % (_mask_home(hooks_path), exc))
+
+    if not broken:
+        return _result("windows_hooks", STATUS_FAIL,
+                       "FAIL: this is Windows. This project's own installer "
+                       "refuses to install here for exactly this reason "
+                       "(scripts/install.py), but the recommended install "
+                       "path (`claude plugin install`) never runs that "
+                       "installer, so nothing else on that path will warn "
+                       "you. This particular checkout's %s did not name a "
+                       "broken hook, which is worth re-checking, not trusting "
+                       "as a clean bill of health. Recommended: install "
+                       "inside WSL (Windows Subsystem for Linux) instead of "
+                       "directly on Windows."
+                       % _mask_home(hooks_path))
+
+    return _result("windows_hooks", STATUS_FAIL,
+                   "FAIL: this is Windows, and %d of this project's "
+                   "automatic behaviors will silently not run here, even "
+                   "though the install will have reported success: %s. Each "
+                   "one is wired through a command (`sh`) that only a POSIX "
+                   "shell can run, and neither cmd.exe nor PowerShell is "
+                   "one, so Claude Code will treat the hook as installed "
+                   "while it quietly does nothing every time it fires. "
+                   "Recommended: install inside WSL (Windows Subsystem for "
+                   "Linux) instead of directly on Windows; everything in "
+                   "this project runs there normally."
+                   % (len(broken), ", ".join(broken)))
 
 
 def check_consent():
@@ -1071,6 +1174,7 @@ def run_all_checks(settings_path):
         _run_check("fence", check_fence, settings_path),
         _run_check("version", check_version_identity, root),
         _run_check("runtime", check_runtime),
+        _run_check("windows_hooks", check_windows_hooks, root),
         _run_check("consent", check_consent),
         _run_check("vault", check_vault, root),
         _run_check("duplicate_install", check_duplicate_install,

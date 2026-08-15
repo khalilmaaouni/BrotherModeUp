@@ -696,15 +696,16 @@ def check_platform(argv_name):
             "%s: refusing to install on Windows.\n"
             "This is a refusal, not a crash, and the reason is specific: the "
             "hook commands this installer writes are POSIX shell. SessionStart "
-            "runs `sh <path>/tools/bm_sessionstart.sh` and PreCompact runs "
-            "`sh -c` with a pipeline, and neither cmd.exe nor PowerShell will "
-            "run them. Two of the six wired events (SessionStart, PreCompact) "
-            "would be wired and silently dead.\n"
+            "runs `sh <path>/tools/bm_sessionstart.sh`, and Stop and PreCompact "
+            "each run `sh -c` with a pipeline, and neither cmd.exe nor "
+            "PowerShell will run them. THREE of the six wired events "
+            "(SessionStart, Stop, PreCompact) would be wired and silently "
+            "dead.\n"
             "Working paths on Windows: install inside WSL (a real POSIX shell, "
             "and Claude Code runs there), or wire the python3-only hooks "
-            "(SessionEnd, Stop, the PreToolUse fence, and the Bash-audit "
+            "(SessionEnd, the PreToolUse fence, and the Bash-audit "
             "PreToolUse/PostToolUse pair) by hand per docs/HOOKS.md and accept "
-            "that SessionStart and PreCompact are off.\n"
+            "that SessionStart, Stop and PreCompact are off.\n"
             "Platform seen: %s." % (argv_name, platform.platform()))
         return EXIT_UNSUPPORTED
     if sys.version_info < (3, 9):
