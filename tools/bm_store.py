@@ -14232,6 +14232,161 @@ class Store(object):
             (project_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
+    def sentinel_orphans(self):
+        """Read-only report: for each of the four Memory Sentinel tables,
+        every project_id that has rows there but no row in `projects`, with
+        a row count for each.
+
+        This is the gap purge_project's own SBE10 fix (this module's
+        _require_sentinel_project docstring above) could not close: that
+        fix stops NEW orphans and cleans a project's sentinel rows when
+        THAT project is purged, but a sentinel row whose project_id never
+        resolves has no project row for purge_project to key off, so
+        purge_project refuses it ('not-found') and the row is unreachable
+        by any erasure command that ships today. This report is how a
+        caller FINDS those rows before purge_sentinel_orphans (below)
+        erases them.
+
+        NEVER reads or returns a prose column (content, attempt,
+        diagnosis, summary, open_risks, trigger, decision, reminder,
+        reason): only project_id and COUNT(*), because this is a privacy
+        tool and printing the sentinel prose to a terminal, a log, or a
+        session transcript to report on it would be the exact leak this
+        whole guard exists to prevent.
+
+        Returns {table_name: {project_id: row_count}}. A table with no
+        orphan rows maps to {}."""
+        result = {}
+        for table in _TABLES_SENTINEL:
+            rows = _exec(self,
+                "SELECT project_id, COUNT(*) AS n FROM %s WHERE project_id "
+                "NOT IN (SELECT project_id FROM projects) "
+                "GROUP BY project_id" % table).fetchall()
+            result[table] = {r["project_id"]: r["n"] for r in rows}
+        return result
+
+    _SENTINEL_ORPHANS_ALL_TOKEN = "ALL-ORPHANS"
+
+    def purge_sentinel_orphans(self, actor, confirmation_token,
+                                project_id=None, all_orphans=False,
+                                dry_run=False):
+        """Erase sentinel rows whose project_id resolves to no project,
+        the rows sentinel_orphans() above finds and purge_project cannot
+        reach. Guarded the way purge_project guards itself, because this
+        is the same kind of irreversible deletion of raw founder prose:
+
+        Exactly one of `project_id` or `all_orphans=True` must be given
+        (OwnershipRefused 'no-target' for neither, 'ambiguous-target' for
+        both), so a caller always names a single, explicit target rather
+        than defaulting into 'everything'.
+
+        `project_id` names ONE orphan project id to erase. Refused
+        ('not-orphan') if a project row with that id still exists: this
+        command only ever touches rows purge_project cannot reach, and a
+        live project's sentinel rows are purge_project's job. Refused
+        ('not-found') if no sentinel row anywhere names that id: a typo
+        gets a refusal, not a silent no-op.
+
+        `all_orphans=True` erases every orphan row in all four tables,
+        whichever project ids they name. Confirming this on purpose needs
+        a literal token distinct from any real project id, so a caller
+        cannot confirm 'all orphans' by accidentally typing a project id
+        that happens to match nothing: confirmation_token must equal the
+        literal string 'ALL-ORPHANS'.
+
+        Confirming a single `project_id` target follows purge_project's
+        own rule exactly: confirmation_token must equal project_id.
+        Neither token is required under dry_run, same reasoning as
+        purge_project's own dry_run: the token stands between a caller
+        and an irreversible deletion, and a dry run deletes nothing.
+
+        dry_run=True runs the real DELETE statements and rolls the whole
+        transaction back (purge_project's own technique), so the counts
+        returned are the real erasure's own rather than a second
+        implementation's guess.
+
+        One attribution row ('sentinel.orphans_purged') is written per
+        project id actually purged, inside the same transaction, mirroring
+        purge_project's one-row-per-project shape; attribution carries no
+        foreign key to projects (by design, see _write_attribution), so a
+        row naming a project id that no longer exists, or never existed,
+        is exactly what this method's own record looks like.
+
+        Returns {'removed': {project_id: {table: count, ...}, ...},
+        'project_ids': [...]}."""
+        if project_id and all_orphans:
+            raise OwnershipRefused(
+                "ambiguous-target",
+                "name --project-id OR --all-orphans, not both; nothing "
+                "was removed")
+        if not project_id and not all_orphans:
+            raise OwnershipRefused(
+                "no-target",
+                "must name --project-id ID or pass --all-orphans; "
+                "nothing was removed")
+        if not dry_run:
+            required = (self._SENTINEL_ORPHANS_ALL_TOKEN if all_orphans
+                        else project_id)
+            if confirmation_token != required:
+                raise OwnershipRefused(
+                    "bad-confirmation",
+                    "confirmation token %r does not match %r; nothing "
+                    "was removed" % (confirmation_token, required))
+        with self._transaction(rollback=dry_run):
+            if project_id:
+                prow = _exec(self, "SELECT project_id FROM projects "
+                            "WHERE project_id=?", (project_id,)).fetchone()
+                if prow is not None:
+                    raise OwnershipRefused(
+                        "not-orphan",
+                        "project %r still exists; this command only "
+                        "erases sentinel rows naming a project id that no "
+                        "longer exists. Use purge_project for a live "
+                        "project." % (project_id,))
+                target_ids = None
+                for table in _TABLES_SENTINEL:
+                    hit = _exec(self,
+                        "SELECT 1 FROM %s WHERE project_id=? LIMIT 1"
+                        % table, (project_id,)).fetchone()
+                    if hit is not None:
+                        target_ids = [project_id]
+                        break
+                if target_ids is None:
+                    raise OwnershipRefused(
+                        "not-found",
+                        "no sentinel row in any table names project %r; "
+                        "nothing to purge" % (project_id,))
+            else:
+                seen = set()
+                for table in _TABLES_SENTINEL:
+                    rows = _exec(self,
+                        "SELECT DISTINCT project_id FROM %s WHERE "
+                        "project_id NOT IN (SELECT project_id FROM "
+                        "projects)" % table).fetchall()
+                    seen.update(r["project_id"] for r in rows)
+                target_ids = sorted(seen)
+
+            removed = {}
+            for pid in target_ids:
+                per_table = {}
+                for table in _TABLES_SENTINEL:
+                    per_table[table] = _exec(self,
+                        "DELETE FROM %s WHERE project_id=? AND project_id "
+                        "NOT IN (SELECT project_id FROM projects)" % table,
+                        (pid,)).rowcount
+                removed[pid] = per_table
+                self._write_attribution(
+                    pid, None, "sentinel.orphans_purged", actor,
+                    action="purge_sentinel_orphans",
+                    reason="removed %d knowledge, %d procedural, %d "
+                           "status, %d intervention row(s) naming a "
+                           "project id that no longer exists"
+                           % (per_table["sentinel_knowledge"],
+                              per_table["sentinel_procedural"],
+                              per_table["sentinel_status"],
+                              per_table["sentinel_interventions"]))
+        return {"removed": removed, "project_ids": target_ids}
+
     # ------------------------------------------------------------------
     # U1: the autonomy contract layer (2026-08-05, design
     # docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md).
