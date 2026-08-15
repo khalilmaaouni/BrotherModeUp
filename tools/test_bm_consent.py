@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -1266,6 +1267,41 @@ class DoctorCheckInventoryCase(unittest.TestCase):
             universal_newlines=True, timeout=300)
         checks = self._checks(r.stdout)
         self.assertEqual(checks["checksums"]["status"], "SKIP")
+
+    def test_windows_hooks_fails_naming_sh_wired_events(self):
+        """scripts/install.py already refuses to install on Windows, but the
+        recommended install path (docs/QUICKSTART.md Path 1, `claude plugin
+        install`) never runs that installer, so the refusal never fires.
+        This check is what tells a Windows user instead. hooks/hooks.json
+        wires SessionStart, Stop and PreCompact through `sh`, which cmd.exe
+        and PowerShell cannot run, so all three must be named by event.
+
+        os.name is faked on the already-imported doctor module rather than
+        via subprocess (this file's usual technique for the other checks,
+        stated in its module docstring), the same way tools/test_bm_store.py
+        fakes sys.platform on the already-imported bm_store module
+        (mock.patch.object(bs.sys, "platform", "win32")): the windows_hooks
+        check does no subprocess work and no filesystem writes, only a read
+        of the real hooks/hooks.json under ROOT, so faking os.name in
+        process is the narrowest fake that exercises it, and a real Windows
+        machine is not available to this test."""
+        with mock.patch.object(_doctor_module.os, "name", "nt"):
+            result = _doctor_module.check_windows_hooks(ROOT)
+        self.assertEqual(result.status, "FAIL", result.message)
+        for event in ("SessionStart", "Stop", "PreCompact"):
+            self.assertIn(event, result.message,
+                         "windows_hooks FAIL did not name %s" % event)
+        self.assertIn("WSL", result.message)
+
+    def test_windows_hooks_skips_rather_than_passes_off_windows(self):
+        """A PASS here would claim this machine's platform was examined and
+        found fine; on anything but Windows it was not examined at all, so
+        the only honest report is SKIP, with the reason named."""
+        with mock.patch.object(_doctor_module.os, "name", "posix"):
+            result = _doctor_module.check_windows_hooks(ROOT)
+        self.assertEqual(result.status, "SKIP", result.message)
+        self.assertNotEqual(result.status, "PASS")
+        self.assertIn("hooks.json", result.message)
 
 
 class DoctorStrictAndSummaryCase(unittest.TestCase):
