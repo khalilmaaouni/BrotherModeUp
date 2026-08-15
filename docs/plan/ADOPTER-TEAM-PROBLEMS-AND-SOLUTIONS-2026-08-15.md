@@ -49,7 +49,7 @@ Three instances of one failure in a single day, then: an installed clone
 generations behind while reporting a version, this page calling a defect open
 28 minutes after it was fixed, and a published tag promising contents it does
 not carry. Nothing anywhere binds a version to what is inside it. That is
-finding G3 below, and it has now produced every error in this document.
+finding H3 below, and it has now produced every error in this document.
 
 ## What is working, and what that costs us
 
@@ -716,7 +716,7 @@ acceptance, asking what has no tool at all. Eight findings, ranked by damage
 per unit of effort to close. Each names its owner, because three of them are
 not ours to fix.
 
-G1. THE AGREED SUCCESS MEASURE IS NOT COMPUTED BY ANYTHING. The five queue
+H1. THE AGREED SUCCESS MEASURE IS NOT COMPUTED BY ANYTHING. The five queue
 numbers are named throughout as the only thing that decides whether any of
 this worked, and they were hand-counted from a report. Nobody can recompute
 them today, so a before-and-after would be a second hand count. Reveal only,
@@ -725,7 +725,7 @@ export and prints each number it can compute, reporting NO-DATA by name for
 any the export cannot supply. Check: reproduce 41, 22, 23, 11, 48 from the
 7 August export, or name which of the five it cannot.
 
-G2. THERE IS NO ACCEPTED STATE. The chain ends at a green gate and a merge.
+H2. THERE IS NO ACCEPTED STATE. The chain ends at a green gate and a merge.
 No acceptance record, no accepting party, no status line for it. So the last
 thing the system knows about a change is that its evidence passed, and
 whether anybody accepted it is not represented at all. This is the same gap
@@ -734,7 +734,7 @@ Smallest close: an acceptance record (who, when, against what) with status
 printing acceptance as NO-DATA until one exists, never FAIL. Check: an
 all-green change reports acceptance NO-DATA, then accepted once written.
 
-G3. EVIDENCE BINDS TO A COMMIT, NEVER TO WHAT IS RUNNING. A change can be
+H3. EVIDENCE BINDS TO A COMMIT, NEVER TO WHAT IS RUNNING. A change can be
 certified against a commit with nothing recorded about which build a human
 actually exercised. That is precisely how five reviewers spent a week on a
 build generations behind the source and no verdict noticed. BrotherSBE.
@@ -742,7 +742,7 @@ Smallest close: a deployed-ref field on the delivery record, and a status
 line reporting DRIFT when it differs from the evidence commit. Check: set a
 deployed ref one commit behind, status prints DRIFT naming both refs.
 
-G4. A DEFECT CANNOT BE ENTERED AS A DEFECT. Intake has no origin field and no
+H4. A DEFECT CANNOT BE ENTERED AS A DEFECT. Intake has no origin field and no
 path for work that starts from a broken behaviour rather than a
 specification. A bug fix must be described as if it were new work, and the
 fix carries no link to the behaviour that failed, so an escaped defect leaves
@@ -753,7 +753,7 @@ behaviour row that should have caught it, instead of the tier's full list.
 Check: a defect intake naming a regression row proceeds at T1; one naming no
 row refuses and prints what is missing.
 
-G5. NOTHING RECORDS WHAT HAPPENED AFTER MERGE. No reopen, rollback, escaped
+H5. NOTHING RECORDS WHAT HAPPENED AFTER MERGE. No reopen, rollback, escaped
 defect or emergency fix is captured against the change that caused it, so no
 data exists to compare a tier against its real outcome. Concretely: the tier
 split that just landed will ship with no way to measure whether it classifies
@@ -762,7 +762,7 @@ field stamped at close, plus one report of tier against outcome that refuses
 to compute under five samples. Check: six closed changes print the table,
 four print NO-DATA.
 
-G6. A REQUIREMENT DISCOVERED DURING THE BUILD TELLS NOBODY. P10 covers a
+H6. A REQUIREMENT DISCOVERED DURING THE BUILD TELLS NOBODY. P10 covers a
 requirement that changes and goes stale. A requirement that APPEARS mid-build
 is the opposite direction and has no event at all. A behaviour row added
 after a test sheet was generated leaves that sheet unchanged and unmarked, so
@@ -773,7 +773,7 @@ discovered in build and marks any already-generated verification plan or
 sheet stale by row id. Check: add a row after generating a sheet, the sheet
 reports stale naming the new id.
 
-G7. REVIEWER AND TESTER CONCENTRATION IS INVISIBLE TO THE ROUTER. 23 changes
+H7. REVIEWER AND TESTER CONCENTRATION IS INVISIBLE TO THE ROUTER. 23 changes
 wait on one reviewer and 11 sit in one tester's column. The reviewer route
 selects by capability and prints no count of what that person already holds.
 Whether routing worsens the concentration is unmeasured; the point is that
@@ -782,7 +782,7 @@ decision. Smallest close: the route prints how many open changes are already
 routed to that name. Check: route three to one reviewer, the third prints
 three.
 
-G8. NO CHANGE CARRIES AN OPENED-AT AND CLOSED-AT PAIR. Commitment and end
+H8. NO CHANGE CARRIES AN OPENED-AT AND CLOSED-AT PAIR. Commitment and end
 dates are the team's own call and no tool should set them. The tooling answer
 is narrower: the duration of a T1 or a T2 is not recorded anywhere, so the
 whole tier-cost argument has no measurement on either side, and 48 undated
@@ -791,7 +791,7 @@ both timestamps on the change record and print median duration by tier,
 refusing under five samples per tier. Check: a fixture prints a median for T1
 and NO-DATA for T3.
 
-G9. THE ONE-WRITER CONTROL IS INERT IN THE ASSURANCE REPOSITORY ITSELF.
+H9. THE ONE-WRITER CONTROL IS INERT IN THE ASSURANCE REPOSITORY ITSELF.
 Found while trying to use it, which is the only way this kind of thing gets
 found. Asked directly rather than grepped, `python3 tools/sbe_fence_hook.py
 fences` answers, about twenty times in a row:
@@ -827,7 +827,7 @@ exploratory charters), evidence execution and its binding to a commit,
 migration rollback specifically (a migration plan with no reverse task is
 refused), and cross-person handover.
 
-THE PATTERN IN G1, G2, G3, G5 AND G8, worth naming because it is one hole
+THE PATTERN IN H1, H2, H3, H5 AND H8, worth naming because it is one hole
 seen five times: the system is complete up to the merge and blind after it.
 Everything it knows is about whether a change was PROVEN. Almost nothing it
 knows is about whether the change WORKED. That is also where the north star
@@ -987,7 +987,7 @@ Revised after the direction review, which pointed out that the previous
 version scheduled nothing for the two items that gate the north star metric
 and never scheduled the measurement that decides whether any of it worked:
 
-0. TAKE THE BASELINE FIRST, before anything else lands. G1's five queue
+0. TAKE THE BASELINE FIRST, before anything else lands. H1's five queue
    numbers, counted once, however crudely. The tier split has ALREADY
    shipped, so part of the before-picture is gone; every further hour
    without a baseline loses more of it. This is minutes of work and it is

@@ -1,0 +1,289 @@
+diff --git a/tools/sbe_design.py b/tools/sbe_design.py
+index 04941d6..d4fec52 100644
+--- a/tools/sbe_design.py
++++ b/tools/sbe_design.py
+@@ -26,7 +26,7 @@ turned a failing dossier into exit 0 while the report printed the sentence
+ its absence in the same breath. An exemption states a reviewable reason or it
+ does not exempt, and a broken one is its own FAIL rather than a quiet gate.
+ """
+-import hashlib, json, os, re, sys
++import hashlib, json, os, re, sys, zlib
+ 
+ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+ from sbe_intake import required_artifacts, compute_tier, read_answers, TIERS, QUESTIONS
+@@ -541,6 +541,140 @@ def _binding_problem(root, data):
+                       % (head[:12], checked))
+ 
+ 
++# STALENESS CLOCK: `binding.head` above answers a narrower question ("do these
++# artifact BYTES still match what was bound"), and answers it strictly -- any
++# drift at all, even one unrelated later commit, is a FAIL demanding a
++# deliberate re-bind (tools/test_sbe.py's test_bound_then_head_moved_fails_by_name).
++# That is the convergence check the module docstring means by "protects the
++# design from the code". Nothing above asks the different question the
++# architecture review raised: is the INTENTION this dossier was answered
++# against still recent, or did the world move on two months ago without
++# anyone coming back to say so. That question needs a DISTANCE-tolerant
++# answer, not an exact-match one, so it is not layered onto `binding.head`
++# (doing so would turn any ordinary later commit into a FAIL here too, which
++# is not what staleness means and would break the test above). It is a
++# second, independent, OPTIONAL key at the same place every other piece of
++# dossier-level metadata already lives -- 00-intake.json, sibling to tier,
++# answers and binding -- so no new file format is introduced:
++#   "answered_head": "<40-hex commit id>"
++# the commit HEAD was at when this dossier's intake was answered. Absent
++# (every dossier written before this field existed), it is NO-DATA naming
++# the absence, never a PASS: a dossier predating this feature must not read
++# as fresh just because nothing was recorded.
++STALE_DISTANCE = 50
++# Default distance, in first-parent commits. Small enough that a same-day run
++# of follow-up commits never trips it; large enough that a dossier answered
++# for a direction abandoned weeks back reads as an unknown rather than
++# sitting green forever. Also bounds the walk below to at most
++# STALE_DISTANCE + 1 loose-object reads, regardless of how long the
++# repository's real history is.
++
++
++def _read_commit_object(git_dir, sha):
++    """The raw decompressed body of a loose commit object, or None.
++
++    Reads ONLY loose objects, the same gap `_object_exists` already names: a
++    commit old enough to have been folded into a pack by a housekeeping `gc`
++    is invisible here, and the caller reports NO-DATA rather than guessing at
++    its parent.
++    """
++    path = os.path.join(git_dir, "objects", sha[:2], sha[2:])
++    try:
++        raw = open(path, "rb").read()
++    except OSError:
++        return None  # sbe: allow-silent an unreadable git object here is exactly the NO-DATA the staleness check then reports by name; nothing is dropped, the absence becomes the verdict
++    try:
++        data = zlib.decompress(raw)
++    except zlib.error:
++        return None  # sbe: allow-silent a corrupt loose object reads as unresolvable, not as a crash
++    nul = data.find(b"\x00")
++    if nul == -1 or not data[:nul].startswith(b"commit "):
++        return None
++    return data[nul + 1:]
++
++
++def _first_parent(git_dir, sha):
++    """The single FIRST `parent` line of commit `sha`, or None: a root commit
++    with no parent, or a commit this tree cannot read.
++
++    Only the first parent is followed, not every parent a merge commit
++    carries: a dossier bound on a side branch that later merged in can
++    undercount its distance from HEAD along the branch that merged it. That
++    is a deliberate ponytail simplification (a first-parent chain, cheap and
++    bounded), not a correctness proof; widen it to a full graph walk if a
++    real staleness case is ever missed this way.
++    """
++    body = _read_commit_object(git_dir, sha)
++    if body is None:
++        return None
++    for line in body.split(b"\n"):
++        if not line:
++            break  # blank line ends the header block; no parent line found before it
++        if line.startswith(b"parent "):
++            candidate = line[len(b"parent "):].strip().decode("ascii", "replace")
++            return candidate if _SHA1_RE.match(candidate) else None
++    return None
++
++
++def check_staleness(root):
++    """(verdict, evidence) for the OPTIONAL "answered_head" field of
++    00-intake.json.
++
++    No problem to report (folded into a PASS by the caller's sentence) when
++    that commit IS the current head or is within STALE_DISTANCE first-parent
++    commits of it. NO-DATA, never FAIL, once history has moved further than
++    that: a stale design is an unknown, not a defect, and this check must
++    never block a run over it. NO-DATA with a different reason when no commit
++    was ever recorded, so a dossier written before this field existed reads
++    as unknown rather than fresh.
++    """
++    problem = read_problem(root, INTAKE)
++    if problem:
++        return "NO-DATA", ("%s is %s, so no recorded commit can be read for staleness"
++                           % (INTAKE, problem))
++    intake = read(root, INTAKE)
++    if intake is None:
++        return "NO-DATA", ("no 00-intake.json; nothing here records the commit this dossier's "
++                           "intake was answered against")
++    try:
++        data = json.loads(intake)
++    except ValueError:
++        return "NO-DATA", "00-intake.json is not valid JSON, so no recorded commit can be read"
++    if not isinstance(data, dict):
++        return "NO-DATA", "00-intake.json is not a JSON object, so no recorded commit can be read"
++    head = data.get("answered_head")
++    if not isinstance(head, str) or not _SHA1_RE.match(head):
++        return "NO-DATA", ("00-intake.json records no commit its intake was answered against (no "
++                           "40-character answered_head); a dossier predating this field must read "
++                           "as unknown, never as fresh")
++    git_dir = _git_dir(root)
++    current = _resolve_head(git_dir) if git_dir else None
++    if current is None:
++        return "NO-DATA", ("answered_head names %s but the current head could not be read from "
++                           "this tree (no readable git metadata above %s), so staleness cannot be "
++                           "measured either way" % (head[:12], root))
++    if head == current:
++        return "PASS", "answered_head %s is the current head" % head[:12]
++    cur = current
++    for hops in range(1, STALE_DISTANCE + 1):
++        parent = _first_parent(git_dir, cur)
++        if parent is None:
++            return "NO-DATA", ("answered_head %s could not be confirmed within %d first-parent "
++                               "commit(s) of the current head %s: history ran out (a root commit, "
++                               "or an unreadable or packed object) before it was found, so "
++                               "distance cannot be measured either way" % (head[:12], STALE_DISTANCE, current[:12]))
++        if parent == head:
++            return "PASS", ("answered_head %s is %d commit(s) behind the current head %s, inside "
++                            "the %d-commit staleness window"
++                            % (head[:12], hops, current[:12], STALE_DISTANCE))
++        cur = parent
++    return "NO-DATA", ("answered_head %s is more than %d first-parent commit(s) behind the current "
++                       "head %s: stale-since %s, an unknown about whether this design still "
++                       "matches the intention it was answered for, not a defect, so it never "
++                       "blocks and is never counted as a pass"
++                       % (head[:12], STALE_DISTANCE, current[:12], head[:12]))
++
++
+ def check_artifacts(root):
+     problem = read_problem(root, INTAKE)
+     if problem:
+@@ -2968,6 +3102,19 @@ CHECKS = {
+     "behaviour": Check(check_behaviour, reads=(ARTIFACT_FILES["08"], ARTIFACT_FILES["07"]),
+                        kind="text", severity="gate",
+                        full_fixture={"files": {ARTIFACT_FILES["08"]: _FX_BEHAVIOUR}}),
++    "staleness": Check(
++        check_staleness, reads=(INTAKE,), kind="git", severity="soft",
++        full_fixture={"files": {INTAKE: {"answered_head": "f" * 40}},
++                      "git": {"message": "fixture commit"}},
++        full_expect="NO-DATA",
++        full_expect_reason=(
++            "a worked fixture cannot pre-know the commit id its own materializing commit will "
++            "get, so the only honest PASS path (answered_head equal to, or a first-parent hop "
++            "or two behind, the real current head) is unreachable from a fixture written before "
++            "that commit exists. The strongest a full_fixture can assert is an unresolvable "
++            "answered_head reading NO-DATA, never PASS or FAIL; tools/test_sbe.py exercises the "
++            "PASS and stale paths against real git repositories instead, the same pattern "
++            "TestDossierBindingScenario23 already uses for binding.head")),
+ }
+ 
+ 
+diff --git a/tools/test_sbe.py b/tools/test_sbe.py
+index 5369554..5298004 100644
+--- a/tools/test_sbe.py
++++ b/tools/test_sbe.py
+@@ -3340,6 +3340,110 @@ class TestDossierBindingScenario23(unittest.TestCase):
+         self.assertIn("never-written.md", line)
+ 
+ 
++class TestStalenessClock(unittest.TestCase):
++    """The staleness clock: an OPTIONAL "answered_head" field on 00-intake.json,
++    the commit HEAD was at when this dossier's intake was answered. Separate
++    from `binding.head` (TestDossierBindingScenario23 above), which is an
++    exact-match convergence check and FAILs on ANY drift; this one is
++    distance-tolerant and never FAILs, only NO-DATA or PASS -- a stale design
++    is an unknown, not a defect. Every fixture here builds a REAL git
++    repository and runs the real tools/sbe_design.py, matching
++    TestDossierBindingScenario23's own pattern (fixtures for the same file,
++    the same seam: reused here rather than re-declared).
++    """
++
++    DESIGN = os.path.join(HERE, "sbe_design.py")
++    B = TestDossierBindingScenario23
++
++    def setUp(self):
++        self.dir = tempfile.mkdtemp()
++        self.repo = os.path.join(self.dir, "repo")
++        os.makedirs(self.repo)
++        self._git("init", "-q")
++        self._git("config", "user.email", "dana@example.invalid")
++        self._git("config", "user.name", "Dana Author")
++        self._git("config", "commit.gpgsign", "false")
++
++    def tearDown(self):
++        shutil.rmtree(self.dir, ignore_errors=True)
++
++    def _git(self, *args):
++        out = subprocess.run(["git"] + list(args), cwd=self.repo, capture_output=True, text=True)
++        if out.returncode != 0:
++            raise AssertionError("git %s failed in %s: %s" % (" ".join(args), self.repo, out.stderr))
++        return out.stdout.strip()
++
++    def _write(self, rel, body):
++        path = os.path.join(self.repo, rel)
++        directory = os.path.dirname(path)
++        if directory and not os.path.isdir(directory):
++            os.makedirs(directory)
++        with io.open(path, "w", encoding="utf-8") as fh:
++            fh.write(body)
++
++    def _commit_dossier(self, extra_intake=None, message="add dossier"):
++        intake = {"tier": "T1", "answers": self.B.ANSWERS}
++        if extra_intake:
++            intake.update(extra_intake)
++        self._write("01-purpose.md", self.B.PURPOSE)
++        self._write("08-behaviour.md", self.B.BEHAVIOUR)
++        self._write("00-intake.json", json.dumps(intake, indent=2, sort_keys=True))
++        self._git("add", "-A")
++        self._git("commit", "-qm", message)
++        return self._git("rev-parse", "HEAD")
++
++    def _run_design(self):
++        out = subprocess.run([sys.executable, self.DESIGN, self.repo],
++                             capture_output=True, text=True)
++        return out.stdout + out.stderr
++
++    def _verdict(self, text, name):
++        for line in text.splitlines():
++            parts = line.split()
++            if len(parts) >= 2 and parts[0] == name:
++                return parts[1], line
++        return None, "NO VERDICT LINE for %r in:\n%s" % (name, text)
++
++    def test_a_recorded_commit_far_behind_head_is_stale_no_data(self):
++        answered = self._commit_dossier()
++        for i in range(60):
++            self._write("churn%d.txt" % i, "churn %d\n" % i)
++            self._git("add", "-A")
++            self._git("commit", "-qm", "churn %d" % i)
++        self._write("00-intake.json", json.dumps(
++            {"tier": "T1", "answers": self.B.ANSWERS, "answered_head": answered},
++            indent=2, sort_keys=True))
++        verdict, line = self._verdict(self._run_design(), "staleness")
++        self.assertEqual(verdict, "NO-DATA", line)
++        self.assertIn("stale-since", line)
++        self.assertIn(answered[:12], line)
++
++    def test_no_recorded_commit_is_no_data_naming_the_absence(self):
++        self._commit_dossier()
++        verdict, line = self._verdict(self._run_design(), "staleness")
++        self.assertEqual(verdict, "NO-DATA", line)
++        self.assertIn("no commit its intake was answered against", line)
++
++    def test_a_current_dossier_is_unaffected(self):
++        head = self._commit_dossier()
++        before = self._verdict(self._run_design(), "artifacts")[1]
++        # Left UNCOMMITTED, same as TestDossierBindingScenario23._bind: HEAD
++        # stays exactly at `head`, so this isolates "the field was added" from
++        # "the tree moved on".
++        self._write("00-intake.json", json.dumps(
++            {"tier": "T1", "answers": self.B.ANSWERS, "answered_head": head},
++            indent=2, sort_keys=True))
++        out = self._run_design()
++        stale_verdict, stale_line = self._verdict(out, "staleness")
++        after = self._verdict(out, "artifacts")[1]
++        self.assertEqual(stale_verdict, "PASS", stale_line)
++        self.assertIn(head[:12], stale_line)
++        self.assertEqual(before, after,
++                         "adding answered_head to a current dossier must not move the "
++                         "artifacts check's own verdict line:\nbefore: %r\nafter:  %r"
++                         % (before, after))
++
++
+ class TestRenderSameNormalizesRawText(unittest.TestCase):
+     """could_render_same and name_sets_could_collide were safe only because
+     today's two call sites (tools/sbe_gate.py's approval check, reused by

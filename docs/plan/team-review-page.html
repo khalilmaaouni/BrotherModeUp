@@ -443,19 +443,19 @@ otherwise:                                     T0</pre></div>
 <table>
   <thead><tr><th>Stage</th><th>What is missing</th><th>Owner</th></tr></thead>
   <tbody>
-    <tr><td>G1 measurement</td><td>Nothing computes the five queue numbers that everyone agreed decide whether this worked. They were hand-counted once and cannot be recomputed.</td><td>reveal only</td></tr>
-    <tr><td>G2 acceptance</td><td>There is no accepted state. The last thing the system knows is that evidence passed, never that a person accepted the result.</td><td>assurance</td></tr>
-    <tr><td>G3 deployment</td><td>Evidence binds to a commit, never to what is running. This is exactly how a week of review went into a build generations behind, with no verdict noticing.</td><td>assurance</td></tr>
-    <tr><td>G4 defects</td><td>A bug fix cannot be entered as one. It must be described as new work, so an escaped defect leaves no trace in the table that should have caught it.</td><td>assurance</td></tr>
-    <tr><td>G5 after merge</td><td>No reopen, rollback or escaped defect is recorded against the change that caused it, so no tier can ever be compared with its real outcome.</td><td>assurance</td></tr>
-    <tr><td>G6 discovered work</td><td>A requirement that appears mid-build has no event. A rule added after a test sheet was generated leaves that sheet short one case, silently.</td><td>assurance</td></tr>
-    <tr><td>G7 concentration</td><td>23 changes waiting on one reviewer and 11 in one tester&rsquo;s column are invisible to the router, which selects by capability and prints no load.</td><td>reveal only</td></tr>
-    <tr><td>G8 duration</td><td>No change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side and 48 undated tasks compare to nothing.</td><td>assurance</td></tr>
-    <tr><td>G9 one writer</td><td>The single-writer control is inert in the assurance repository: roughly twenty legacy claim lines it cannot parse, each reported as not enforced.</td><td>assurance</td></tr>
+    <tr><td>H1 measurement</td><td>Nothing computes the five queue numbers that everyone agreed decide whether this worked. They were hand-counted once and cannot be recomputed.</td><td>reveal only</td></tr>
+    <tr><td>H2 acceptance</td><td>There is no accepted state. The last thing the system knows is that evidence passed, never that a person accepted the result.</td><td>assurance</td></tr>
+    <tr><td>H3 deployment</td><td>Evidence binds to a commit, never to what is running. This is exactly how a week of review went into a build generations behind, with no verdict noticing.</td><td>assurance</td></tr>
+    <tr><td>H4 defects</td><td>A bug fix cannot be entered as one. It must be described as new work, so an escaped defect leaves no trace in the table that should have caught it.</td><td>assurance</td></tr>
+    <tr><td>H5 after merge</td><td>No reopen, rollback or escaped defect is recorded against the change that caused it, so no tier can ever be compared with its real outcome.</td><td>assurance</td></tr>
+    <tr><td>H6 discovered work</td><td>A requirement that appears mid-build has no event. A rule added after a test sheet was generated leaves that sheet short one case, silently.</td><td>assurance</td></tr>
+    <tr><td>H7 concentration</td><td>23 changes waiting on one reviewer and 11 in one tester&rsquo;s column are invisible to the router, which selects by capability and prints no load.</td><td>reveal only</td></tr>
+    <tr><td>H8 duration</td><td>No change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side and 48 undated tasks compare to nothing.</td><td>assurance</td></tr>
+    <tr><td>H9 one writer</td><td>The single-writer control is inert in the assurance repository: roughly twenty legacy claim lines it cannot parse, each reported as not enforced.</td><td>assurance</td></tr>
   </tbody>
 </table>
 </div>
-<p><strong>Five of those are one hole seen five times.</strong> G1, G2, G3, G5 and G8 all say the same thing: the system is complete up to the merge and blind after it. Everything it knows is about whether a change was <em>proven</em>. Almost nothing it knows is about whether the change <em>worked</em>.</p>
+<p><strong>Five of those are one hole seen five times.</strong> H1, H2, H3, H5 and H8 all say the same thing: the system is complete up to the merge and blind after it. Everything it knows is about whether a change was <em>proven</em>. Almost nothing it knows is about whether the change <em>worked</em>.</p>
 <p>The pass also named what it found adequately covered, because a gap hunt that finds gaps everywhere has not hunted: design, single-person build execution, review routing and reviewer independence, test design, evidence execution, migration rollback, and handover between people.</p>
 
 <h2>Knowing when to stop and ask</h2>
