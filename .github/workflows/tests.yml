@@ -204,6 +204,14 @@ jobs:
         run: python3 tools/test_bm_effects.py
       - name: Stall detector suite
         run: python3 tools/test_bm_stall.py
+      # The escalation surface, landed at 707d80c by a concurrent session
+      # without either half of its registration. The local gate refused for
+      # the missing SUITES entry, and the moment that was added it refused
+      # again for this: a suite in the local gate and in no CI step is a
+      # claim tested on one machine and nowhere else. Both halves land
+      # together on 2026-08-16, which is the only shape that ever passes.
+      - name: Run the escalation suite
+        run: python3 tools/test_bm_escalate.py
       # The status line and footer links, the 2026-08-05 answer 7 named in
       # docs/program/absolute-lead/DESIGN-visual-surface.md section 14,
       # item 1: tools/bm_statusline.py is a fail silent script BrotherMode
