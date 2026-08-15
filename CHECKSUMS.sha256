@@ -157,6 +157,9 @@ bb7f20ed2321dfbab1fb022a3c9b9a9f0b958feb46e75a9e3a0fa85ff365f3cf  docs/decisions
 2131e05803ad2f00d055192c501358cb93924e346e6114f1accd68f262b8c631  docs/decisions/SESSION-2026-08-11-afternoon.md
 6675b3066d1afa5cb225039b6d611ab53cd9efc759eeb8eb50a6017cde3b28ef  docs/decisions/V3-FREEZE-2026-08-07.md
 6e34e1b2c77cac4fcbd668e04a8848f4ed084cce22f29df050ad532164297628  docs/decisions/architecture-refutation-2026-08-07.md
+8f657303ee596eaddb4a1f1b568b4d1ada78442d594c5205e571b5eb31da416d  docs/deltas/README.md
+82ce382e7ba5e9735ec6fe092391a99903182df5c23093d8962cce656a5d9e0b  docs/deltas/sbe-tier-split-superseded.patch
+443fa56727713fc4d879f3e988019e75d27412ad7925ccbb9a5842ad7c6ebad6  docs/deltas/sbe-unexamined-classes.patch
 bf2233ce667ff632491304cdd65ea46862c8ef55492dea20f00e65111f7d4c13  docs/design/CONNECTOR-MODEL-2026-08-12.md
 af4f31d8736e6e651a308bbc72ec0f9c62181fcbdb63406e9a4304bb78e58c49  docs/design/MEMORY-ARCHITECTURE-2026-08-12.md
 3bd88d1165fd1fba4e333152cfff75afb93cd255bf162f4b01f1b2f7bae9ee16  docs/design/ONE-CHANGE-IDENTIFIER-2026-08-12.md
