@@ -676,6 +676,110 @@
     "docs/plan/PARITY-READ-2026-08-15.md"
    ],
    "done_check": "a ratified ownership decision recorded in both repositories naming the single fence owner"
+  },
+  {
+   "id": "SBE1",
+   "title": "P1 The installed clone and the repository can disagree while both report VERSION 3.3.0; measured 22 commits of source skew with real differences in bm_store, bm_effects, bm_project, bm_toolkit, bm_sessionstart and write_sites. Every green gate binds to code that is not the code running the hooks. Stamp the git SHA into the installed tree and add a doctor check comparing it to the source tree",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "scripts/doctor.py",
+    "scripts/install.py"
+   ],
+   "done_check": "doctor names both SHAs and FAILs when they differ; proven by pointing it at two trees at different commits",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE2",
+   "title": "P1 The install suite copied the whole repository including .claude, which held 678 MB of agent worktrees on this machine, silently and untimed inside a 900 second silence budget; that starved three gate runs in one night while the same suite passed alone. Fix applied 2026-08-16 (ignore .claude, track the worktree ignore rule); this item is the VERIFICATION that a full gate under load no longer starves",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 20,
+   "files": [
+    "tools/test_install.py",
+    ".gitignore"
+   ],
+   "done_check": "a full gate run under comparable load completes with test_install reporting its real test count, quoted",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE3",
+   "title": "P2 The effects registry is a control only at gate time: no runtime caller imports bm_effects, so declared() never refuses an undeclared command in production. Call it at dispatch in brothermode_cli.py or record in KNOWN-LIMITS that it is a test-time control only",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/brothermode_cli.py",
+    "tools/bm_effects.py",
+    "docs/KNOWN-LIMITS.md"
+   ],
+   "done_check": "an undeclared command fails at runtime with the registry's own refusal, proven by a test that adds one",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE4",
+   "title": "P2 Three sources of truth for work items with no reconciliation: docs/plan/QUEUE.json, the store tasks table, and the prose plans. bm_idle's depth verdict is only as true as a hand-edited file. Make QUEUE.json a generated view of the store, or the store read the queue, one direction only",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "docs/plan/QUEUE.json",
+    "tools/bm_store.py",
+    "tools/bm_idle.py"
+   ],
+   "done_check": "one direction is authoritative and a check refuses divergence, proven by diverging them deliberately",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE5",
+   "title": "P2 bm_store.py is a god module: 19,132 lines, one Store class with 258 methods, about 50 tables spanning nine unrelated contexts, and its 0.10s import is paid by three separate processes on every Bash PreToolUse (measured Bash chain median 471ms, worst 853ms). Split the ownership and claims tables onto a small hook-path module, or collapse the three Bash hooks into one process; write the latency budget down first",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 180,
+   "files": [
+    "tools/bm_store.py",
+    "hooks/hooks.json",
+    "docs/PERFORMANCE.md"
+   ],
+   "done_check": "a written p90 hook budget exists and the measured chain meets it after the change",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE6",
+   "title": "P3 tools/bm_project_facts.py reads the SUITES registry by regex over source text, which is why test_all.py carries nine apostrophe warnings and has gone red once for exactly that. Replace with ast.literal_eval on the assignment node",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 25,
+   "files": [
+    "tools/bm_project_facts.py"
+   ],
+   "done_check": "the facts tool parses SUITES without regex and the apostrophe warnings are deleted; suites count unchanged, quoted",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE7",
+   "title": "P3 Registry drift across the install boundary is unchecked: write_sites.json differs between trees and toolkit_routes.json is absent from the installed clone entirely. Teach verify-install to compare or at least report the registries it ships",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 30,
+   "files": [
+    "scripts/verify-install.sh"
+   ],
+   "done_check": "verify-install names a missing or differing registry, proven against a tree with one removed",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
+  },
+  {
+   "id": "SBE8",
+   "title": "P4 Five STATE.md.bak files sit untracked at the repository root, inflating every tree copy the install suite makes. Delete them once no session is mid-recovery",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 10,
+   "files": [
+    "STATE.md"
+   ],
+   "done_check": "the repository root carries no .bak litter and the store still renders STATE.md",
+   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank"
   }
  ]
 }

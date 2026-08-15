@@ -49,3 +49,12 @@ Documentation/
 # is the unredacted prose. It is written for its owner, never for a shared
 # repository, so the generated name is ignored the same way.
 /EXPORT-*.json
+
+# Agent worktrees (2026-08-16). Claude Code creates .claude/worktrees/<agent>
+# for isolation-mode subagents, and on this machine they reached 678 MB. The
+# rule lived only in .git/info/exclude, which is local and untracked, so every
+# other clone and every CI checkout saw them as repository content. A
+# BrotherSBE architecture review found this coupling the same day it caused
+# three starved gate runs; tools/test_install.py's copytree now skips .claude
+# as well, and this line makes the ignore travel with the repository.
+.claude/worktrees/

@@ -692,9 +692,20 @@ class TestAwkwardPaths(InstallerCase):
         ~/.claude/skills/brothermode and runs the installer from there. Source
         and target are then the same place and nothing should be copied."""
         os.makedirs(os.path.dirname(self.target))
+        # ".claude" joined this list on 2026-08-16 after a BrotherSBE
+        # architecture review found the real cause of three starved gate runs
+        # in one night: .claude/worktrees held 678 MB of agent worktrees on
+        # this machine, and this copytree walked all of it, silently and
+        # untimed, inside a test method that then runs a 300 second
+        # subprocess. The 900 second silence budget was never the problem
+        # (the worst declared timeout here totals 360s); gate cost was
+        # coupled to local scratch volume, so the same suite passed alone
+        # and starved under load. An install fixture has no business
+        # carrying the client's own working directories.
         shutil.copytree(ROOT, self.target,
                         ignore=shutil.ignore_patterns(
-                            ".git", "__pycache__", ".brothermode", "threads"))
+                            ".git", "__pycache__", ".brothermode", "threads",
+                            ".claude"))
         r = subprocess.run(
             [sys.executable, os.path.join(self.target, "scripts", "install.py"),
              "--settings", self.settings],
