@@ -2474,6 +2474,11 @@ REFUSAL_HELP = {
         "your recorded approval does not match the thing being changed, "
         "so it would be used for something you did not agree to",
         "Approve this change on its own and I will act on that."),
+    "ambiguous-target": (
+        "erasing leftover notes from a project that is already gone",
+        "you named a project AND asked for all of them at once, and those "
+        "are two different jobs, so nothing was erased",
+        "Name one project, or ask for all of them, not both."),
     "bad-artifact-url": (
         "saving the link to your project page",
         "the link is not a secure web address, and anything else could "
@@ -2809,6 +2814,16 @@ REFUSAL_HELP = {
         "finding what you named",
         "there is no record with that name",
         "Ask for the status to see what is on record."),
+    "no-target": (
+        "erasing leftover notes from a project that is already gone",
+        "you did not say which project, and this erases things for good, "
+        "so it will not guess",
+        "Name the project, or ask for all of them."),
+    "not-orphan": (
+        "erasing leftover notes from a project that is already gone",
+        "that project still exists, so its notes are not leftovers and "
+        "this is the wrong tool for them",
+        "Erase the project itself if that is what you meant."),
     # L09 (2026-08-06): the authorisation narrowings landed four new codes.
     "no-run": (
         "finding the run to act on",
