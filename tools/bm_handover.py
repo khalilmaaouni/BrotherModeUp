@@ -986,10 +986,33 @@ def render_page(name, ctx, existing_region):
     This function never reparses that region's markers; it only decides
     whether to keep it as-is or manufacture a fresh default one (see
     _existing_human_region for why: reparsing is what used to lose human
-    bytes outside the first block, report finding F8)."""
+    bytes outside the first block, report finding F8).
+
+    SBE14: `header` is assembled from the store and the repository (record
+    names, claimed paths, verify() problems), most of it through _scrub
+    rather than bm_learning.safe_display, so unlike bm_docs.py and
+    bm_packs.py it does NOT strip an embedded newline out of a free-text
+    field first (report tools/PROBLEMS-2026-08-16.md's SBE14: a claimed
+    path, which is scrub-only rather than withheld, can legally hold one).
+    A newline lets a claimed path start a line of its own, and a line
+    that equals HUMAN_BEGIN would open what bs._redact_outside_human_
+    blocks (the funnel every write below routes through) reads as a REAL
+    human block, closed by the genuine one this page's own NOTES section
+    always ends in: everything between, structure and secrets alike,
+    would round-trip byte for byte instead of being redacted, and I10
+    correctly forbids the funnel from ever telling that content apart
+    from a human's own paragraph once it is in that position. So this
+    line is never allowed to reach the funnel un-neutralized: header is
+    the only untrusted part of this page (existing_region is either a
+    fresh, code-written default or the prior file's own already-written
+    tail), and neutralizing a marker-looking line here is exactly as
+    harmless as it is for the funnel's own generated bucket, since a
+    legitimate marker is never supposed to originate from this half."""
     lines = [GENERATED_NOTE, "", "# %s" % PAGE_TITLES[name], ""]
     lines.extend(STRUCT_BUILDERS[name](ctx))
     header = "\n".join(lines).rstrip("\n") + "\n"
+    header = "\n".join(bs._neutralize_stray_marker(l)
+                       for l in header.split("\n"))
     if existing_region is None:
         region_lines = [NOTES_HEADING, "", HUMAN_BEGIN]
         region_lines.extend(DEFAULT_HUMAN[name].split("\n"))

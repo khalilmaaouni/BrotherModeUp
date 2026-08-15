@@ -819,6 +819,21 @@ def render(root, store, cand, cites, deps, notes, alerts, human_blocks,
     w("Anything between the two markers survives every regeneration untouched. "
       "Write here rather than anywhere else in this file.")
     w("")
+    # SBE14 defense in depth: every value written into `lines` above reaches
+    # it through _d (which strips control characters, so a store field or a
+    # cited excerpt line, prefixed with its own line number, cannot start a
+    # line of its own) or is a fixed string this file wrote. It should
+    # therefore already contain no line equal to a human-block marker, but
+    # a future section that forgets to route a field through _d would
+    # otherwise let such a line open what bs._redact_outside_human_blocks
+    # reads as a real block, closed by the real markers the loop below
+    # writes, exempting everything between from redaction (I10 forbids the
+    # funnel from telling the difference once that happens). Neutralizing
+    # here, before those real markers exist, is the second lock on the
+    # same door bm_handover.py's render_page closes for real.
+    lines[:] = "\n".join(
+        bs._neutralize_stray_marker(l) for l in "\n".join(lines).split("\n")
+    ).split("\n")
     if not human_blocks:
         human_blocks = [""]
     for block in human_blocks:

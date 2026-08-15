@@ -1881,6 +1881,23 @@ class Generator(object):
             "",
         ]
         lines.extend(renderer())
+        # SBE14 defense in depth: every renderer() line here is already
+        # newline-free (they reach the page through _d/safe_display, which
+        # strips control characters precisely so a store field cannot start
+        # a line of its own, see test_a_store_field_containing_the_marker_
+        # cannot_forge_a_human_block), so this should never fire today. It
+        # is a second lock on the same door bm_handover.py's render_page
+        # closes for real (that generator's fields are scrub-only, not
+        # safe_display'd, and DO leak newlines): a future renderer() that
+        # forgets to route a field through _d would otherwise let a line
+        # equalling HUMAN_BEGIN open what bs._redact_outside_human_blocks
+        # reads as a real block, closed by _human_section's own real one
+        # below, exempting everything between from redaction (I10 forbids
+        # the funnel from telling the difference once that happens).
+        generated = "\n".join(lines)
+        generated = "\n".join(bs._neutralize_stray_marker(l)
+                              for l in generated.split("\n"))
+        lines = [generated]
         lines.extend(self._human_section())
         return "\n".join(lines).rstrip("\n") + "\n"
 
