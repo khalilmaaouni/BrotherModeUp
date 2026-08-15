@@ -1186,7 +1186,20 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # neighbour (the update check) lives in
                    # brothermode_cli.py, not here. SECURITY.md documents
                    # this beside the other three.
-                   "bm_continue.py": {"subprocess"}}
+                   "bm_continue.py": {"subprocess"},
+                   # bm_passport.py (the change-passport producer) runs
+                   # exactly one command, `git -C <root> config user.name`,
+                   # to answer the accountable-person field from a real
+                   # source rather than guessing it. A local config read:
+                   # no remote, no push, no fetch, and the shell half of
+                   # this same test below still bans every network verb.
+                   # It is here rather than reading ~/.gitconfig by hand
+                   # because git's own precedence (system, global,
+                   # conditional includes, repo-local) is the answer, and
+                   # reimplementing that parser to dodge an import would
+                   # be a worse trade than one named exception.
+                   # SECURITY.md documents this beside the other four.
+                   "bm_passport.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue

@@ -58,3 +58,12 @@ Documentation/
 # three starved gate runs; tools/test_install.py's copytree now skips .claude
 # as well, and this line makes the ignore travel with the repository.
 .claude/worktrees/
+
+# BrotherSBE's local session state (task declarations, evidence, and the
+# change-passport deposit tools/bm_passport.py writes). Neither tracked nor
+# ignored until 2026-08-15, which left it in the working tree where a
+# `git add -A` would sweep it into a commit: the deposit carries the
+# accountable person by name and absolute home paths, and this repository's
+# failure index already records an add-all incident. Local state, per
+# machine, never repository content.
+.sbe/

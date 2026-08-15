@@ -17,7 +17,8 @@ THE CONTRACT
   either set shows up in a diff:
 
     PLAN_GLOBS  -- docs/plan/*PLAN*.md, docs/plan/*WBS*.md, PLAN.md (root)
-    PAGE_GLOBS  -- docs/plan/*GANTT*.html, PROJECT-VIEW.html (root)
+    PAGE_GLOBS  -- docs/plan/*GANTT*.html, docs/plan/*BOARD*.html,
+                   PROJECT-VIEW.html (root)
 
   Exactly four real verdicts, one line each, then exit:
 
@@ -76,8 +77,18 @@ PLAN_GLOBS = (
 )
 
 #: Any ONE of these matching under the project root is the progress page.
+#: *BOARD* joined on 2026-08-15 because the control had gone blind to the
+#: real page: a session published docs/plan/NORTH-STAR-PUSH-BOARD.html,
+#: linked it from PROJECT.md as the project's stable artifact, and this
+#: check went on reporting OWED (stale) against a GANTT file three days
+#: older, because "board" is the word the founder actually uses and no
+#: pattern here matched it. A check that cannot see the page it exists to
+#: police is the failure class this repository files as "the sweep you
+#: wrote is not the control", so the pattern list widened rather than the
+#: page being renamed to satisfy the tool.
 PAGE_GLOBS = (
     "docs/plan/*GANTT*.html",
+    "docs/plan/*BOARD*.html",
     "PROJECT-VIEW.html",
 )
 
@@ -173,7 +184,8 @@ def check_status(root):
     if page_path is None:
         return ("OWED-MISSING", 1,
                 "progress page: OWED. Plan is ready at %s but no progress "
-                "page exists yet. Build docs/plan/*GANTT*.html or "
+                "page exists yet. Build docs/plan/*GANTT*.html, "
+                "docs/plan/*BOARD*.html or "
                 "PROJECT-VIEW.html so the founder can see where things "
                 "stand." % plan_rel)
 

@@ -1,0 +1,748 @@
+<title>The North Star Push</title>
+<style>
+  :root {
+    --paper: #F7F8F6;
+    --surface: #FFFFFF;
+    --sunk: #F1F3EF;
+    --ink: #141B22;
+    --ink-soft: #4A5560;
+    --ink-faint: #7C8791;
+    --rule: #DFE3DE;
+    --petrol: #0E7A6F;
+    --petrol-wash: #E7F1EF;
+    --missing: #9B3A2F;
+    --missing-wash: #F6E9E6;
+    --partial: #8A6410;
+    --partial-wash: #F5EEDC;
+    --human: #2C4A7C;
+    --human-wash: #E6ECF5;
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: Seravek, "Gill Sans Nova", Avenir, "Segoe UI", system-ui, sans-serif;
+    --mono: "SF Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #101720; --surface: #16202A; --sunk: #131C25; --ink: #E8ECE9;
+      --ink-soft: #AEB8C0; --ink-faint: #7E8A94; --rule: #26323D;
+      --petrol: #3AA893; --petrol-wash: #10302C;
+      --missing: #E0806F; --missing-wash: #341E1A;
+      --partial: #D6A94A; --partial-wash: #2E2716;
+      --human: #8FB0E0; --human-wash: #17233A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101720; --surface: #16202A; --sunk: #131C25; --ink: #E8ECE9;
+    --ink-soft: #AEB8C0; --ink-faint: #7E8A94; --rule: #26323D;
+    --petrol: #3AA893; --petrol-wash: #10302C;
+    --missing: #E0806F; --missing-wash: #341E1A;
+    --partial: #D6A94A; --partial-wash: #2E2716;
+    --human: #8FB0E0; --human-wash: #17233A;
+  }
+
+  body {
+    background: var(--paper); color: var(--ink); font-family: var(--body);
+    font-size: 17px; line-height: 1.6; margin: 0; padding: 0 5vw 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; }
+
+  header { padding: 3.5rem 0 1.6rem; border-bottom: 2px solid var(--ink); display: grid; gap: 0.75rem; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--petrol);
+  }
+  h1 {
+    font-family: var(--display); font-weight: 400; margin: 0;
+    font-size: clamp(2.2rem, 5.5vw, 3.4rem); line-height: 1.06;
+    letter-spacing: -0.015em; text-wrap: balance;
+  }
+  .standfirst { font-size: 1.08rem; color: var(--ink-soft); max-width: 44rem; margin: 0; }
+  .stamp {
+    font-family: var(--mono); font-size: 0.7rem; color: var(--ink-faint);
+    line-height: 1.7; padding-top: 0.3rem;
+  }
+  h2 {
+    font-family: var(--display); font-weight: 400; font-size: 1.5rem;
+    margin: 3rem 0 0.4rem; text-wrap: balance;
+  }
+  h2 .count {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em;
+    color: var(--ink-faint); text-transform: uppercase; margin-left: 0.6rem;
+    font-variant-numeric: tabular-nums;
+  }
+  h3 { font-family: var(--display); font-weight: 400; font-size: 1.1rem; margin: 0; }
+  p { max-width: 46rem; }
+  .lede { color: var(--ink-soft); margin-top: 0.2rem; }
+  a { color: var(--petrol); }
+  a:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+  code, .mono { font-family: var(--mono); font-size: 0.86em; }
+
+  /* North star callout */
+  .northstar {
+    margin: 2rem 0 0; background: var(--petrol-wash);
+    border-left: 4px solid var(--petrol); padding: 1.3rem 1.5rem;
+    display: grid; gap: 0.5rem;
+  }
+  .northstar .k {
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.13em;
+    text-transform: uppercase; color: var(--petrol);
+  }
+  .northstar p { margin: 0; font-size: 1.05rem; max-width: 48rem; }
+
+  /* At a glance */
+  .glance {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    margin: 1.6rem 0 0;
+  }
+  .glance > div { background: var(--surface); padding: 1.05rem 1.2rem; display: grid; gap: 0.35rem; align-content: start; }
+  .glance .k {
+    font-family: var(--mono); font-size: 0.63rem; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .glance .v { font-family: var(--display); font-size: 1.12rem; line-height: 1.25; }
+  .glance .n { font-variant-numeric: tabular-nums; }
+  .glance .sub { font-size: 0.86rem; color: var(--ink-soft); }
+  .glance .v.warn { color: var(--missing); }
+  .glance .v.hold { color: var(--human); }
+
+  /* Gantt */
+  .gantt { margin-top: 0.9rem; border: 1px solid var(--rule); background: var(--surface); }
+  .scroll { overflow-x: auto; }
+  .grid { min-width: 44rem; }
+  .grow {
+    display: grid; align-items: center;
+    border-bottom: 1px solid var(--rule);
+  }
+  .grow:last-child { border-bottom: 0; }
+  .g9  { grid-template-columns: 15rem repeat(9, 1fr); }
+  .g16 { grid-template-columns: 15rem repeat(16, 1fr); }
+  .grow.head { background: var(--sunk); }
+  .grow.head .lab, .grow.head .cell {
+    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-faint); padding: 0.5rem 0.3rem;
+    text-align: center;
+  }
+  .grow.head .lab { text-align: left; padding-left: 0.9rem; letter-spacing: 0.11em; }
+  .lab {
+    padding: 0.55rem 0.9rem; font-size: 0.88rem; line-height: 1.3;
+    border-right: 1px solid var(--rule); display: flex; gap: 0.5rem;
+    align-items: baseline; justify-content: space-between;
+  }
+  .lab .id { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-faint); }
+  .ctr {
+    font-family: var(--mono); font-size: 0.64rem; color: var(--ink-faint);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .track { grid-column: 2 / -1; display: grid; padding: 0.3rem 0; }
+  .track.t9  { grid-template-columns: repeat(9, 1fr); }
+  .track.t16 { grid-template-columns: repeat(16, 1fr); }
+  .bar {
+    height: 1.05rem; border-radius: 1px; display: flex; align-items: center;
+    justify-content: center; font-family: var(--mono); font-size: 0.58rem;
+    letter-spacing: 0.04em; color: var(--surface); overflow: hidden;
+    white-space: nowrap;
+  }
+  .bar.done { background: var(--petrol); }
+  .bar.sched {
+    background: repeating-linear-gradient(135deg,
+      var(--petrol) 0 4px, transparent 4px 8px);
+    border: 1px solid var(--petrol); color: var(--petrol);
+  }
+  .bar.est {
+    background: transparent; border: 1px dashed var(--ink-faint);
+    color: var(--ink-faint);
+  }
+  .bar.gate {
+    background: repeating-linear-gradient(135deg,
+      var(--human) 0 4px, transparent 4px 8px);
+    border: 1px solid var(--human); color: var(--human);
+  }
+  .bar.risk {
+    background: repeating-linear-gradient(135deg,
+      var(--missing) 0 4px, transparent 4px 8px);
+    border: 1px solid var(--missing); color: var(--missing);
+  }
+  .weekend { background: var(--sunk); }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.35rem 1.3rem; margin-top: 0.7rem;
+    font-family: var(--mono); font-size: 0.66rem; color: var(--ink-faint);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .sw { width: 1.4rem; height: 0.7rem; display: inline-block; }
+  .sw.done { background: var(--petrol); }
+  .sw.sched { background: repeating-linear-gradient(135deg, var(--petrol) 0 4px, transparent 4px 8px); border: 1px solid var(--petrol); }
+  .sw.est { border: 1px dashed var(--ink-faint); }
+  .sw.gate { background: repeating-linear-gradient(135deg, var(--human) 0 4px, transparent 4px 8px); border: 1px solid var(--human); }
+
+  /* Cards */
+  .cards { display: grid; gap: 1rem; margin-top: 1.2rem; }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--human); padding: 1.1rem 1.3rem;
+    display: grid; gap: 0.45rem;
+  }
+  .card .q { font-family: var(--display); font-size: 1.12rem; }
+  .card .why { color: var(--ink-soft); margin: 0; font-size: 0.95rem; }
+  .card .rec {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--human);
+    letter-spacing: 0.04em;
+  }
+  .card.recorded { border-left-color: var(--petrol); }
+  .card.recorded .rec { color: var(--petrol); }
+
+  /* Risk */
+  .risks { display: grid; gap: 0.9rem; margin-top: 1.1rem; }
+  .riskitem {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 4px solid var(--missing); padding: 1rem 1.25rem;
+    display: grid; gap: 0.35rem;
+  }
+  .riskitem.warnlevel { border-left-color: var(--partial); }
+  .riskitem.info { border-left-color: var(--petrol); }
+  .riskitem .t { font-family: var(--display); font-size: 1.08rem; }
+  .riskitem dl { margin: 0; display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.2rem 0.9rem; }
+  .riskitem dt {
+    font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint); padding-top: 0.25rem;
+  }
+  .riskitem dd { margin: 0; color: var(--ink-soft); font-size: 0.94rem; }
+
+  /* Ledger */
+  .phase { margin-top: 1.6rem; }
+  .phasehead {
+    display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--ink-soft);
+  }
+  .phasehead .name { font-family: var(--display); font-size: 1.2rem; }
+  .chip {
+    font-family: var(--mono); font-size: 0.63rem; letter-spacing: 0.08em;
+    padding: 0.18rem 0.45rem; border: 1px solid currentColor;
+    color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  }
+  .chip.on { color: var(--petrol); background: var(--petrol-wash); }
+  .boxes { display: grid; gap: 0.5rem; margin-top: 0.7rem; }
+  .box {
+    background: var(--surface); border: 1px solid var(--rule);
+    padding: 0.8rem 1rem; display: grid;
+    grid-template-columns: 1.4rem 1fr; gap: 0 0.7rem;
+  }
+  .box .tick {
+    font-family: var(--mono); font-size: 0.9rem; line-height: 1.4;
+    color: var(--ink-faint);
+  }
+  .box.ticked { border-left: 3px solid var(--petrol); }
+  .box.ticked .tick { color: var(--petrol); }
+  .box .what { font-size: 0.95rem; }
+  .box .what strong { font-weight: 600; }
+  .box .meta {
+    grid-column: 2; font-family: var(--mono); font-size: 0.66rem;
+    color: var(--ink-faint); margin-top: 0.3rem; letter-spacing: 0.03em;
+  }
+  .box .check {
+    grid-column: 2; margin-top: 0.4rem; font-family: var(--mono);
+    font-size: 0.72rem; color: var(--ink-soft); background: var(--sunk);
+    padding: 0.4rem 0.6rem; border-left: 2px solid var(--rule);
+    overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .box.ticked .check { border-left-color: var(--petrol); color: var(--ink); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin-top: 0.6rem; }
+  th, td { text-align: left; padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-faint);
+    border-bottom: 1px solid var(--ink-soft);
+  }
+  td:first-child { font-family: var(--mono); font-size: 0.78rem; white-space: nowrap; }
+  .tag {
+    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.06em;
+    padding: 0.12rem 0.35rem; border: 1px solid currentColor;
+    text-transform: uppercase; white-space: nowrap;
+  }
+  .tag.none { color: var(--missing); background: var(--missing-wash); }
+  .tag.part { color: var(--partial); background: var(--partial-wash); }
+  .tag.good { color: var(--petrol); background: var(--petrol-wash); }
+
+  footer {
+    margin-top: 3.5rem; padding-top: 1.3rem; border-top: 2px solid var(--ink);
+    font-size: 0.9rem; color: var(--ink-faint);
+  }
+  footer p { max-width: 46rem; }
+
+  @media (max-width: 700px) {
+    .lab { font-size: 0.8rem; }
+    .g9  { grid-template-columns: 9rem repeat(9, 1fr); }
+    .g16 { grid-template-columns: 9rem repeat(16, 1fr); }
+    .riskitem dl { grid-template-columns: 1fr; }
+    .riskitem dt { padding-top: 0.5rem; }
+  }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">BrotherMode and BrotherSBE, two weeks</div>
+  <h1>The North Star Push</h1>
+  <p class="standfirst">Connect the two products at one seam, get the install into other people's hands, and close the loop after the merge. Everything else waits.</p>
+  <div class="stamp">
+    Refreshed 2026-08-15 21:45 JST by the Opus 5 planning session, holding the baton.<br>
+    TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages count records, never impressions.<br>
+    STATUS: RATIFIED. Eight decisions answered 2026-08-15 and recorded in the store against work record e082b639. Build started the same night.
+  </div>
+</header>
+
+<div class="northstar">
+  <div class="k">North star</div>
+  <p>Human intent, then whatever method the team already uses, then BrotherMode for execution provenance, then the change passport as the only seam, then BrotherSBE's eight concerns, then a human decision, release, and <strong>verified reality</strong>. The chain ends in observed reality, never in a green verdict.</p>
+  <p class="mono" style="font-size:0.8rem;color:var(--ink-soft);margin-top:0.3rem">Measured against it today: 4 of 14 stages working, 5 partial, 5 do not exist. The 5 missing are consecutive, and they are the ones after the merge.</p>
+</div>
+
+<h2>At a glance</h2>
+<div class="glance">
+  <div>
+    <span class="k">Now</span>
+    <span class="v">Build the passport producer</span>
+    <span class="sub">The consumer is already written in the sibling repo. Only our half is missing, and it unlocks the tester's list of what nobody checked.</span>
+  </div>
+  <div>
+    <span class="k">Waiting on Khalil</span>
+    <span class="v hold">Bitbucket seats</span>
+    <span class="sub">All eight decisions are answered. One task is left that only you can do: clear the workspace to five seats, which unblocks every Bitbucket check on this board.</span>
+  </div>
+  <div>
+    <span class="k">Risk watch</span>
+    <span class="v warn">Zero external installs</span>
+    <span class="sub">You scored market proof 1 of 10. Nothing in the last fortnight moved that number off zero.</span>
+  </div>
+  <div>
+    <span class="k">Forecast</span>
+    <span class="v">Moves A and B by Sun 23</span>
+    <span class="sub">Medium confidence. Assumes the P0 defects hold to one day each and that no tester slips. Move C by Sun 30, low confidence, it depends on your answers.</span>
+  </div>
+</div>
+
+<h2>Short range <span class="count">today to Sun 23 Aug</span></h2>
+<p class="lede">The seam, the install, and the three defects that are wrong today. One row per work item, its counter showing done over total sub-steps.</p>
+<div class="gantt scroll"><div class="grid">
+  <div class="grow head g9">
+    <div class="lab">Work item</div>
+    <div class="cell">Sat 15</div><div class="cell">Sun 16</div><div class="cell">Mon 17</div>
+    <div class="cell">Tue 18</div><div class="cell">Wed 19</div><div class="cell">Thu 20</div>
+    <div class="cell">Fri 21</div><div class="cell">Sat 22</div><div class="cell">Sun 23</div>
+  </div>
+
+  <div class="grow g9">
+    <div class="lab"><span>Analysis and this board <span class="id">T1</span></span><span class="ctr">3/4</span></div>
+    <div class="track t9"><div class="bar done" style="grid-column:1/2">shipped</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Your six decisions <span class="id">T2</span></span><span class="ctr">0/6</span></div>
+    <div class="track t9"><div class="bar gate" style="grid-column:1/3">you</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Retire two overclaims <span class="id">T3</span></span><span class="ctr">0/2</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:1/2">haiku</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Passport producer <span class="id">W1</span></span><span class="ctr">0/5</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:3/5">sonnet, opus reviews</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Ship the consumer <span class="id">W2</span></span><span class="ctr">0/3</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:4/6">sonnet</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>One real change, end to end <span class="id">W3</span></span><span class="ctr">0/4</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:5/7">opus, orchestrated</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>The install shape <span class="id">W4</span></span><span class="ctr">0/4</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:3/6">sonnet</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Three P0 erasure defects <span class="id">W5</span></span><span class="ctr">0/3</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:3/7">3 worktrees, opus verifies</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Break the tier collision <span class="id">W6</span></span><span class="ctr">0/3</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:6/8">haiku</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Assurance reads the store <span class="id">W7</span></span><span class="ctr">0/3</span></div>
+    <div class="track t9"><div class="bar sched" style="grid-column:6/9">opus, then sonnet</div></div>
+  </div>
+  <div class="grow g9">
+    <div class="lab"><span>Tester pack to the analyst lead and the engineering lead <span class="id">W8</span></span><span class="ctr">0/2</span></div>
+    <div class="track t9"><div class="bar gate" style="grid-column:7/10">you, plus their machines</div></div>
+  </div>
+</div></div>
+<div class="legend">
+  <span><i class="sw done"></i> done, with its check quoted</span>
+  <span><i class="sw sched"></i> scheduled, agent tier named</span>
+  <span><i class="sw gate"></i> waiting on a person</span>
+  <span><i class="sw est"></i> estimate only</span>
+</div>
+
+<h2>Long range <span class="count">today to Sun 30 Aug, and what sits past it</span></h2>
+<p class="lede">The three moves. Each unlocks the next, which is why they do not run in parallel.</p>
+<div class="gantt scroll"><div class="grid">
+  <div class="grow head g16">
+    <div class="lab">Move</div>
+    <div class="cell">15</div><div class="cell">16</div><div class="cell">17</div><div class="cell">18</div>
+    <div class="cell">19</div><div class="cell">20</div><div class="cell">21</div><div class="cell">22</div>
+    <div class="cell">23</div><div class="cell">24</div><div class="cell">25</div><div class="cell">26</div>
+    <div class="cell">27</div><div class="cell">28</div><div class="cell">29</div><div class="cell">30</div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>A. Connect, the passport seam <span class="id">W1 to W3, W7</span></span><span class="ctr">0/15</span></div>
+    <div class="track t16"><div class="bar sched" style="grid-column:3/10">producer, consumer, one real change</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>B. Install, proof in other hands <span class="id">W4, W8</span></span><span class="ctr">0/6</span></div>
+    <div class="track t16"><div class="bar sched" style="grid-column:3/7">install shape</div><div class="bar gate" style="grid-column:7/12">testers</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>Correctness debt, P0 and the tier word <span class="id">W5, W6</span></span><span class="ctr">0/6</span></div>
+    <div class="track t16"><div class="bar sched" style="grid-column:3/8">erasure, redaction, naming</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>C. Close the loop after the merge <span class="id">W9 to W11</span></span><span class="ctr">0/9</span></div>
+    <div class="track t16"><div class="bar sched" style="grid-column:10/16">acceptance, outcome, evidence fields</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>Two-host parity for assurance <span class="id">W12, W13</span></span><span class="ctr">0/5</span></div>
+    <div class="track t16"><div class="bar sched" style="grid-column:10/14">provider-neutral origin</div><div class="bar risk" style="grid-column:14/17">blocked on seats</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>Decorrelation and stage backfill <span class="id">W14, W15</span></span><span class="ctr">0/4</span></div>
+    <div class="track t16"><div class="bar est" style="grid-column:13/17">estimate</div></div>
+  </div>
+  <div class="grow g16">
+    <div class="lab"><span>Past this window: envelope, risk engine, provider contract</span><span class="ctr">0/18</span></div>
+    <div class="track t16"><div class="bar est" style="grid-column:16/17">Sep</div></div>
+  </div>
+</div></div>
+<div class="legend">
+  <span><i class="sw done"></i> done</span>
+  <span><i class="sw sched"></i> scheduled</span>
+  <span><i class="sw gate"></i> waiting on a person</span>
+  <span><i class="sw est"></i> estimate, not committed</span>
+  <span>hatched red: blocked by something outside our control</span>
+</div>
+
+<h2>The one thing still waiting on you <span class="count">1</span></h2>
+<div class="cards">
+  <div class="card">
+    <div class="q">Clear the Bitbucket workspace to five seats</div>
+    <p class="why">The workspace exceeded its user limit, so every push is refused and the Bitbucket half of every two-host check is BLOCKED rather than merely unverified. Seat removal needs your hand in Safari or an app password with workspace admin scope. This session has git access over SSH only, which cannot manage members. The workspace is disposable and holds no real work, so nothing is at risk in clearing it.</p>
+    <p class="rec">UNBLOCKS: W12 and W13, and the honest close of the UNVERIFIED labels in docs/BITBUCKET.md.</p>
+  </div>
+</div>
+
+<h2>Decisions you took tonight <span class="count">8, recorded in the store</span></h2>
+<p class="lede">Each is recorded against work record e082b639 with its alternatives and its flip condition, so none of them has to be re-litigated later.</p>
+<div class="cards">
+  <div class="card recorded">
+    <div class="q">Evidence: we produce it, they judge whether it is still fresh</div>
+    <p class="why">Resolves the contradiction between your two vision documents. Only the assurance side sees the head revision of every bound pull request, so only it can say whether evidence has gone stale.</p>
+    <p class="rec">REJECTED: BrotherMode owns both (cannot see pull request heads). BrotherSBE owns both (breaks the provenance claim that is our whole job).</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">The passport is built first, the envelope grows out of it</div>
+    <p class="why">The consumer already exists and is tested, so only our half is missing. Building the envelope first means building both sides from nothing and wasting a tested consumer.</p>
+    <p class="rec">FLIP CONDITION: two teams on different methods needing to exchange passports is what turns the seam into a schema.</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">the analyst lead and the engineering lead get the install this week, the passport next week</div>
+    <p class="why">Two contacts answering two different questions: is the cold install survivable, and does knowing what was not checked change how their tester works. Neither waits on the other.</p>
+    <p class="rec">REJECTED: one combined handover (install count stays at zero another week), everything now (they meet the unfixed install first).</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">I may write in the sibling repository, after checking nobody else is</div>
+    <p class="why">Before any write there I check its state and recent commits, and stop and tell you rather than folding into a tree another session is mutating. That exact failure is what stranded four finished patches in the transfer pack.</p>
+    <p class="rec">REJECTED: writing freely, and producing patches only (which would leave the seam broken at one end).</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">The blocking merge check gets built, and ships switched off</div>
+    <p class="why">Your call, taken against this session's recommendation, which was to not build it in this window. Recorded that way rather than quietly adopted. It is scheduled AFTER the two moves you also endorsed for this fortnight, so it does not start in the 15 to 30 August window.</p>
+    <p class="rec">THE COST, stated plainly: it is a fortnight of work aimed past the seam and the install, and it lands on foundations that are not yet proven.</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">The hosted team plane is cut, not deferred quietly</div>
+    <p class="why">Fifteen packages ending in availability targets, role-based access, retention and thirty-minute recovery. That is a company to operate, staffed by nobody. For two to fifteen people the envelope can be a hashed file in the repository.</p>
+    <p class="rec">FLIP CONDITION: two engineers needing a verdict on the same change within seconds, or a host webhook needing somewhere to arrive.</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">The delivery contract asks three questions at low risk, not eleven</div>
+    <p class="why">Kill criteria, spend ceiling, time ceiling and non-goals typed by hand for a trivial change is a form, and your own vision says to inspect before interrogating. Outcome, acceptance criteria and risks are the three that change what happens.</p>
+    <p class="rec">FLIP CONDITION: a change at the top risk tier, where all eleven are required again.</p>
+  </div>
+  <div class="card recorded">
+    <div class="q">The change identifier is derived from the branch name, never typed</div>
+    <p class="why">The blueprint wants 98 percent governed-change coverage while its own lowest tier requires no evidence at all. Asking for an identifier on trivial work returns nothing. If it cannot be derived, the work is ungoverned, and at the lowest tier that is fine.</p>
+    <p class="rec">FLIP CONDITION: a team whose branch names carry no identifier at all.</p>
+  </div>
+</div>
+
+<h2>Risk management, insights and alerts <span class="count">5</span></h2>
+<div class="risks">
+  <div class="riskitem">
+    <div class="t">The assurance product has never been switched on in this repository</div>
+    <dl>
+      <dt>What</dt><dd>Two findings, and the second explains the first. <code>sbe status</code> here reports NO-DATA on every store, and <code>sbe fences</code> prints 52 lines each saying it did not enforce anything. Then <code>sbe doctor</code> returned FAIL with the reason: "<code>.brothersbe/config.json</code> is missing: this repository has never run <code>sbe init</code>, so BrotherSBE's main capability (dossiers, gates, evidence) cannot run here."</dd>
+      <dt>Why</dt><dd>Every NO-DATA traces to one missing setup step, not to a deep defect. Separately and still true: <code>sbe fences</code> is parsing STATE.md, which BrotherMode's own store contract calls a generated view, never hand-edited truth. It reads the printed page instead of asking the database, and that half is a real design fault rather than a missing step.</dd>
+      <dt>Action</dt><dd>A new prerequisite nobody had written down: run <code>sbe init</code> here before W3, because a change cannot travel the seam end to end while one end has no state to write into. Then W7 fixes the deeper half, so assurance asks the store through its API.</dd>
+      <dt>When</dt><dd>The init step before W3 next week. W7 designed Thu 20, built Fri 21.</dd>
+    </dl>
+  </div>
+  <div class="riskitem">
+    <div class="t">One word means two different things across the seam</div>
+    <dl>
+      <dt>What</dt><dd>BrotherMode's tier is effort: T1 is one session, T3 is a fleet. BrotherSBE's tier is risk: T0 to T3 from five intake answers. The same STATE.md lines carrying "Tier T1" are what assurance parses.</dd>
+      <dt>Why</dt><dd>A change marked T2 for fleet size can be read as money-touching risk, or the reverse. This is the kind of defect that produces a confident wrong verdict rather than an error.</dd>
+      <dt>Action</dt><dd>W6 renames BrotherMode's effort tiers to E1, E2, E3 and leaves risk tiers alone.</dd>
+      <dt>When</dt><dd>Thu 20.</dd>
+    </dl>
+  </div>
+  <div class="riskitem">
+    <div class="t">Two sessions are on one brief, and the sibling one is stalled</div>
+    <dl>
+      <dt>What</dt><dd>Checked 2026-08-15 21:57 before any write to the sibling repository: a commit 75 minutes old, and an untracked page another session wrote tonight, titled "Product grade planning: the four dispatch briefs, written and refused". Its own status line reads BLOCKED at dispatch, not at design, because the spend guard refused all four of its subagent dispatches.</dd>
+      <dt>Why</dt><dd>Both sessions were given the same brief across the two repositories. Folding into a tree another session is mutating is precisely what stranded four finished patches in the transfer pack, so this session stopped rather than wrote.</dd>
+      <dt>Action</dt><dd>W2 does not happen tonight, and the seam stays open at the assurance end. One owner has to hold that repository before its half lands. Founder call, and it is the second thing on his list after the Bitbucket seats.</dd>
+      <dt>When</dt><dd>Blocks W2, W12 and the four stranded patches until resolved.</dd>
+    </dl>
+  </div>
+  <div class="riskitem warnlevel">
+    <div class="t">The documented install is the one that breaks the identity check</div>
+    <dl>
+      <dt>What</dt><dd>QUICKSTART line 109 tells a new person to clone straight into the skills folder. Hooks do load that way, and this session proved it. But nothing registers the plugin and nothing writes the identity stamp, so <code>doctor</code> check 11 can only ever say SKIP.</dd>
+      <dt>Why</dt><dd>A built, correctly designed control that can never reach a verdict on the shape people actually use. It is not a missing check, it is a mute one.</dd>
+      <dt>Action</dt><dd>W4 makes the supported install register the plugin and write the stamp, then rewrites that line.</dd>
+      <dt>When</dt><dd>Mon 17 to Wed 19.</dd>
+    </dl>
+  </div>
+  <div class="riskitem warnlevel">
+    <div class="t">Two of our own claims are now unearned, and one sends people the wrong way</div>
+    <dl>
+      <dt>What</dt><dd>The problems list carries a 22-commit install skew as a live P1. Measured tonight: zero differing files. It is closed. Separately, single-writer enforcement is graded certified, which that file itself defines as proven in this tree, not on an install.</dd>
+      <dt>Why</dt><dd>A closed defect listed as open sends a reader to fix nothing while the open one sits beside it. Our whole argument is evidence culture, so our own stale claims cost more than someone else's would.</dd>
+      <dt>Action</dt><dd>T3 tonight, and it is the cheapest item on the board.</dd>
+      <dt>When</dt><dd>Tonight.</dd>
+    </dl>
+  </div>
+  <div class="riskitem info">
+    <div class="t">The moat is real, and it has a shelf life</div>
+    <dl>
+      <dt>What</dt><dd>Checked live today: nobody in the Claude ecosystem ships enforced single-writer file ownership, a handover close check that refuses a hollow pack, or forecast calibration that prints NO-DATA. Anthropic's own agent-teams documentation tells users to avoid same-file conflicts by convention.</dd>
+      <dt>Why</dt><dd>But Anthropic's Claude Security plugin already ships verification over an agent's own work, with independent verifier agents and a revision-stamp provenance file. That is our pattern, first-party, scoped to security findings. The general case will not stay open.</dd>
+      <dt>Action</dt><dd>Spend the window on the seam and on installs, not on new engine depth. Depth we already have; distribution we do not.</dd>
+      <dt>When</dt><dd>Both weeks.</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>The ledger</h2>
+<p class="lede">Every item, its stage on the chain, its agent tier, and the check that decides it. Open boxes carry the check they must pass. Ticked boxes carry the output that was quoted.</p>
+
+<div class="phase">
+  <div class="phasehead">
+    <span class="name">Tonight, Saturday 15 August</span>
+    <span class="chip on">1/4 ticked</span>
+    <span class="chip">stage: intent, evidence integrity</span>
+  </div>
+  <div class="boxes">
+    <div class="box ticked">
+      <div class="tick">&#10003;</div>
+      <div class="what"><strong>T1. The analysis, the benchmark and this board.</strong> Six read-only agents, tiers declared per brief, two of their findings corrected by verification rather than accepted.</div>
+      <div class="meta">stage: intent &middot; tier: this session &middot; files: docs/plan/NORTH-STAR-PUSH-2026-08-15.md, this page</div>
+      <div class="check">python3 scripts/doctor.py
+11 of 12 proven, 1 skipped, 0 failed.</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>T2. Your six decisions.</strong> Recorded in the store as decisions with their alternatives, not left in chat.</div>
+      <div class="meta">stage: human decision &middot; tier: founder</div>
+      <div class="check">check: each answer recorded as a decision with its alternatives and flip condition</div>
+    </div>
+    <div class="box ticked">
+      <div class="tick">&#10003;</div>
+      <div class="what"><strong>T3. Retire the two overclaims.</strong> SBE1 moved from live P1 to CLOSED with the measuring command quoted in the file, and the P1 heading now reads three rather than four. Single-writer enforcement dropped from certified to beta, and the generated capability blocks in the readme and the roadmap moved with it, because that mapping is code rather than judgement.</div>
+      <div class="meta">stage: evidence integrity &middot; tier: haiku, in an isolated worktree &middot; files: docs/plan/PROBLEMS-2026-08-16.md, capabilities.status.json, README.md, docs/ROADMAP.md</div>
+      <div class="check">python3 tools/test_bm_docs.py   (run on the MAIN TREE, after the delta was folded)
+Ran 230 tests in 28.169s
+OK (skipped=1)
+
+The agent's own run of the same suite, 38.699s, happened inside its worktree BEFORE the fold, so it does not satisfy the tick contract and is not what this box quotes. The full gate has NOT yet run against this tree, and CHECKSUMS.sha256 is stale until it is regenerated after the adds.</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>T4. Commit and push.</strong> Manifest regenerated after the adds, per the rule that skipping it leaves doctor check 9 failing and no test catches it.</div>
+      <div class="meta">stage: provenance &middot; tier: this session</div>
+      <div class="check">check: full gate exit 0 quoted, then sh scripts/checksums.sh CHECKSUMS.sha256, HEAD equals upstream</div>
+    </div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phasehead">
+    <span class="name">Move A, connect the seam</span>
+    <span class="chip">0/4 ticked</span>
+    <span class="chip">stage: change passport, provenance</span>
+  </div>
+  <div class="boxes">
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W1. The passport producer.</strong> A new tool writing the three fields execution owns: who did it by name, the method named and not judged, and what execution knows was left undone.</div>
+      <div class="meta">stage: change passport &middot; tier: sonnet builds, strongest reviews &middot; files: tools/bm_passport.py, tools/test_bm_passport.py, the suite registry</div>
+      <div class="check">check: sbe_passport.py --root . --json reads 5 of 5 carried, and field 4 no longer says field 2 is not established</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W2. Ship the consumer.</strong> It is written and tested in the sibling source repository and absent from the installed build, so the seam has one side that nobody can reach.</div>
+      <div class="meta">stage: change passport &middot; tier: sonnet</div>
+      <div class="check">check: the passport command answers from the installed plugin, not the source tree, exit 0</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W3. One real change, carried end to end.</strong> Not a fixture. A real commit range through both products, producing one passport whose fourth field is honest.</div>
+      <div class="meta">stage: change passport &middot; tier: strongest, orchestrated</div>
+      <div class="check">check: the passport for a named commit range, quoted, field 4 non-empty</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W7. Assurance asks the store.</strong> Reframes the ownership overlap: the question is not which fence hook survives, it is that one product is parsing the other's generated view.</div>
+      <div class="meta">stage: provenance &middot; tier: strongest designs, sonnet builds</div>
+      <div class="check">check: sbe fences here prints zero unparseable lines, or an honest NO-DATA naming the store API</div>
+    </div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phasehead">
+    <span class="name">Move B, proof in other hands</span>
+    <span class="chip">0/2 ticked</span>
+    <span class="chip">stage: method, verified reality</span>
+  </div>
+  <div class="boxes">
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W4. The install shape.</strong> The supported install registers the plugin and writes its identity stamp, and the quickstart stops recommending the shape that does neither.</div>
+      <div class="meta">stage: development method &middot; tier: sonnet &middot; files: scripts/install.py, .claude-plugin/plugin.json, docs/QUICKSTART.md</div>
+      <div class="check">check: doctor check 11 moves from SKIP to PASS on a fresh install, and the plugin registry lists brothermode</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W8. The tester pack reaches the analyst lead and the engineering lead.</strong> The number you scored 1 of 10 has never had a numerator.</div>
+      <div class="meta">stage: verified reality &middot; tier: founder-gated</div>
+      <div class="check">check: an install transcript on disk from a machine that is not this one</div>
+    </div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phasehead">
+    <span class="name">Correctness debt, taken before it compounds</span>
+    <span class="chip">0/2 ticked</span>
+    <span class="chip">stage: evidence integrity, provenance</span>
+  </div>
+  <div class="boxes">
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W5. Three P0 defects, all in erasure and redaction.</strong> Redaction can be switched off by the text it redacts. A purge crashes on any project whose receipt names a task. A purge leaves behind the tables holding raw unscrubbed prose.</div>
+      <div class="meta">stage: evidence integrity &middot; tier: sonnet each in its own worktree, strongest verifies adversarially</div>
+      <div class="check">check: each documented reproduction fails to reproduce, with the attempt quoted, not reasoned about</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W6. The tier word means two things.</strong> Effort becomes E1, E2, E3 on our side; risk tiers keep their names.</div>
+      <div class="meta">stage: provenance &middot; tier: haiku sweeps, strongest reviews</div>
+      <div class="check">check: no bare "Tier T" survives in a rendered STATE.md, and both products' docs disambiguate</div>
+    </div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phasehead">
+    <span class="name">Move C, close the loop after the merge</span>
+    <span class="chip">0/5 ticked</span>
+    <span class="chip">stage: human decision, verified reality</span>
+  </div>
+  <div class="boxes">
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W9. The acceptance record.</strong> Today the system can ask a person well and still cannot say afterwards who said yes.</div>
+      <div class="meta">stage: human decision &middot; tier: sonnet builds, strongest reviews</div>
+      <div class="check">check: an accepted change names its accepting person and the criteria it was accepted against</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W10. The post-merge outcome recorder.</strong> Four observables, none of them opinions: no material reopen in seven days, no rollback or emergency fix, the acceptance held, the team's own queue numbers moved or did not.</div>
+      <div class="meta">stage: verified reality &middot; tier: strongest designs, sonnet builds</div>
+      <div class="check">check: one merged change reports all four, or an explicit NO-DATA per observable</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W11. Evidence gains the fields that make freshness possible.</strong> Today our evidence row has no revision, no digest, no producer and no result.</div>
+      <div class="meta">stage: evidence integrity &middot; tier: sonnet</div>
+      <div class="check">check: evidence cannot be recorded fresh without an exact repository and revision</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W12. Assurance stops assuming GitHub.</strong> Its pull-request verification hardcodes the GitHub API, its protections shell out to the GitHub CLI, and its build-origin detection reads GitHub environment variables. That last one feeds passport field 3, so the seam inherits the assumption.</div>
+      <div class="meta">stage: evidence integrity &middot; tier: sonnet builds, strongest reviews</div>
+      <div class="check">check: a Bitbucket pipeline run produces a receipt whose origin is the build system, not "not established"</div>
+    </div>
+    <div class="box">
+      <div class="tick">&#9633;</div>
+      <div class="what"><strong>W14 and W15. The planner is not the final verifier, and the backlog names its stages.</strong> The first is a genuine new control your blueprint specifies and this repo does not enforce. The second closes 74 items that name no stage.</div>
+      <div class="meta">stage: required proof, intent &middot; tier: strongest, then haiku</div>
+      <div class="check">check: a review whose verifier shares the planner's context is refused, with a test; and bm_idle reports zero unstaged items or names each survivor</div>
+    </div>
+  </div>
+</div>
+
+<h2>How the the adopter team team's complaints map onto this <span class="count">14 recorded</span></h2>
+<p class="lede">Nine of the fourteen belong to the assurance product, two to us, two to both, one to the adopter team itself. Four of them are answered by a single object.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Raised</th><th>The complaint</th><th>Where it lands</th><th>State</th></tr></thead>
+  <tbody>
+    <tr><td>the senior reviewer, the engineering lead</td><td>Decisions ended up in commit messages, so we pay twice</td><td>Passport fields 1 and 2</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>the engineering lead</td><td>Trust evidence produced by the build system, not somebody's laptop</td><td>Passport field 3, and W12</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>the engineering lead</td><td>Evidence with one check passes exactly as green as evidence with all of them</td><td>Passport field 4</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>whole team, live run</td><td>The PROVE step checks documents exist, not that the build matches the design</td><td>Passport field 4</td><td><span class="tag none">unaddressed</span></td></tr>
+    <tr><td>the non-developer reviewer</td><td>Python and the CLI missing, the command not on the Windows path, solved alone</td><td>W4, and the documented WSL path</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>whole team</td><td>We use Bitbucket, not GitHub</td><td>Shipped our side, W12 and W13 theirs</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>the engineering lead, the analyst lead</td><td>Fifty point-in-time designs after a year, none describing the system</td><td>W11 freshness fields</td><td><span class="tag none">planned</span></td></tr>
+    <tr><td>the analyst lead, the QA lead</td><td>A green gate under-represents how much checking remains</td><td>Passport field 4, and W10</td><td><span class="tag part">partial</span></td></tr>
+    <tr><td>the senior reviewer</td><td>It should always suggest the next command</td><td>Shipped</td><td><span class="tag good">shipped</span></td></tr>
+    <tr><td>the analyst lead</td><td>An ordinary field-add was sized like a heavy change</td><td>Shipped in the sibling</td><td><span class="tag good">shipped</span></td></tr>
+  </tbody>
+</table>
+</div>
+<p style="margin-top:1rem"><strong>The through-line worth saying out loud.</strong> The team's five queue numbers (41 waiting on development, 22 waiting on test resource, 23 waiting on the QA lead, 11 in testing, 48 with no end date) do not move because quality control is the bottleneck, and quality control is slow because nothing tells the tester what was <em>not</em> checked. Passport field 4 is exactly that artifact. The same object that closes the largest gap in our own chain is the object that moves their worst number. That is why it outranks everything else on this board.</p>
+
+<h2>What your vision asks for that this plan cuts <span class="count">6, each with its flip condition</span></h2>
+<p class="lede">Your blueprint has eighteen parts, not the twelve the earlier intake recorded. Sizing off twelve would have dropped ownership, merge assurance, release assurance, security and external validation. Having read all eighteen, six of its mechanisms cost a team of two to fifteen more than they return, and saying so is the job rather than a liberty.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>Cut</th><th>What it asked for</th><th>What we do instead</th><th>Flip condition</th></tr></thead>
+  <tbody>
+    <tr><td>Team plane</td><td>Fifteen packages: hosted service, role-based access, retention, backup with a thirty-minute recovery objective</td><td>A hashed envelope file in the repository, plus a read-only query command</td><td>Two engineers needing a verdict on the same change within seconds</td></tr>
+    <tr><td>Gate table</td><td>Twenty-five mandatory metrics including a thirty percent escaped-defect improvement against a baseline nobody has instrumented</td><td>Five: revision-bound evidence, stale invalidation, false block rate, low-tier overhead, merge enforcement</td><td>The claim of general availability</td></tr>
+    <tr><td>Impact graph</td><td>Thirteen packages, per-language edge extraction, ninety-five percent recall, blocking severity</td><td>Path overlap read from envelopes, advisory only. Blocking on a heuristic is a new gate</td><td>A real collision that path overlap missed</td></tr>
+    <tr><td>Release assurance</td><td>Deploy records, smoke evidence, health thresholds, rollback correlation</td><td>One package: the merge event correlates to the change</td><td>A pilot team that actually has deployment telemetry</td></tr>
+    <tr><td>Delivery contract</td><td>Eleven mandatory fields typed at the start of every work item</td><td>Three at low risk: outcome, acceptance criteria, risks. The rest derived or empty</td><td>A change at the top risk tier</td></tr>
+    <tr><td>Coverage target</td><td>Ninety-eight percent governed-change coverage, while its own lowest tier requires no evidence</td><td>Derive the identifier from the branch name. If it cannot be derived, the work is ungoverned, and at the lowest tier that is fine</td><td>A team whose branch names carry no identifier</td></tr>
+  </tbody>
+</table>
+</div>
+<p style="margin-top:0.9rem">Kept despite their cost, because they pay for themselves: adversarial verification per criterion, the shared vocabulary of PASS, FAIL, NO-DATA, STALE, WAIVED and UNSUPPORTED, and the Change Envelope, which is the only mechanism in either document that provably removes typing rather than adding it.</p>
+
+<footer>
+  <p><strong>TICK CONTRACT, verbatim.</strong> A box ticks only when its done-check ran after the last edit and its output is quoted beside it. Percentages are counts of records, never impressions. A check that cannot tell reports NO-DATA, and NO-DATA is never a pass.</p>
+  <p><strong>What this board is honest about.</strong> One box is ticked. Everything else carries the check it has to pass, and none of them has been run. The dates are a plan, not a forecast with history behind it: the calibration record holds fourteen judged pairs at a median factor of 2.24, so treat every bar as the optimistic end.</p>
+  <p><strong>Provenance.</strong> Refreshed 2026-08-15 21:45 JST by the Opus 5 planning session. Six read-only agents ran one wave with tiers declared per brief: two strongest-tier for architecture and adversarial review, two middle-tier for extraction and research, two cheap-tier for mechanical inventory, plus one strongest-tier reader for the two vision documents. Two agent findings were refuted by direct verification and the corrections are kept in the record rather than tidied away.</p>
+</footer>
+</div>
