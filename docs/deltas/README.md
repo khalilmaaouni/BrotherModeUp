@@ -51,6 +51,37 @@ pre-existing failure on that tree, a template-marker case in
 `templates/dossier`, confirmed pre-existing by stashing the change and
 reproducing it. It is not caused by this patch and it is not fixed by it.
 
+### sbe-staleness-clock.patch
+
+Closes the smallest increment of P10: a design dossier now records the commit
+its intake was answered against, and a new check reports it STALE once the
+repository has moved past that commit by a declared distance. Stale is
+NO-DATA, never FAIL, because a stale design is an unknown rather than a
+defect. A dossier with no recorded commit is NO-DATA naming the absence, so a
+dossier predating the feature cannot read as fresh.
+
+Target: `tools/sbe_design.py` and `tools/test_sbe.py`, both inside the lane's
+fence, nothing else touched.
+
+Two design decisions worth keeping, both explained in the diff. The recorded
+commit is a new optional key on the intake file rather than a reuse of the
+existing convergence pin, because that pin is an exact-match field whose own
+test requires ANY drift to be a hard failure demanding a deliberate re-bind;
+reusing it would have made ordinary later commits fail an unrelated check.
+And the walk is bounded at fifty first-parent hops, reporting NO-DATA rather
+than guessing the moment it meets a root commit or an unreadable object,
+which matches the file's existing convention.
+
+Done-check, from the worktree: the three new tests ran red first (no verdict
+line for staleness, because the check did not exist), then green. The full
+`tools/test_sbe.py` reported 118 tests with one failure, and that failure was
+confirmed pre-existing by stashing the two changed files and reproducing it
+identically on the unmodified tree.
+
+That is the SECOND independent confirmation of the same pre-existing failure,
+from a different lane that stashed different files. Two lanes agreeing that a
+red test is not theirs is worth more than either saying it alone.
+
 ### sbe-tier-split-superseded.patch
 
 SUPERSEDED, kept only as evidence. This lane was building the additive versus

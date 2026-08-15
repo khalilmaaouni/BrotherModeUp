@@ -917,6 +917,116 @@
    ],
    "done_check": "either the ledger write passes redaction, or the module carries a written justification naming what it holds raw",
    "note": "found 2026-08-16 while reviewing the module's write sites, which the gate forced because a concurrent session committed it to main without registering it. Raised for its author rather than changed underneath them"
+  },
+  {
+   "id": "H3",
+   "title": "evidence binds to a commit and never to what is running; this is how a week of review went into a build generations behind with no verdict noticing",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "set a deployed ref one commit behind the evidence commit, status prints DRIFT naming both refs"
+  },
+  {
+   "id": "H4",
+   "title": "a defect cannot be entered as a defect: intake has no origin field, so a fix carries no link to the behaviour that failed",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "a defect intake naming a regression row proceeds at T1; one naming no row refuses and prints what is missing"
+  },
+  {
+   "id": "H5",
+   "title": "nothing records what happened after merge, so no tier can ever be compared with its real outcome",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA"
+  },
+  {
+   "id": "H6",
+   "title": "a requirement discovered during the build has no event; a rule added after a sheet was generated leaves that sheet short one case, silently",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "add a behaviour row after generating a sheet, the sheet reports stale naming the new id"
+  },
+  {
+   "id": "H7",
+   "title": "reviewer and tester concentration is invisible to the router, which selects by capability and prints no load",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "route three changes to one reviewer, the third prints a count of three"
+  },
+  {
+   "id": "H8",
+   "title": "no change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "a fixture prints a median duration for T1 and NO-DATA for T3"
+  },
+  {
+   "id": "H9",
+   "title": "the one-writer control is inert in the assurance repository: about twenty legacy claim lines it cannot parse, each reported as not enforced",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "the fence subcommand prints zero unenforceable lines on a clean tree, and one after a malformed line is added"
+  },
+  {
+   "id": "D4",
+   "title": "three proposed refusals (P3 gate, P6 strict, P7 fail) have no exception path with an owner and an expiry, which the owned list requires",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "an exception carrying an owner and an expiry date suppresses the refusal, and an expired one stops suppressing it"
+  },
+  {
+   "id": "H1",
+   "title": "no command computes the five queue numbers that decide whether any of this worked; hand counted once, cannot be recomputed",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/"
+   ],
+   "done_check": "run it against the 7 August export and reproduce 41, 22, 23, 11, 48, or name which of the five it cannot supply"
+  },
+  {
+   "id": "H2",
+   "title": "there is no accepted state: the chain ends at a green gate and a merge, and whether a person accepted the result is not represented",
+   "state": "queued",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "BrotherSBE"
+   ],
+   "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists"
   }
  ]
 }
