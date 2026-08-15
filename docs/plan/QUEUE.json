@@ -1135,6 +1135,30 @@
     "skills/start/SKILL.md"
    ],
    "done_check": "following the start skill end to end produces at least one task that next will serve"
+  },
+  {
+   "id": "M9",
+   "title": "the progress-page check reports OWED forever on a page that was deliberately frozen: it compares mtimes and cannot follow the pointer GANTT.html carries to COMMAND-CENTER.html, so every session is told to refresh a retired record",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_progress_check.py"
+   ],
+   "done_check": "a page carrying an explicit successor pointer reports the successor's freshness, or reports NO-DATA naming the pointer it could not resolve, never a bare OWED"
+  },
+  {
+   "id": "M10",
+   "title": "verify-close cannot give any verdict to a session that claimed no record, so a session with a full pack gets NO-DATA and its pack checks never run; the code comment's stated assumption, that a session with no claims has no pack to close, was disproven by the 2026-08-15 session",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_handover.py"
+   ],
+   "done_check": "a session with no records and a filled pack gets its pack checks run and a verdict, with the unparked-records check reported NO-DATA by name rather than halting the run"
   }
  ]
 }
