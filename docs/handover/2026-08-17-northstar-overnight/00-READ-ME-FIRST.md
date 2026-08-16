@@ -16,7 +16,7 @@ READ 06-CLOSE-REPORT.md FIRST, not last. Its first word is UNFINISHED and it nam
 THE ONE SENTENCE THAT EXPLAINS MOST OF THIS PACK: a check that cannot reach an actionable verdict reads to a person as a check that passed, because the summary line says zero failed. Six separate defects this session turned out to share that shape. If you read nothing else, read that entry in 02-LEARNINGS-AND-MISTAKES.md.
 
 TWO PATCHES LIVE OUTSIDE THIS PACK ON PURPOSE, because they are unmerged code rather than documents:
-~/Documents/BrotherModeUp-handovers/2026-08-16-pending-patches/
+`~/Documents/BrotherModeUp-handovers/2026-08-16-pending-patches/`
 Its README names, for each, the registries it must join and the exact commands. Do not apply either without reading it: the first attempt at one of them turned three suites red for precisely that reason.
 
 THE PROGRESS PAGE is the artifact link recorded in PROJECT.md, refreshed at every closed loop. It is the founder's view and it opens without an account.
