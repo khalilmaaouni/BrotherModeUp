@@ -48,7 +48,19 @@ review and no waiting. Send them the four lines above.
 Listing in `claude-community` adds discovery, not availability. It is worth
 having and it is not a blocker for anyone using these tomorrow.
 
-## 3. Current state, checked against the live directories
+## 3. Current state
+
+CORRECTED 2026-08-12, and the correction matters more than the original claim.
+An earlier version of this page said neither plugin had ever been submitted.
+That was wrong. It was inferred from zero hits in the two public catalogs, and
+those catalogs list only APPROVED plugins, so a pending submission is invisible
+in them. Absence from a catalog was never evidence that nothing was submitted.
+
+THE REAL STATE, from the founder's own submissions view: BrotherMode and
+BrotherSBE were submitted on 4 August 2026 and Token Shield on 12 August 2026.
+All three read "Submitted and pending review".
+
+## 3b. Checked against the live directories
 
 | Check | BrotherMode | BrotherSBE |
 |---|---|---|
@@ -63,7 +75,8 @@ having and it is not a blocker for anyone using these tomorrow.
 
 The official directory holds 286 plugins and neither of yours is among them. A
 code search for `brothermode`, `brothersbe` and `maaouni` across both Anthropic
-repositories returned zero hits, so nothing has ever been submitted.
+repositories returned zero hits. That means NOT YET APPROVED. It does not mean
+not submitted: see section 3.
 
 **One defect worth fixing before you submit.** BrotherSBE's local manifest says
 3.3.0, but the public gets 3.2.0, because the 3.3.0 manifest sits on the
@@ -143,9 +156,26 @@ Exact names matter. These are read from the manifests, not typed from memory.
 
 ## 7. What to do next, in order
 
-1. Merge BrotherSBE's 3.3.0 work to `main`, or accept that 3.2.0 gets reviewed.
-2. Sign in at https://platform.claude.com/plugins/submit
-3. Submit BrotherMode using section 5.
-4. Submit BrotherSBE using section 5.
-5. Meanwhile, send your team and friends the four commands in section 2. They do
-   not need to wait for any of this.
+All three are already submitted and pending, so nothing below is a submission
+step.
+
+1. Merge BrotherSBE's 3.3.0 work to `main`. CI bumps the pinned commit
+   automatically once a plugin is approved, so the version reviewers and users
+   land on should be the one you want.
+2. Send your team the commands in section 2 today. They do not need the
+   directory, and waiting for it costs you nothing but also gains you nothing.
+3. Check for approval by searching the community catalog rather than by waiting
+   for a notification:
+   https://github.com/anthropics/claude-plugins-community/blob/main/.claude-plugin/marketplace.json
+
+## 8. How long review takes
+
+UNVERIFIED, and stated that way on purpose. No published service level for
+review time was found in the Claude Code documentation or on either Anthropic
+repository. What IS documented: automated validation and safety screening run
+on submission, approved plugins are pinned to a commit SHA, and the public
+catalog syncs nightly, so there is an additional delay of up to a day between
+approval and appearing.
+
+The only real data point available is your own: BrotherMode and BrotherSBE have
+been pending since 4 August. Treat that as one observation, not as a norm.
