@@ -65,6 +65,17 @@ narrower claim, and they are copy rather than a new capability: every
 capability they gesture at already has its own row and its own evidence in the
 register below, and none of them was added to say this.
 
+## Install
+
+Two lines, inside Claude Code. Full detail, the clone alternative and the
+uninstall path are in [Install and preflight](#install-and-preflight) further
+down.
+
+```bash
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.0
+claude plugin install brothermode@brothermode-marketplace
+```
+
 ## Who this is for
 
 **A technical solo founder, a senior solo builder, or a maintainer using AI
