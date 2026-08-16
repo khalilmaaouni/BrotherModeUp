@@ -1,0 +1,537 @@
+diff --git a/tools/bm_project.py b/tools/bm_project.py
+index f366b1d..a79d646 100644
+--- a/tools/bm_project.py
++++ b/tools/bm_project.py
+@@ -91,6 +91,18 @@ SUBCOMMANDS
+                           that now also names this purge, the vault, and
+                           any generated file already on disk) (WP-H,
+                           loop6 security-closure design, D-3)
++  sentinel-orphans        read-only report: for each Memory Sentinel table,
++                          every project id that has rows there but no
++                          matching project row, and how many; never prints
++                          the prose itself, counts and project ids only
++  purge-sentinel-orphans  erase sentinel rows purge_project cannot reach
++                          because their project id resolves to no project;
++                          --project-id ID for one orphan id, or
++                          --all-orphans for every orphan id in every table
++                          (not both); refuses without --confirm matching
++                          exactly (the project id, or the literal
++                          ALL-ORPHANS for --all-orphans), --dry-run to
++                          preview first without deleting anything
+ 
+ WHY create=False EVERYWHERE
+   Matching bm_store.py's own CLI convention (its cmd_claim and every other
+@@ -1882,6 +1894,102 @@ def cmd_purge(argv):
+     return 0
+ 
+ 
++# ---------------------------------------------------------------------------
++# sentinel orphans: report (find) and purge (erase), the gap purge_project
++# cannot close on its own. Store.sentinel_orphans / Store.purge_sentinel_orphans
++# own the whole shape (SBE10 follow-up, 2026-08-16); this is a thin wrapper
++# exactly like purge above.
++# ---------------------------------------------------------------------------
++
++_SENTINEL_ORPHANS_FLAGS = ("out-json",)
++
++
++def cmd_sentinel_orphans(argv):
++    _pos, kv = _parse(argv, _SENTINEL_ORPHANS_FLAGS)
++    # _store(), not _read_store(): matching every other read-only report
++    # here (status, forecast show, receipt list) rather than alert list's
++    # own narrower exception (that one command's docstring names why it
++    # alone needs a connection that never migrates the schema on open).
++    store = _store()
++    try:
++        report = store.sentinel_orphans()
++    finally:
++        store.close()
++    if kv.get("out-json"):
++        _print_json(report)
++        return 0
++    total = sum(sum(counts.values()) for counts in report.values())
++    if total == 0:
++        _out("no orphaned sentinel rows: every sentinel_* row names a "
++             "project id that still exists")
++        return 0
++    # Counts and project ids only, NEVER the prose: Store.sentinel_orphans
++    # itself never reads a prose column, so there is nothing here to leak,
++    # but the line is printed anyway so a reader never has to check.
++    _out("orphaned sentinel rows (project id resolves to no project); "
++         "counts and project ids only, never the stored prose:")
++    for table in sorted(report):
++        counts = report[table]
++        if not counts:
++            continue
++        _out("%s:" % table)
++        for pid, n in sorted(counts.items()):
++            _out("  %s: %d row(s)" % (pid, n))
++    return 0
++
++
++_PURGE_SENTINEL_ORPHANS_FLAGS = (
++    "project-id", "all-orphans", "confirm", "out-json",
++    "dry-run") + _ACTOR_FLAGS
++
++
++def cmd_purge_sentinel_orphans(argv):
++    _pos, kv = _parse(argv, _PURGE_SENTINEL_ORPHANS_FLAGS, wants_value=(
++        "project-id", "confirm") + _ACTOR_FLAGS)
++    usage = ("usage: purge-sentinel-orphans (--project-id ID | "
++             "--all-orphans) (--confirm TOKEN | --dry-run) "
++             "[--actor-type human|model] --actor-name NAME "
++             "[--session-id SID] [--out-json]")
++    dry = bool(kv.get("dry-run"))
++    project_id = kv.get("project-id") or None
++    all_orphans = bool(kv.get("all-orphans"))
++    confirm = kv.get("confirm", "") if dry else _require(kv, "confirm", usage)
++    actor = _actor(kv, usage)
++    prefix = "[dry-run] " if dry else ""
++    store = _store()
++    try:
++        # Store.purge_sentinel_orphans owns every refusal (no-target,
++        # ambiguous-target, not-orphan, not-found, bad-confirmation): never
++        # restated here, same discipline cmd_purge follows for
++        # purge_project's own refusals.
++        result = store.purge_sentinel_orphans(
++            actor, confirm, project_id=project_id, all_orphans=all_orphans,
++            dry_run=dry)
++    finally:
++        store.close()
++    if kv.get("out-json"):
++        _print_json({"dry_run": dry, "removed": result["removed"],
++                     "project_ids": result["project_ids"]})
++        return 0
++    if not result["project_ids"]:
++        _out("%sno orphan rows matched; nothing was removed" % prefix)
++        return 0
++    for pid in result["project_ids"]:
++        counts = result["removed"][pid]
++        _out("%s%s project id %s: %d knowledge, %d procedural, %d status, "
++             "%d intervention row(s)"
++             % (prefix, "would purge" if dry else "purged", pid,
++                counts["sentinel_knowledge"], counts["sentinel_procedural"],
++                counts["sentinel_status"], counts["sentinel_interventions"]))
++    _out("%skept: the attribution trail (%s)"
++         % (prefix,
++            "unchanged, and no purge entry was added because nothing was "
++            "purged" if dry
++            else "it now also carries one new entry per project id "
++                 "purged"))
++    return 0
++
++
+ # ---------------------------------------------------------------------------
+ # dispatch
+ # ---------------------------------------------------------------------------
+@@ -1898,6 +2006,8 @@ COMMANDS = {
+     "deliver": cmd_deliver,
+     "export": cmd_export,
+     "purge": cmd_purge,
++    "sentinel-orphans": cmd_sentinel_orphans,
++    "purge-sentinel-orphans": cmd_purge_sentinel_orphans,
+ }
+ 
+ 
+diff --git a/tools/bm_store.py b/tools/bm_store.py
+index 4f96356..81f2da7 100644
+--- a/tools/bm_store.py
++++ b/tools/bm_store.py
+@@ -14232,6 +14232,161 @@ class Store(object):
+             (project_id, limit)).fetchall()
+         return [dict(r) for r in rows]
+ 
++    def sentinel_orphans(self):
++        """Read-only report: for each of the four Memory Sentinel tables,
++        every project_id that has rows there but no row in `projects`, with
++        a row count for each.
++
++        This is the gap purge_project's own SBE10 fix (this module's
++        _require_sentinel_project docstring above) could not close: that
++        fix stops NEW orphans and cleans a project's sentinel rows when
++        THAT project is purged, but a sentinel row whose project_id never
++        resolves has no project row for purge_project to key off, so
++        purge_project refuses it ('not-found') and the row is unreachable
++        by any erasure command that ships today. This report is how a
++        caller FINDS those rows before purge_sentinel_orphans (below)
++        erases them.
++
++        NEVER reads or returns a prose column (content, attempt,
++        diagnosis, summary, open_risks, trigger, decision, reminder,
++        reason): only project_id and COUNT(*), because this is a privacy
++        tool and printing the sentinel prose to a terminal, a log, or a
++        session transcript to report on it would be the exact leak this
++        whole guard exists to prevent.
++
++        Returns {table_name: {project_id: row_count}}. A table with no
++        orphan rows maps to {}."""
++        result = {}
++        for table in _TABLES_SENTINEL:
++            rows = _exec(self,
++                "SELECT project_id, COUNT(*) AS n FROM %s WHERE project_id "
++                "NOT IN (SELECT project_id FROM projects) "
++                "GROUP BY project_id" % table).fetchall()
++            result[table] = {r["project_id"]: r["n"] for r in rows}
++        return result
++
++    _SENTINEL_ORPHANS_ALL_TOKEN = "ALL-ORPHANS"
++
++    def purge_sentinel_orphans(self, actor, confirmation_token,
++                                project_id=None, all_orphans=False,
++                                dry_run=False):
++        """Erase sentinel rows whose project_id resolves to no project,
++        the rows sentinel_orphans() above finds and purge_project cannot
++        reach. Guarded the way purge_project guards itself, because this
++        is the same kind of irreversible deletion of raw founder prose:
++
++        Exactly one of `project_id` or `all_orphans=True` must be given
++        (OwnershipRefused 'no-target' for neither, 'ambiguous-target' for
++        both), so a caller always names a single, explicit target rather
++        than defaulting into 'everything'.
++
++        `project_id` names ONE orphan project id to erase. Refused
++        ('not-orphan') if a project row with that id still exists: this
++        command only ever touches rows purge_project cannot reach, and a
++        live project's sentinel rows are purge_project's job. Refused
++        ('not-found') if no sentinel row anywhere names that id: a typo
++        gets a refusal, not a silent no-op.
++
++        `all_orphans=True` erases every orphan row in all four tables,
++        whichever project ids they name. Confirming this on purpose needs
++        a literal token distinct from any real project id, so a caller
++        cannot confirm 'all orphans' by accidentally typing a project id
++        that happens to match nothing: confirmation_token must equal the
++        literal string 'ALL-ORPHANS'.
++
++        Confirming a single `project_id` target follows purge_project's
++        own rule exactly: confirmation_token must equal project_id.
++        Neither token is required under dry_run, same reasoning as
++        purge_project's own dry_run: the token stands between a caller
++        and an irreversible deletion, and a dry run deletes nothing.
++
++        dry_run=True runs the real DELETE statements and rolls the whole
++        transaction back (purge_project's own technique), so the counts
++        returned are the real erasure's own rather than a second
++        implementation's guess.
++
++        One attribution row ('sentinel.orphans_purged') is written per
++        project id actually purged, inside the same transaction, mirroring
++        purge_project's one-row-per-project shape; attribution carries no
++        foreign key to projects (by design, see _write_attribution), so a
++        row naming a project id that no longer exists, or never existed,
++        is exactly what this method's own record looks like.
++
++        Returns {'removed': {project_id: {table: count, ...}, ...},
++        'project_ids': [...]}."""
++        if project_id and all_orphans:
++            raise OwnershipRefused(
++                "ambiguous-target",
++                "name --project-id OR --all-orphans, not both; nothing "
++                "was removed")
++        if not project_id and not all_orphans:
++            raise OwnershipRefused(
++                "no-target",
++                "must name --project-id ID or pass --all-orphans; "
++                "nothing was removed")
++        if not dry_run:
++            required = (self._SENTINEL_ORPHANS_ALL_TOKEN if all_orphans
++                        else project_id)
++            if confirmation_token != required:
++                raise OwnershipRefused(
++                    "bad-confirmation",
++                    "confirmation token %r does not match %r; nothing "
++                    "was removed" % (confirmation_token, required))
++        with self._transaction(rollback=dry_run):
++            if project_id:
++                prow = _exec(self, "SELECT project_id FROM projects "
++                            "WHERE project_id=?", (project_id,)).fetchone()
++                if prow is not None:
++                    raise OwnershipRefused(
++                        "not-orphan",
++                        "project %r still exists; this command only "
++                        "erases sentinel rows naming a project id that no "
++                        "longer exists. Use purge_project for a live "
++                        "project." % (project_id,))
++                target_ids = None
++                for table in _TABLES_SENTINEL:
++                    hit = _exec(self,
++                        "SELECT 1 FROM %s WHERE project_id=? LIMIT 1"
++                        % table, (project_id,)).fetchone()
++                    if hit is not None:
++                        target_ids = [project_id]
++                        break
++                if target_ids is None:
++                    raise OwnershipRefused(
++                        "not-found",
++                        "no sentinel row in any table names project %r; "
++                        "nothing to purge" % (project_id,))
++            else:
++                seen = set()
++                for table in _TABLES_SENTINEL:
++                    rows = _exec(self,
++                        "SELECT DISTINCT project_id FROM %s WHERE "
++                        "project_id NOT IN (SELECT project_id FROM "
++                        "projects)" % table).fetchall()
++                    seen.update(r["project_id"] for r in rows)
++                target_ids = sorted(seen)
++
++            removed = {}
++            for pid in target_ids:
++                per_table = {}
++                for table in _TABLES_SENTINEL:
++                    per_table[table] = _exec(self,
++                        "DELETE FROM %s WHERE project_id=? AND project_id "
++                        "NOT IN (SELECT project_id FROM projects)" % table,
++                        (pid,)).rowcount
++                removed[pid] = per_table
++                self._write_attribution(
++                    pid, None, "sentinel.orphans_purged", actor,
++                    action="purge_sentinel_orphans",
++                    reason="removed %d knowledge, %d procedural, %d "
++                           "status, %d intervention row(s) naming a "
++                           "project id that no longer exists"
++                           % (per_table["sentinel_knowledge"],
++                              per_table["sentinel_procedural"],
++                              per_table["sentinel_status"],
++                              per_table["sentinel_interventions"]))
++        return {"removed": removed, "project_ids": target_ids}
++
+     # ------------------------------------------------------------------
+     # U1: the autonomy contract layer (2026-08-05, design
+     # docs/superpowers/specs/2026-08-05-u1-autonomy-contract-design.md).
+diff --git a/tools/test_bm_store.py b/tools/test_bm_store.py
+index b541ffd..092c6ea 100644
+--- a/tools/test_bm_store.py
++++ b/tools/test_bm_store.py
+@@ -23601,6 +23601,231 @@ class TestSentinelRowsDoNotSurviveAPurge(unittest.TestCase):
+                                               "", None, "r", "s", actor)
+ 
+ 
++class TestSentinelOrphansFindAndPurge(unittest.TestCase):
++    """The other half of SBE10 (2026-08-16 follow-up). purge_project's own
++    SBE10 fix (TestSentinelRowsDoNotSurviveAPurge above) cleans a project's
++    sentinel rows when THAT project is purged, and _require_sentinel_project
++    stops a NEW orphan being written. Neither reaches a sentinel row whose
++    project row was already gone before either guard existed: purge_project
++    refuses ('not-found') a project_id that names no project row, so a row
++    already orphaned is invisible to the one command that exists to erase
++    it. Store.sentinel_orphans() finds those rows (report only, never the
++    prose); Store.purge_sentinel_orphans() erases them, guarded the way
++    purge_project guards itself (a confirmation token, one explicit target,
++    a dry-run preview, one attribution row per project purged).
++
++    Fixture technique: seed sentinel rows through the real API (so they are
++    shaped exactly like any real row), then delete the project row directly
++    with raw SQL. That is not a synthetic shortcut, it IS the shape of the
++    defect: nothing in this codebase can create an orphan any other way any
++    more (_require_sentinel_project refuses the write), so the only way a
++    store ever holds one is a project row vanishing by some path outside
++    purge_project, exactly what this raw DELETE stands in for."""
++
++    def _seed_sentinel(self, store, pid, actor):
++        store.add_knowledge(pid, "fact", "the api key rotates weekly",
++                            "founder", "sess1", actor)
++        store.add_procedural(pid, "tried the old endpoint", "failed",
++                             "wrong base url", "sess1", actor)
++        store.set_status(pid, "halfway through the migration",
++                         "the vendor has not replied", "sess1", actor)
++        store.record_intervention(pid, "resume", "silent", "", None,
++                                  "nothing worth interrupting for", "sess1",
++                                  actor)
++
++    def _orphan(self, store, pid):
++        actor = _actor()
++        _seed(store, pid, actor)
++        self._seed_sentinel(store, pid, actor)
++        store.conn.execute(
++            "DELETE FROM projects WHERE project_id=?", (pid,))
++        store.conn.commit()
++
++    # -- report: found, and never the prose ---------------------------------
++
++    def test_report_finds_orphan_rows_by_table_and_project_id(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                report = store.sentinel_orphans()
++                for table in bs._TABLES_SENTINEL:
++                    self.assertEqual(report[table], {"ghost1": 1})
++
++    def test_report_never_returns_the_prose(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                report = store.sentinel_orphans()
++                blob = json.dumps(report)
++                for needle in ("api key rotates", "old endpoint",
++                               "halfway through", "nothing worth"):
++                    self.assertNotIn(needle, blob)
++
++    def test_report_leaves_a_live_projects_rows_out(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                actor = _actor()
++                _seed(store, "alive")
++                self._seed_sentinel(store, "alive", actor)
++                report = store.sentinel_orphans()
++                for table in bs._TABLES_SENTINEL:
++                    self.assertNotIn("alive", report[table])
++
++    # -- purge: refuses without its explicit flag ----------------------------
++
++    def test_purge_refuses_without_a_target(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(_actor(), "")
++                self.assertEqual(ctx.exception.reason, "no-target")
++
++    def test_purge_refuses_both_project_id_and_all_orphans(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(
++                        _actor(), "x", project_id="x", all_orphans=True)
++                self.assertEqual(ctx.exception.reason, "ambiguous-target")
++
++    def test_purge_refuses_a_live_project_id(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                _seed(store, "alive")
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(
++                        _actor(), "alive", project_id="alive")
++                self.assertEqual(ctx.exception.reason, "not-orphan")
++
++    def test_purge_refuses_a_project_id_with_no_sentinel_rows_at_all(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(
++                        _actor(), "nope", project_id="nope")
++                self.assertEqual(ctx.exception.reason, "not-found")
++
++    def test_purge_refuses_wrong_confirmation_token_for_one_project(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(
++                        _actor(), "wrong", project_id="ghost1")
++                self.assertEqual(ctx.exception.reason, "bad-confirmation")
++                self.assertEqual(
++                    store.conn.execute(
++                        "SELECT COUNT(*) c FROM sentinel_knowledge WHERE "
++                        "project_id='ghost1'").fetchone()["c"], 1,
++                    "a wrong confirmation token must change nothing")
++
++    def test_purge_refuses_wrong_confirmation_token_for_all_orphans(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                with self.assertRaises(bs.OwnershipRefused) as ctx:
++                    store.purge_sentinel_orphans(
++                        _actor(), "ghost1", all_orphans=True)
++                self.assertEqual(ctx.exception.reason, "bad-confirmation")
++
++    # -- purge: removes exactly the named orphans and nothing else ----------
++
++    def test_purge_by_project_id_removes_exactly_that_ghost_and_nothing_else(
++            self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                actor = _actor()
++                _seed(store, "alive")
++                self._seed_sentinel(store, "alive", actor)
++
++                result = store.purge_sentinel_orphans(
++                    _actor(), "ghost1", project_id="ghost1")
++                self.assertEqual(result["project_ids"], ["ghost1"])
++                self.assertEqual(
++                    result["removed"]["ghost1"],
++                    {"sentinel_knowledge": 1, "sentinel_procedural": 1,
++                     "sentinel_status": 1, "sentinel_interventions": 1})
++                for table in bs._TABLES_SENTINEL:
++                    self.assertEqual(
++                        store.conn.execute(
++                            "SELECT COUNT(*) c FROM %s WHERE "
++                            "project_id='ghost1'" % table
++                        ).fetchone()["c"], 0)
++                    # the NON-orphan row planted alongside must survive
++                    self.assertEqual(
++                        store.conn.execute(
++                            "SELECT COUNT(*) c FROM %s WHERE "
++                            "project_id='alive'" % table
++                        ).fetchone()["c"], 1,
++                        "%s: a live project's row must survive a ghost "
++                        "purge" % table)
++
++    def test_purge_all_orphans_sweeps_every_ghost_and_spares_live_projects(
++            self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                self._orphan(store, "ghost2")
++                actor = _actor()
++                _seed(store, "alive")
++                self._seed_sentinel(store, "alive", actor)
++
++                result = store.purge_sentinel_orphans(
++                    _actor(), "ALL-ORPHANS", all_orphans=True)
++                self.assertEqual(
++                    sorted(result["project_ids"]), ["ghost1", "ghost2"])
++                for table in bs._TABLES_SENTINEL:
++                    self.assertEqual(
++                        store.conn.execute(
++                            "SELECT COUNT(*) c FROM %s WHERE project_id "
++                            "IN ('ghost1','ghost2')" % table
++                        ).fetchone()["c"], 0)
++                    self.assertEqual(
++                        store.conn.execute(
++                            "SELECT COUNT(*) c FROM %s WHERE "
++                            "project_id='alive'" % table
++                        ).fetchone()["c"], 1,
++                        "%s: a live project's row must survive an "
++                        "all-orphans sweep" % table)
++
++    def test_purge_writes_one_attribution_row_per_ghost_project_purged(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                self._orphan(store, "ghost2")
++                store.purge_sentinel_orphans(
++                    _actor("purger"), "ALL-ORPHANS", all_orphans=True)
++                rows = store.conn.execute(
++                    "SELECT project_id, actor_name FROM attribution WHERE "
++                    "event_type='sentinel.orphans_purged'").fetchall()
++                self.assertEqual(
++                    sorted(r["project_id"] for r in rows),
++                    ["ghost1", "ghost2"])
++                for r in rows:
++                    self.assertEqual(r["actor_name"], "purger")
++
++    def test_dry_run_removes_nothing_and_reports_the_real_counts(self):
++        with tempfile.TemporaryDirectory() as d:
++            with bs.Store(d) as store:
++                self._orphan(store, "ghost1")
++                result = store.purge_sentinel_orphans(
++                    _actor(), "", project_id="ghost1", dry_run=True)
++                self.assertEqual(
++                    result["removed"]["ghost1"]["sentinel_knowledge"], 1)
++                self.assertEqual(
++                    store.conn.execute(
++                        "SELECT COUNT(*) c FROM sentinel_knowledge WHERE "
++                        "project_id='ghost1'").fetchone()["c"], 1,
++                    "dry_run must leave every row exactly where it was")
++                self.assertEqual(
++                    store.conn.execute(
++                        "SELECT COUNT(*) c FROM attribution WHERE "
++                        "event_type='sentinel.orphans_purged'"
++                    ).fetchone()["c"], 0,
++                    "dry_run must write no attribution row either")
++
++
+ class TestTheViewCheckIsTwoDirectional(unittest.TestCase):
+     """SBE11. The GATE B check asked only "is every active record in the
+     file", never "is everything the file calls active still active". So a
