@@ -19,7 +19,7 @@ THE CURRENT TIP IS 5e82926 AND IT IS NOT RE-VERIFIED. Other sessions committed a
 
 WHERE THE BATON LIES, precisely.
 
-1. TWO PATCHES ARE HELD OUTSIDE THE REPOSITORY, both finished and neither merged, at ~/Documents/BrotherModeUp-handovers/2026-08-16-pending-patches/ with a README naming what each needs.
+1. TWO PATCHES ARE HELD OUTSIDE THE REPOSITORY, both finished and neither merged, at `~/Documents/BrotherModeUp-handovers/2026-08-16-pending-patches/` with a README naming what each needs.
    - sentinel-orphans-UNMERGED.patch: the two command line verbs for the orphan report and its guarded erasure. Held because tools/bm_effects.py, whose registry a new verb must join, is under a fence. Needs THREE things in ONE change: the effects REGISTRY entries (PURE_READ and DESTRUCTIVE_EXTERNAL_ACTION), the runtime adapters regenerated with `python3 tools/bm_runtimes.py emit`, and nothing else, because the founder-facing refusal codes already landed.
    - purge-completeness-test-UNMERGED.patch: 154 lines, TestEveryProjectScopedTableIsPurged. It discovers every table carrying a project id FROM THE LIVE SCHEMA rather than a hand-written list, so a table added later fails the test until somebody purges it or exempts it on the record. Its agent was stopped before it could report; the work was recovered from its worktree rather than lost.
 
