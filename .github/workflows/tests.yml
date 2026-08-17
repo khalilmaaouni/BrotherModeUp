@@ -21,15 +21,34 @@
 name: tests
 permissions:
   contents: read
+# DISARMED 2026-08-17. This file carried `push` (on main and release/**) and
+# `pull_request`, across a matrix of ubuntu, macOS and windows. Actions is
+# disabled on this repository, so none of it has been firing, but disabled
+# Actions is a SWITCH, not a fix: the moment anyone re-enabled it, every trigger
+# here resumed exactly as written.
+#
+# What that shape cost, traced 2026-08-16: 886 workflow runs across this
+# repository and its sibling, 11 jobs per run, consuming a free month of CI
+# minutes in two weeks. Nobody decided to spend that. They decided "test on
+# every platform, on every push", and on a free personal account that is what
+# the decision means. GitHub bills Linux 1x, Windows 2x and macOS 10x, so 2,000
+# free minutes is roughly 200 macOS minutes, about 10 to 13 pushes of an 11 job
+# matrix.
+#
+# The founder law of 2026-08-16 is therefore: no workflow fires by itself. No
+# `push`, no `pull_request`, no `pull_request_target`, no `schedule`, and no
+# macOS or Windows runner on any trigger. Verification runs LOCALLY through
+# scripts/local-gates.sh, which is where it always actually ran; cloud CI is a
+# deliberate, rare, founder-approved event rather than a default.
+#
+# ~/.claude/hooks/github_cost_wall.py refuses to write an automatic trigger or a
+# macOS or Windows runner into this path, so the shape is enforced rather than
+# remembered. The platform coverage this removes is NOT quietly dropped: it is
+# named as a known limit in the parity record, Windows is covered by a written
+# manual protocol (docs/WINDOWS-CHECK.md), and Linux coverage is an open item
+# with a container route chosen and not yet built.
 on:
-  push:
-    # `release/**` rather than a bare branch name (2026-08-03): the list used to
-    # name `v2`, which matches no branch here and has not for a long time, so
-    # release branches got no push-triggered run at all and were covered only by
-    # the pull-request trigger. That is how three red runs sat unnoticed on a
-    # release branch while local gates read green.
-    branches: [ main, "release/**" ]
-  pull_request:
+  workflow_dispatch:
 jobs:
   suite:
     strategy:
@@ -40,7 +59,12 @@ jobs:
       # only reason to run one.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu ONLY since 2026-08-17. macOS billed at 10x Linux and was the
+        # single largest term in the month this estate spent in two weeks. macOS
+        # coverage is not silently dropped: this is the machine the local runner
+        # runs on, so macOS is the platform with the MOST evidence, not the
+        # least. It simply stops being bought from GitHub at ten times the rate.
+        os: [ubuntu-latest]
         # Both ends of the supported range, not just the newest (2026-08-03).
         # pyproject declares >=3.9 and scripts/install.py refuses below (3, 9),
         # but only three of the twelve suites had ever executed under 3.9: this
@@ -288,7 +312,17 @@ jobs:
       # See the note on the suite job above: a cancelled leg is a leg with no evidence.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # ubuntu ONLY since 2026-08-17, and this is the job that made the shape
+        # expensive: three platforms times two interpreters is six legs, and the
+        # windows leg billed at 2x while macOS billed at 10x. The V2 engine's
+        # cross-platform claim is not abandoned with them, it is relocated and
+        # named: macOS is covered continuously by the local runner on this
+        # machine, Windows by the written manual protocol in
+        # docs/WINDOWS-CHECK.md, and Linux is an open gap with a container route
+        # chosen and not yet built. Two of those three are weaker than a matrix
+        # leg, and the parity record says so rather than implying coverage that
+        # no longer runs.
+        os: [ubuntu-latest]
         python: ["3.9", "3.x"]
     runs-on: ${{ matrix.os }}
     steps:
