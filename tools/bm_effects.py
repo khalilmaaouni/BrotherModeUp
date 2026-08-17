@@ -549,6 +549,31 @@ REGISTRY = {
         "sweep": PURE_READ,
     },
 
+    # -- bm_escalate.py -----------------------------------------------------
+    # The last of the six registration deltas listed at the end of
+    # docs/ESCALATION.md, applied 2026-08-17. The other five were already in
+    # place; this one was not, and no suite went red over it, because this
+    # registry validates the entries it HAS, so an undeclared module is silent
+    # rather than failing. That silence is the whole reason the delta list had
+    # to exist on paper, and it is a finding in its own right, not a footnote.
+    # Classes read off the code rather than copied from the delta list, which
+    # named five verbs. There are SIX: `forcing` was missing from it.
+    # ledger_write, each confirmed by a call to this module's own append():
+    # attempt (:364) appends at :383, forcing (:401) appends at :408, resolve
+    # (:445) appends at :446. append() writes only the JSON record it was
+    # handed, at mode 0600, which is the shape write_sites.json reviewed at 3.
+    # pure_read, each confirmed to reach no append() and no subprocess: check
+    # (:415) returns CONTINUE or ESCALATE, packet (:425) prints the packet it
+    # built as a string, open (:453) lists what is open for a close check.
+    "bm_escalate.py": {
+        "attempt": LEDGER_WRITE,
+        "forcing": LEDGER_WRITE,
+        "resolve": LEDGER_WRITE,
+        "check": PURE_READ,
+        "packet": PURE_READ,
+        "open": PURE_READ,
+    },
+
     # -- bm_store.py --------------------------------------------------------
     # dump (:18087) and handovers (:18119) explicitly open
     # ReadOnlyStore ("dump is a diagnostic, never creates" / "reads
