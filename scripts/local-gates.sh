@@ -64,6 +64,38 @@ if pgrep -f "tools/test_all.py" > /dev/null 2>&1; then
   exit 2
 fi
 
+# --- refuse to measure on a machine that is already saturated ----------------
+# The founder's standing rule: at load average 187 the measurements are noise.
+# It was a rule a person had to remember, and on 2026-08-17 the same person
+# forgot it three times in one session, launching batteries at load 26, 243 and
+# 267 and killing each one after reading the number it should have read first.
+# A rule that costs a kill every time it is forgotten belongs in the machine.
+#
+# The threshold is the ONE-MINUTE average against core count, not the raw 187
+# from the incident: 187 was this machine's number on 8 cores, and a ratio
+# travels to a machine with a different core count while a constant does not.
+# 4x cores is deliberately generous. It permits an ordinary busy laptop and
+# refuses only genuine saturation, because a guard that fires on normal work
+# gets switched off, and a switched-off guard measures nothing.
+#
+# Override with BM_GATE_MAX_LOAD for a machine whose idle load is unusual. There
+# is no override that means "ignore the load": the number is printed either way,
+# and a run started over this refusal is recorded in the receipt as such.
+CORES="$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+LOAD1="$(uptime | sed 's/.*averages*: *//' | awk '{print $1}' | tr -d ',')"
+MAXLOAD="${BM_GATE_MAX_LOAD:-$((CORES * 4))}"
+LOAD_INT="${LOAD1%%.*}"
+[ -z "$LOAD_INT" ] && LOAD_INT=0
+if [ "$LOAD_INT" -gt "$MAXLOAD" ] 2>/dev/null; then
+  echo "REFUSED: load average is ${LOAD1} on ${CORES} cores, over the ${MAXLOAD} ceiling."
+  echo "A battery measured on a saturated machine produces timeouts that look"
+  echo "exactly like real failures, and this project has already spent runs"
+  echo "chasing them. Wait for the machine to settle, or set BM_GATE_MAX_LOAD"
+  echo "deliberately if this machine's idle load is genuinely this high."
+  exit 2
+fi
+echo "load:    ${LOAD1} on ${CORES} cores (ceiling ${MAXLOAD})"
+
 # --- refuse a tree carrying an interpreter poison ---------------------------
 # The tracked-file guard above cannot see this class, because the files are
 # UNTRACKED and it deliberately ignores untracked files. Demonstrated on the
