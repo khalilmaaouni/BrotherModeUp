@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BrotherMode: the aggressive replan, night of 12 August</title>
+<title>Adopter Issues Board</title>
 <style>
 :root{
   --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
@@ -18,7 +18,7 @@
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme: dark){
-  :root{
+  :root:not([data-theme="light"]){
     --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
     --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
     --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
@@ -31,20 +31,20 @@
 :root[data-theme="dark"]{
   --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
   --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
-  --bm-settled-ink:#6FD3AE; --bm-settled-tint:#12281F;
-  --bm-needs-you-ink:#FF9C63; --bm-needs-you-tint:#2E1810;
-  --bm-at-risk-ink:#E5B75C; --bm-at-risk-tint:#2A2212;
-  --bm-for-info-ink:#6FB8E8; --bm-for-info-tint:#101F2C;
-  --bm-idle-ink:#98A1AB; --bm-idle-tint:#1B2128;
+  --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+  --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+  --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+  --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+  --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
 }
 :root[data-theme="light"]{
   --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
   --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
-  --bm-settled-ink:#00543A; --bm-settled-tint:#E8F6F0;
-  --bm-needs-you-ink:#8C2D00; --bm-needs-you-tint:#FDEFE8;
-  --bm-at-risk-ink:#6B4400; --bm-at-risk-tint:#FFF6E5;
-  --bm-for-info-ink:#00436B; --bm-for-info-tint:#EAF3FA;
-  --bm-idle-ink:#3F4650; --bm-idle-tint:#F0F1F2;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--sans);
@@ -52,10 +52,11 @@ body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--s
 .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
 .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
   color:var(--bm-accent);margin:0 0 10px}
-h1{font-family:var(--serif);font-size:clamp(30px,5vw,46px);line-height:1.1;margin:0 0 12px;font-weight:600}
+h1{font-family:var(--serif);font-size:clamp(30px,5vw,46px);line-height:1.1;margin:0 0 12px;
+  font-weight:600;text-wrap:balance}
 .stamp{font-family:var(--mono);font-size:12.5px;color:var(--bm-muted);border-left:3px solid var(--bm-accent);
   padding:6px 0 6px 12px;margin:0 0 28px}
-h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600}
+h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600;text-wrap:balance}
 h2 .n{font-family:var(--mono);font-size:13px;color:var(--bm-muted);font-weight:400;margin-left:8px}
 h3{font-family:var(--sans);font-size:16px;margin:24px 0 8px;font-weight:600}
 .lede{color:var(--bm-muted);margin:0 0 16px;max-width:76ch}
@@ -74,17 +75,19 @@ h3{font-family:var(--sans);font-size:16px;margin:24px 0 8px;font-weight:600}
 .card.you{border-left:4px solid var(--bm-needs-you-rule)}
 .card.risk{border-left:4px solid var(--bm-at-risk-rule)}
 .card.fc{border-left:4px solid var(--bm-for-info-rule)}
-.big{font-family:var(--serif);font-size:27px;line-height:1.1;display:block;margin-bottom:4px}
+.big{font-family:var(--serif);font-size:27px;line-height:1.1;display:block;margin-bottom:4px;
+  font-variant-numeric:tabular-nums}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--bm-rule);
   border-radius:10px;background:var(--bm-paper);padding:14px}
 table.gantt{border-collapse:collapse;width:100%;min-width:840px;font-size:13px}
 table.gantt th{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--bm-muted);
   text-align:center;padding:0 0 8px;border-bottom:1px solid var(--bm-rule)}
-table.gantt th.lbl{text-align:left;width:290px;padding-left:2px}
+table.gantt th.lbl{text-align:left;width:300px;padding-left:2px}
 table.gantt td{padding:4px 0;border-bottom:1px solid var(--bm-rule)}
 table.gantt td.lbl{padding-right:14px;font-size:13.5px;line-height:1.35}
 table.gantt td.lbl .cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-muted);
-  background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px}
+  background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px;
+  font-variant-numeric:tabular-nums}
 .bar{height:17px;border-radius:4px;position:relative}
 .bar.done{background:var(--bm-settled-rule)}
 .bar.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 4px,transparent 4px 8px);
@@ -117,404 +120,264 @@ table.gantt td.lbl .cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-
 .alert dd{margin:0;line-height:1.5}
 .phase{margin:26px 0 0}
 .chip{font-family:var(--mono);font-size:11.5px;background:var(--bm-accent-tint);color:var(--bm-accent);
-  border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px}
+  border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px;
+  font-variant-numeric:tabular-nums}
 ul.ledger{list-style:none;margin:10px 0 0;padding:0}
 ul.ledger li{border-bottom:1px solid var(--bm-rule);padding:11px 0 11px 30px;position:relative}
 ul.ledger li::before{position:absolute;left:0;top:10px;font-family:var(--mono);font-size:14px}
 ul.ledger li.tick::before{content:"[x]";color:var(--bm-settled-ink)}
 ul.ledger li.open::before{content:"[ ]";color:var(--bm-muted)}
+ul.ledger li.wall::before{content:"[!]";color:var(--bm-needs-you-ink)}
 ul.ledger .t{font-size:14.5px;display:block;margin-bottom:5px}
 ul.ledger .ev{font-family:var(--mono);font-size:11.5px;color:var(--bm-muted);
   background:var(--bm-idle-tint);border-radius:5px;padding:6px 9px;display:block;
   white-space:pre-wrap;word-break:break-word;line-height:1.45}
 ul.ledger li.tick .ev{color:var(--bm-settled-ink);background:var(--bm-settled-tint)}
+ul.ledger li.wall .ev{color:var(--bm-needs-you-ink);background:var(--bm-needs-you-tint)}
 footer{margin:56px 0 0;padding:20px 0 0;border-top:2px solid var(--bm-accent);font-size:13.5px;color:var(--bm-muted)}
 footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);margin:0 0 10px;max-width:74ch}
 code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
+a{color:var(--bm-accent)}
+a:focus-visible,li:focus-visible{outline:2px solid var(--bm-accent);outline-offset:2px}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<p class="eyebrow">BrotherMode and BrotherSBE // delivery board // SUPERSEDED for the current program</p>
-<p class="stamp" style="border-left-color:var(--bm-needs-you-rule)">FOCUS CHANGED 2026-08-12 morning: the founder ordered all effort onto the Toolkit program. The live board for that program is docs/plan/COMMAND-CENTER.html, rebuilt the same morning from docs/plan/TOOLKIT-PLAN-2026-08-12.md and store decisions 1 to 30. This page remains the accurate record of the night of 12 August and is not maintained past it. The plan was sharpened late morning with decisions 31 to 33, the native floor law, the borrow list, and the family invisibility principle; the command centre carries them.</p>
-<h1>The aggressive replan, and the two tools that make it honest</h1>
-<p class="stamp">Refreshed 2026-08-12 04:35 JST by session 4538d5df. GREEN AND PUSHED at 1ed3683: 3085 tests, 34 suites, 714.8s, exit 0, clean tree, remote verified three ways. Seven battery runs tonight, three red, every red one caught by a gate rather than by review.
-TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages count records, never impressions.</p>
+<p class="eyebrow">BrotherMode and BrotherSBE // finishing the adopter team's issues</p>
+<h1>Twenty-three open items, and the one that gates every push</h1>
+<p class="stamp">Refreshed 2026-08-17 by the session holding the baton (pack: 2026-08-17-adopter-feedback-finish). BrotherMode at <code>3ced3e2</code>, 17 commits ahead of origin, tree clean. BrotherSBE 17 commits ahead of origin, five untracked working files.<br>
+TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions.</p>
 
 <div class="northstar">
   <span class="k">North star</span>
-  <p>A real team, working real changes, through both tools, with every claim of done backed by a check that actually ran. Everything below either serves that or is parked.</p>
+  <p>Human intent, then whichever development method the team already uses, then BrotherMode for execution provenance, then the change passport as the only seam, then the assurance product's eight concerns, then a human decision, release, and verified reality. The chain ends in observed reality, never in a green verdict.</p>
 </div>
 
 <h2>At a glance</h2>
 <div class="strip">
   <div class="card now">
     <span class="k">Now</span>
-    <span class="big">Green and pushed</span>
-    <p>Two new tools, both R1 loops pulled forward, and the design-doc refutation. 3080 tests green at dfc3d02, on the remote, tree clean.</p>
+    <p><span class="big">Lane A</span>The three honesty-seam items in the sibling's gate tool. A design pass is running to settle the shared exception path before any code is written.</p>
   </div>
   <div class="card you">
-    <span class="k">Waiting on Khalil</span>
-    <span class="big">2 decisions</span>
-    <p>Which two people are this week's testers, and whether v3.3.0 cuts on Friday. Neither blocks tonight; both block the week.</p>
+    <span class="k">Waiting on you</span>
+    <p><span class="big">4 things</span>Two steps of the history rewrite, the sibling's ruleset payload, and a tracker export for the baseline. Detail in the decisions section.</p>
   </div>
   <div class="card risk">
     <span class="k">Risk watch</span>
-    <span class="big">Cold install</span>
-    <p>Nobody has ever installed either product on a machine that did not already have it. That single unmeasured number is the largest uncertainty in the whole plan.</p>
+    <p><span class="big">35 lines</span>The sibling's one-writer control enforces nothing in its own tree. Two agents could corrupt one file and nothing would refuse them.</p>
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
-    <span class="big">3.00x</span>
-    <p>Measured across n=9, and it keeps falling as the sample grows: 4.44 at n=4, 3.75 at n=7, 3.00 at n=9. Spread 0.66 to 5.33. The 0.66 is a task that ran SLOWER than judged, and it is the most useful number here.</p>
+    <p><span class="big">4 to 7 h</span>Lane A through adversarial review to a merged, gated commit. Medium confidence. Assumes the design pass returns a contract that does not break existing callers.</p>
   </div>
 </div>
+<p class="lede">The forecast above is corrected, not raw. This machine's own history says agent-clock estimates run optimistic by a median factor of 2.24 over 14 judged samples (range 0.66 to 25.00), so the range quoted is the corrected one. Anything outside 4 to 7 hours means the design pass found a caller problem, which is the named risk below.</p>
 
-<h2>Short range <span class="n">tonight, 01:00 to 07:00 JST, one hour per column</span></h2>
-<p class="lede">Solid is finished and evidenced. Hatched petrol is scheduled agent work. Faint is the estimate range around it. Hatched orange is wall clock, which does not compress.</p>
+<h2>Short range: this session<span class="n">hour slots, left to right</span></h2>
 <div class="scroll">
 <table class="gantt">
-<thead><tr><th class="lbl">Loop</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th><th>06</th><th>07</th></tr></thead>
+<thead><tr><th class="lbl">Lane and task</th><th>H1</th><th>H2</th><th>H3</th><th>H4</th><th>H5</th><th>H6</th><th>H7</th><th>H8</th></tr></thead>
 <tbody>
-<tr><td class="lbl"><span class="cnt">2/2</span>L1 Replan and machine-readable queue</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">2/2</span>L2 Forecast calibration tool</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">2/2</span>L3 Idle and queue depth check</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">4/4</span>L4 Registered in gate, inventory, CI</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">3/3</span>L5 Tester pack, both products</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>L6 This board</td>
-  <td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">5/5</span>R1.1 and R1.3 pulled forward from next week</td>
-  <td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">4/4</span>Design docs refuted, citations re-verified</td>
-  <td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">3/3</span>L7 Battery green, third run, 686s</td>
-  <td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">2/3</span>L8 Pushed, close pack open</td>
-  <td></td><td></td><td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/25</span>L9 Overflow queue, 25 items deep</td>
-  <td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>Task 0, the history decision</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>Re-extract the open items from source</td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Lane A design, strongest tier</td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>Lane A build: exception path, then the three</td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Lane A adversarial review, briefed to refute</td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>H9, clear the rotted fence registry</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Escalation: the one missing registration</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>Lane E documentation, cheap tier</td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Full gate, then commit and manifest</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>History rewrite, prepared for your hand</td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>Your two steps: private flip, force push</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td></tr>
 </tbody>
 </table>
+<p class="key"><span><i class="bar done"></i>done, check quoted</span><span><i class="bar sched"></i>scheduled, running now</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>blocked on you</span></p>
 </div>
-<p class="key">
-  <span><i class="bar done"></i>done and evidenced</span>
-  <span><i class="bar sched"></i>scheduled, agent clock</span>
-  <span><i class="bar est"></i>estimate range</span>
-  <span><i class="bar wall"></i>wall clock, cannot compress</span>
-</p>
 
-<h2>Long range <span class="n">12 August to 30 September, re-cut under the two-clock model</span></h2>
-<p class="lede">Every window moved earlier because agent-clock work now divides by 4.44. What is left is mostly orange, and that is the finding: the code stopped being the constraint, so the schedule is now about how fast people can look at things.</p>
+<h2>Long range: the twenty-three to a shipped version<span class="n">by lane, not by date</span></h2>
 <div class="scroll">
 <table class="gantt">
-<thead><tr><th class="lbl">Tranche</th><th>12 Aug</th><th>15 Aug</th><th>18 Aug</th><th>22 Aug</th><th>25 Aug</th><th>1 Sep</th><th>8 Sep</th><th>30 Sep</th></tr></thead>
+<thead><tr><th class="lbl">Lane</th><th>day 1</th><th>day 2</th><th>day 3</th><th>day 4</th><th>day 5</th><th>day 6</th><th>day 7</th><th>day 8</th></tr></thead>
 <tbody>
-<tr><td class="lbl"><span class="cnt">8/8</span>R0 v3.2.0 released and verified</td>
-  <td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">4/9</span>R1 PROVE, v3.3.0, about 6h agent clock</td>
-  <td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/2</span>R1 gate: testers install cold, then Khalil cuts</td>
-  <td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/6</span>R2 TOOLKIT MVP, v3.4.0, about 10h agent clock</td>
-  <td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>R2 gate: trust decisions, one founder batch</td>
-  <td></td><td></td><td></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/5</span>R3 TRUST AND PILOT, v3.5.0, about 8h agent clock</td>
-  <td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>R3 gate: the pilot week is a week</td>
-  <td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>R4 EVIDENCE RERANK, continuous</td>
-  <td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>A, the honesty seam (+ exception path)</td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>E, documentation wording</td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>H9 and the missing registration</td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>B, intent and control (behind an estate switch)</td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>C, cross platform: Windows first run, sibling's host leg</td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/3</span>The blind-after-merge group: accepted state, deployed ref, outcome</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>The small reveals: durations, concentration, defect origin, wall of text</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>D, requirement drift: design only, no code</td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Ship to the reviewers: push, new version, the note</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>G, parked on people: repro, sign-off, certification, baseline</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td></tr>
 </tbody>
 </table>
+<p class="key"><span><i class="bar sched"></i>scheduled</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>blocked on you or on a person outside</span></p>
 </div>
 
-<h2>Decisions waiting on you <span class="n">2</span></h2>
+<h2>Decisions waiting on you<span class="n">4</span></h2>
 <div class="decks">
   <div class="deck you">
-    <span class="tag">Blocks the week, not tonight</span>
-    <h4>Who are this week's two testers?</h4>
-    <p>The tester pack is written, checked and ready. It needs two people with machines that have never had either product, because that first hour is the number nothing in this plan currently knows.</p>
-    <p><strong>If you say nothing:</strong> the pack sits ready and the week's schedule slips by exactly as long as it waits. Nothing else is blocked.</p>
+    <span class="tag">Decided, needs your hand</span>
+    <h4>The history rewrite: two steps only you can run</h4>
+    <p>You chose rewrite in place with the repos private during the work. I can prepare the whole rewrite and verify it, but two steps are yours: flipping both repositories private and back, and the force push against protected main.</p>
+    <p>I will hand you the exact commands when the rewrite is prepared. Nothing gets pushed before then.</p>
   </div>
   <div class="deck you">
-    <span class="tag">Blocks Friday</span>
-    <h4>Does v3.3.0 cut on Friday 15 August?</h4>
-    <p>A release is a founder gate and always has been. The code for R1 is about six hours of agent clock and will be ready well before Friday.</p>
-    <p><strong>If you say nothing:</strong> nothing is cut. The work lands on main, tested and green, and waits. I will not tag without you.</p>
+    <span class="tag">Owner action, ready and waiting</span>
+    <h4>The sibling's ruleset is freezing its own main</h4>
+    <p>BrotherSBE's main requires five status checks that can never report, so nothing can land there. The corrected payload is already written and sitting in your archive folder; applying it is an owner action.</p>
+    <p>Until it is applied, the sibling's 17 commits cannot reach anybody, including the reviewers waiting to re-read two findings.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Needs a file from you</span>
+    <h4>The success measure nobody can recompute</h4>
+    <p>The five queue numbers are the agreed measure of whether any of this worked, and they were hand counted from a report. The values are safely on record. What is missing is a tracker export so the numbers can be recomputed later and compared.</p>
+    <p>One export file is enough. Without it, any before-and-after would be a second hand count.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Decision, not urgent</span>
+    <h4>Whether the nine unraised findings enter the plan</h4>
+    <p>The plan you approved covers thirteen items the adopter team raised. The source document also carries nine findings from its own gap hunt that nobody complained about, five of which are one hole seen five times: the system is complete up to the merge and blind after it.</p>
+    <p>My recommendation is to take the four cheap ones now and schedule the rest. Say the word and I will treat them as out of scope instead.</p>
   </div>
 </div>
 
-<h2>Risk management, insights and alerts <span class="n">4</span></h2>
+<h2>Risk management, insights and alerts<span class="n">5</span></h2>
 
 <div class="alert">
-  <h4>The first cold install has never been measured</h4>
+  <h4>The sibling's single-writer protection is inert in its own tree</h4>
   <dl>
-    <dt>What</dt><dd>Neither product has ever been installed on a machine that did not already have it. The tags were verified to exist and match their remotes, and the local install is healthy, but <code>claude plugin marketplace add</code> against a clean machine is unproven.</dd>
-    <dt>Why</dt><dd>Every date in the week and long range rests on the tester loop starting Tuesday. If the first install fails, the whole week moves, and it moves in wall clock, which never catches up.</dd>
-    <dt>Action</dt><dd>Name two testers and send them the pack.</dd>
-    <dt>When</dt><dd>Tuesday morning. Every day it waits moves R1 by a day.</dd>
+    <dt>What</dt><dd>Asked directly, the hook answers 35 times that a fence line has no readable scope, so it cannot tell what it owns and did not enforce it. Every line is a legacy fence from July.</dd>
+    <dt>Why</dt><dd>This is the control that stops two agents writing one file and corrupting it. Meanwhile the state file reads as though 35 writers hold claims, which is worse than nothing: it looks protected.</dd>
+    <dt>Action</dt><dd>Make an unreadable line report as stale with the command that clears it, then clear the July lines. Small, and the hook already knows how to say a line is unreadable.</dd>
+    <dt>When</dt><dd>This session, before any parallel work runs in that repository.</dd>
   </dl>
 </div>
 
 <div class="alert">
-  <h4>The multiplier is not about size. It is about how well specified the work is</h4>
+  <h4>It was found by asking the control, not by grepping for fences</h4>
   <dl>
-    <dt>What</dt><dd>At n=7 the median is 3.75x but the spread widened from 3.75-to-5.33 to <strong>0.66-to-5.33</strong>. That 0.66 is R1.1: forecast 45 minutes, actual 68. It ran slower than judged, and it was the one task tonight that hit a problem nobody had foreseen, the canonical shape refusing the new fields.</dd>
-    <dt>Why</dt><dd>This is the plan's own root-cause claim being tested against itself and surviving. An agent is roughly four times faster than a person on work whose files and done-check are already named, and at or below parity on work it has to figure out first, because it pays full price for every wrong turn. So a single multiplier applied to everything would have been the old mistake with a decimal point on it.</dd>
-    <dt>Action</dt><dd>Nothing from you tonight. From now on a task whose shape is not yet known gets forecast raw, with the multiplier explicitly not applied and the unspecified part named. That is captured as a pending rule for your approval, not self-approved.</dd>
-    <dt>When</dt><dd>At the Monday review, with n past twelve, split the sample by specified and unspecified and see whether the two populations really separate.</dd>
-  </dl>
-</div>
-
-<div class="alert good">
-  <h4>The thing filed as a flake was a real bug in the close ceremony, and it is fixed</h4>
-  <dl>
-    <dt>What</dt><dd>test_bm_handover.py failed twice inside long gate runs and passed five times in a row in isolation. Everything about it read as noise. It was a genuine defect: the zip freshness check compared the archive's BYTES, and a zip entry header stores each member's mtime, so a byte-identical re-save that crossed one of the MS-DOS format's two second boundaries read as a changed pack. About one run in forty.</dd>
-    <dt>Why</dt><dd>It sat in the tool that gates every session close, in the exact code path an earlier finding had already tried to fix once. That earlier fix moved the check off the pack directory's mtime and onto the archive's bytes, which is a real improvement that does not go far enough, because zip bytes are not content.</dd>
-    <dt>Action</dt><dd>Nothing from you. Both comparison sites now use a content fingerprint of member name and member bytes. Two tests hold it: one deterministic where the original was probabilistic, shown red before the fix and green after, and one proving a real content change is still caught, because a check that ignores timestamps must not start ignoring changes.</dd>
-    <dt>When</dt><dd>Done, in the green run at 9a354b9. The whole trail, including the hypothesis that turned out wrong, is in docs/plan/DEFECT-handover-suite-flake-2026-08-12.md.</dd>
+    <dt>What</dt><dd>A search of the state file lists 35 live fences and looks healthy. Running the hook returns 35 refusals to enforce, which is the opposite conclusion.</dd>
+    <dt>Why</dt><dd>This is the general failure this whole program is about: a control that cannot reach a verdict reads as a passing control. It has now happened here twice in two products.</dd>
+    <dt>Action</dt><dd>Every claim about a control on this board comes from running it. No claim on this page rests on a grep where the control itself could be asked.</dd>
+    <dt>When</dt><dd>Standing rule, applied to this board already.</dd>
   </dl>
 </div>
 
 <div class="alert info">
-  <h4>The reason it was caught at all is that it was filed open rather than dismissed</h4>
+  <h4>Three new refusals are queued and none had an escape hatch</h4>
   <dl>
-    <dt>What</dt><dd>The first write-up called it a flake, said explicitly that it was NOT fixed, and named the exact flag to run next time. That flag, --artifacts, produced the assertion on the very next run.</dd>
-    <dt>Why</dt><dd>"Will not reproduce" is a description of the observation, never a diagnosis. Writing it down with its evidence costs a few minutes; calling it noise would have cost a defect left in the close gate.</dd>
-    <dt>Action</dt><dd>Nothing. It is written into the pack's process fixes as PF-2, so long gate runs carry --artifacts by default from now on.</dd>
-    <dt>When</dt><dd>Already applied, three gate runs tonight.</dd>
+    <dt>What</dt><dd>Lane A and lane B add refusals to the sibling's gate. A ratified amendment says none may ship without an exception carrying an owner and an expiry date, and the plan's task table dropped the expiry half.</dd>
+    <dt>Why</dt><dd>A refusal nobody can override becomes the thing people route around, and then the tool is worse than the honest silence it replaced.</dd>
+    <dt>Action</dt><dd>One shared exception path rather than three. The sibling already has an exemption file with a checks list and a reason; it needs an owner and an expiry, which is two fields on one existing parser.</dd>
+    <dt>When</dt><dd>Before any of lane A's three items merges. It is the first thing the design pass was asked to settle.</dd>
   </dl>
 </div>
 
 <div class="alert info">
-  <h4>Another session was working this repository at the same time</h4>
+  <h4>The plan disagreed with its own source in five places</h4>
   <dl>
-    <dt>What</dt><dd>Between 01:21 and 01:44 a second session committed five times to main, landing four design documents. No collision: it touched no file any of my four fences covered.</dd>
-    <dt>Why</dt><dd>It is worth knowing because it worked straight off the queue file written at 01:25, which is the queue doing its job before the tool that reads it was even finished. It also means the machine ran two lanes tonight, not one.</dd>
-    <dt>Action</dt><dd>Nothing. The queue has been reconciled so finished items no longer count as depth.</dd>
-    <dt>When</dt><dd>Done at 01:50.</dd>
+    <dt>What</dt><dd>Nine findings missing, the sequencing contradicting the source's own order, one item sized T1 that is really T2, a live control failure understated, and one item split in two with only the blocked half carried.</dd>
+    <dt>Why</dt><dd>The plan told its successor to re-extract rather than trust the table, and it was right to. A table produced by one reader pass is a claim, not evidence.</dd>
+    <dt>Action</dt><dd>The corrected inventory is written to disk and supersedes the table for counting purposes. The lane and tier assignments still stand.</dd>
+    <dt>When</dt><dd>Done. The evidence is quoted in the ledger below.</dd>
   </dl>
 </div>
 
 <div class="alert good">
-  <h4>The queue can no longer quietly run dry</h4>
+  <h4>Where the plan was right and its own source was stale</h4>
   <dl>
-    <dt>What</dt><dd>Depth is 21 startable items against a floor of 5, and two founder-gated items are excluded from the count by design.</dd>
-    <dt>Why</dt><dd>Last night's plan had thirteen tasks, finished them in ninety minutes, and had nothing behind them. A blocked item cannot rescue a night, so the check refuses to count one.</dd>
-    <dt>Action</dt><dd>Nothing. It is mechanical now.</dd>
-    <dt>When</dt><dd>Live since 01:40.</dd>
+    <dt>What</dt><dd>The source says two contradictory things about the escalation registrations: four of six in one place, none applied in another. The plan says one is missing, and the plan is correct.</dd>
+    <dt>Why</dt><dd>Worth recording because the instinct on finding a disagreement is to trust the older, longer document. Here the newer, shorter one had actually checked.</dd>
+    <dt>Action</dt><dd>Apply the one missing registration to the effects registry. No suite catches it today, for a reason worth keeping: the registry validates the entries it has, so an undeclared module is silent rather than red.</dd>
+    <dt>When</dt><dd>This session, alongside the fence clear.</dd>
   </dl>
 </div>
 
-<h2>The ledger <span class="n">every box carries its proof</span></h2>
+<h2>The ledger</h2>
 
 <div class="phase">
-<h3>Phase 1: the plan itself <span class="chip">2/2</span></h3>
+<h3>Phase 1, task 0 and the true inventory<span class="chip">2/2 ticked</span></h3>
 <ul class="ledger">
-<li class="tick"><span class="t">The three-horizon replan exists, built on a two-clock model rather than an apology</span>
-<span class="ev">docs/plan/PLAN-2026-08-12-AGGRESSIVE.md, 216 lines, committed in the range 507ca05..317564f</span></li>
-<li class="tick"><span class="t">The queue is machine-readable, ordered, and every item is independently startable</span>
-<span class="ev">$ python3 tools/bm_idle.py depth --queue docs/plan/QUEUE.json
-DEPTH 21 min_depth=5 blocked=2 in_flight=0 done=8</span></li>
+  <li class="tick"><span class="t">The history question put to the owner and answered, before any push</span>
+    <span class="ev">Answer: rewrite in place, both repositories private during the work, verified in a fresh clone of the remote rather than the local one, then public again. A conflict with the standing rule (clean extraction, never a scrub) was surfaced rather than silently resolved, and the owner confirmed the route.</span></li>
+  <li class="tick"><span class="t">Open items re-extracted from the primary source by a second reader, not trusted from the table</span>
+    <span class="ev">docs/plan/ADOPTER-OPEN-ITEMS-REEXTRACTED-2026-08-17.md
+Five disagreements found, one correction the other way. Count moved 13 to 23.
+Measured, not read: python3 tools/sbe_fence_hook.py fences | grep -c "no readable"  ->  35
+Registration audit, all six deltas checked individually: five applied, tools/bm_effects.py absent.
+Absent from tools/sbe_gate.py, grepped: provenance, producer, run-url, unexamined, regression, cross-device.
+No --long, --short or --brief flag anywhere in the sibling's status path.</span></li>
 </ul>
 </div>
 
 <div class="phase">
-<h3>Phase 2: forecasting, made mechanical <span class="chip">4/4</span></h3>
+<h3>Phase 2, lane A, the honesty seam<span class="chip">0/5 ticked</span></h3>
 <ul class="ledger">
-<li class="tick"><span class="t">The tool exists and its own suite passes</span>
-<span class="ev">$ python3 tools/test_bm_forecast.py
-Ran 18 tests in 4.263s
-OK</span></li>
-<li class="tick"><span class="t">It refuses to invent a multiplier below three pairs, at n=0, n=1 and n=2</span>
-<span class="ev">$ python3 tools/bm_forecast.py apply --likely-minutes 60 --log EMPTY
-NO-DATA: 0 usable pairs for clock=any basis=any, need 3   (exit 2, no number printed)
-$ ... after two pairs
-NO-DATA: 2 usable pairs for clock=any basis=any, need 3   (exit 2, no number printed)</span></li>
-<li class="tick"><span class="t">Calibrated from four real measured pairs, two historic and two from tonight</span>
-<span class="ev">$ python3 tools/bm_forecast.py calibrate --clock agent --basis judged
-CALIBRATED clock=agent basis=judged n=4 median=4.44 min=3.75 max=5.33</span></li>
-<li class="tick"><span class="t">A judged estimate can now be corrected instead of trusted</span>
-<span class="ev">$ python3 tools/bm_forecast.py apply --likely-minutes 60 --clock agent --basis judged
-CALIBRATED-ESTIMATE input=60.0 likely=13.5 low=11.2 high=16.0 basis=judged clock=agent n=4</span></li>
+  <li class="open"><span class="t">The shared exception path: an owner and an expiry on the sibling's exemption file</span>
+    <span class="ev">check: a new exemption with no owner or no expiry is refused; an expired one reports NO-DATA rather than passing; every existing caller of the parser still works, listed by name.</span></li>
+  <li class="open"><span class="t">A green summary names the classes it did not examine, as NO-DATA</span>
+    <span class="ev">check: an all-green run prints regression, cross-device, performance and UX as NO-DATA by name, and the exit code is unchanged.</span></li>
+  <li class="open"><span class="t">A receipt records where it came from, and strict mode accepts only the build system's</span>
+    <span class="ev">check: a hand-written receipt passes without the flag and fails with it, proven by a test written failing first. An old receipt with no producer field does not silently pass strict.</span></li>
+  <li class="open"><span class="t">Every owed check must appear in the receipt, or the gate names the missing rows</span>
+    <span class="ev">check: delete one check from a receipt, the gate goes red naming the behaviour row it belongs to. Absent, unreadable and empty-proof cases each keep the verdict this codebase already gives them.</span></li>
+  <li class="open"><span class="t">Adversarial review, briefed to refute rather than to agree</span>
+    <span class="ev">check: the reviewer runs the attack and reports what broke, or states COULD NOT BREAK. Reasoning with no executed attack is NO-DATA and does not clear the merge.</span></li>
 </ul>
 </div>
 
 <div class="phase">
-<h3>Phase 3: the idle check <span class="chip">4/4</span></h3>
+<h3>Phase 3, the two small controls<span class="chip">0/2 ticked</span></h3>
 <ul class="ledger">
-<li class="tick"><span class="t">The tool exists and its own suite passes</span>
-<span class="ev">$ python3 tools/test_bm_idle.py
-Ran 16 tests in 0.556s
-OK</span></li>
-<li class="tick"><span class="t">A queue of nothing but founder-gated items reports empty rather than healthy</span>
-<span class="ev">$ python3 tools/bm_idle.py check --queue all-blocked.json
-QUEUE-EMPTY: 0 items queued, the machine has nothing to start (6 blocked, not counted)   exit=1</span></li>
-<li class="tick"><span class="t">A stalled unattended night is caught, and an attended one is not accused</span>
-<span class="ev">$ ... window open, nothing touched for hours
-IDLE: depth 3 but no watched path changed in 25 minutes        exit=1
-$ ... same fixture, unattended false
-OK: depth 3, attended session                                   exit=0</span></li>
-<li class="tick"><span class="t">A broken queue file reads as could-not-tell, never as a pass</span>
-<span class="ev">$ python3 tools/bm_idle.py check --queue bad.json
-NO-DATA: item X has an unknown state: almost-done               exit=2</span></li>
+  <li class="open"><span class="t">Clear the rotted fence registry so the one-writer control works again</span>
+    <span class="ev">check: fences prints zero unenforceable lines on a clean tree, and exactly one after a malformed line is added back.</span></li>
+  <li class="open"><span class="t">The one missing escalation registration</span>
+    <span class="ev">check: the effects registry carries the module with the classes the file actually uses, confirmed by reading it first; the full battery green afterwards; manifest regenerated last, after git add.</span></li>
 </ul>
 </div>
 
 <div class="phase">
-<h3>Phase 4: both tools wired into the delivery process <span class="chip">4/4</span></h3>
+<h3>Phase 4, blocked on you<span class="chip">0/4, not startable here</span></h3>
 <ul class="ledger">
-<li class="tick"><span class="t">Both suites are in the local gate and in CI, checked against each other</span>
-<span class="ev">in SUITES, missing from CI: []
-new tools present in CI: True True</span></li>
-<li class="tick"><span class="t">Every command declares an effect class, and the purity suite agrees</span>
-<span class="ev">$ python3 tools/test_bm_effects.py
-Ran 10 tests in 8.571s
-OK</span></li>
-<li class="tick"><span class="t">The reviewed write inventory caught the new writer, and was reviewed line by line</span>
-<span class="ev">$ python3 -m unittest tools.test_bm.TestPreWriteGate.test_no_unreviewed_write_sites
-Ran 1 test in 0.131s
-OK      (bm_forecast.py 39 sites, exactly 2 of them real file writes; bm_idle.py 5, none)</span></li>
-<li class="tick"><span class="t">The gate caught my own evidence file for a missing status line, and I fixed it rather than exempting it</span>
-<span class="ev">FAILED: dated document(s) that declare no status in the first 25 lines:
-docs/evidence/tester-pack/CHECKED-2026-08-12.md</span></li>
+  <li class="wall"><span class="t">Both repositories private, the rewrite force pushed, both public again</span>
+    <span class="ev">Your hand. A dry-run push cannot see branch protection or a ruleset, so this is not something I can rehearse to a verdict.</span></li>
+  <li class="wall"><span class="t">The sibling's corrected ruleset payload applied</span>
+    <span class="ev">Your hand. Until then the sibling's main is frozen and no session should retry a push hoping it lands.</span></li>
+  <li class="wall"><span class="t">A tracker export, so the five queue numbers can be recomputed</span>
+    <span class="ev">Your file. The values are on record; the ability to recompute them is what is missing.</span></li>
+  <li class="wall"><span class="t">A reviewer's exact reproduction steps for the stale status report</span>
+    <span class="ev">Outside this machine. Not reproduced here, so it stays parked rather than guessed at.</span></li>
 </ul>
 </div>
 
-<div class="phase">
-<h3>Phase 5: the tester package <span class="chip">3/3</span></h3>
-<ul class="ledger">
-<li class="tick"><span class="t">Both released tags exist and match their remotes</span>
-<span class="ev">960bd4f83c574298d45ab27aff6bfb275a964192  refs/tags/v3.2.0   (BrotherMode)
-c48ac46b33e413c797786ceb67bcfe8e062bca8b  refs/tags/v3.1.0   (BrotherSBE)</span></li>
-<li class="tick"><span class="t">The install verifies itself and all eleven health checks pass</span>
-<span class="ev">verify-install: 853 file(s) match, 0 mismatched, 0 missing, 0 wrong type, 0 extra
-11 of 11 proven, 0 skipped, 0 failed.</span></li>
-<li class="tick"><span class="t">Two real defects found in the install card and fixed, not noted for later</span>
-<span class="ev">it told every tester to run BrotherSBE v3.0.0, superseded by v3.1.0
-it named two versions and gave install commands for only one of them</span></li>
-</ul>
-</div>
-
-<div class="phase">
-<h3>Phase 6: R1 pulled forward, because the measured rate said it fit <span class="chip">5/5</span></h3>
-<ul class="ledger">
-<li class="tick"><span class="t">A project can record what would make it right to stop, and what it deliberately is not</span>
-<span class="ev">schema 18 to 19, kill_criteria and non_goals as JSON lists exactly like risks
-$ python3 tools/test_bm_store.py
-Ran 1047 tests in 38.112s
-OK      (1029 before, so +18 on this loop)</span></li>
-<li class="tick"><span class="t">Migration proven against a genuine old database, not a fresh one pretending to be old</span>
-<span class="ev">TestSchema19OutcomeContractColumns builds a real store, strips the two columns
-from a real projects row, sets schema_version 18, reopens and asserts it MIGRATES
-rather than quarantines, with goal, risks and scope_in unchanged</span></li>
-<li class="tick"><span class="t">The fields joined the canonical shape instead of being carried around it</span>
-<span class="ev">the first cut popped them off the dict before Project(**d) and re-appended them
-to LIST_FIELDS on read. Both compensations removed; schema.py and the spec doc now
-carry the fields.
-$ python3 tools/test_bm_schema.py
-Ran 20 tests in 0.001s
-OK</span></li>
-<li class="tick"><span class="t">The baton ceremony's opening half runs unasked, and cannot take a session down</span>
-<span class="ev">$ /usr/bin/time -p python3 tools/bm_handover.py detect
-real 0.08
-$ python3 tools/test_bm_consent.py
-Ran 46 tests in 16.758s
-OK      (44 before: one test that it reaches detect, one that it still exits 0 when detect cannot run)</span></li>
-<li class="tick"><span class="t">My own first draft of that test failed, and was right to</span>
-<span class="ev">from a non-project directory detect exits 0 and prints
-"NO-DATA: no BrotherMode project root found", which is detect WORKING.
-The assertion list was incomplete, not the implementation. Fixed, with the reason
-written into the test so the next reader does not repeat the question.</span></li>
-</ul>
-</div>
-
-<div class="phase">
-<h3>Phase 8: the forecasting tool became a control <span class="chip">3/3</span></h3>
-<ul class="ledger">
-<li class="tick"><span class="t">A forecast left open past its window now refuses the session close</span>
-<span class="ev">$ python3 tools/bm_handover.py verify-close ...
-FAIL: this session recorded 1 forecast(s) that never got an actual and are now
-more than 12 hours old: never-closed. Close them with `... actual --task <name> --minutes N`</span></li>
-<li class="tick"><span class="t">A closed forecast does not block, and a project that never adopted the tool is not punished</span>
-<span class="ev">three tests, not one: the failure fires, a recorded actual passes,
-and a repository with no forecast log at all passes. A gate that cannot be
-satisfied is not a gate, it is a wall.</span></li>
-<li class="tick"><span class="t">Two callers, one definition of what open means</span>
-<span class="ev">bm_forecast.py gained one public function, open_forecasts, and its own
-check verb delegates its verdict to it. A second copy of that rule would be
-free to drift, and drift in this exact rule is how the problem lasted a night.</span></li>
-</ul>
-</div>
-
-<div class="phase">
-<h3>Phase 7: close the night <span class="chip">6/6</span></h3>
-<ul class="ledger">
-<li class="tick"><span class="t">Full battery green at the final tree</span>
-<span class="ev">$ python3 tools/test_all.py --artifacts ...
-test_all: 3080 tests across 34 suites, 5 skipped, 685.9s wall. ALL GREEN
-exit 0, at dfc3d02, tree clean</span></li>
-<li class="tick"><span class="t">Manifest regenerated after the last tracked edit, integrity check actually ran</span>
-<span class="ev">$ python3 scripts/doctor.py
-[9/11] CHECKSUMS.sha256 self-check: PASS
-  PASS: all 865 file(s) listed in CHECKSUMS.sha256 match.</span></li>
-<li class="tick"><span class="t">Pushed to main and verified against the remote, not against my own belief</span>
-<span class="ev">   dfc3d02..9a354b9  main -> main
-local 9a354b9 | upstream 9a354b9 | remote 9a354b9      all three agree</span></li>
-<li class="tick"><span class="t">The suite failure filed as a flake was diagnosed, fixed, and proven failing-first</span>
-<span class="ev">$ git stash push -- tools/bm_handover.py     (remove the fix)
-Ran 1 test in 0.040s
-FAILED (failures=1)
-$ git stash pop                              (restore it)
-Ran 36 tests in 1.035s
-OK</span></li>
-<li class="tick"><span class="t">Final battery green at the pushed tree</span>
-<span class="ev">test_all: 3082 tests across 34 suites, 5 skipped, 665.0s wall. ALL GREEN
-exit 0, at 9a354b9, tree clean
-$ python3 scripts/doctor.py
-[9/11] PASS: all 873 file(s) listed in CHECKSUMS.sha256 match.</span></li>
-<li class="tick"><span class="t">Close pack written, every by-hand slot filled, passing its own verifier</span>
-<span class="ev">$ python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan --session ...
-FAIL: session bm1-b62efdf... still owns 8 unparked record(s): command-center-night-refresh,
-forecast-telemetry, idle-check, night-queue-and-board, r11-canonical-shape,
-r11-outcome-contract, r13-ceremony-open-half, tester-pack-coordinated
-   ... all eight parked with handover text, then:
-PASS: ready to close.</span></li>
-</ul>
-</div>
-
-<h2>Decisions recorded <span class="n">3</span></h2>
+<h2>Decisions recorded<span class="n">3</span></h2>
 <div class="decks">
   <div class="deck done">
-    <span class="tag">Taken 01:30</span>
-    <h4>Forecasts get a calibration tool, not a better guess</h4>
-    <p>Rejected: writing a stricter rule into the skill file. Rejected because this project's own founding law is that a rule in a prompt is not a control. A prose rule is exactly what failed last night.</p>
-    <p><strong>Would flip it:</strong> if the calibration stays below n=10 for two weeks, the sample is too thin to be worth the machinery and the honest move is to say so.</p>
+    <span class="tag">Recorded 2026-08-17</span>
+    <h4>Rewrite history in place, private during the work</h4>
+    <p>Chosen over clean extraction into a fresh repository and over leaving the history as it is. Alternatives were put with their costs; the standing rule's preference for extraction was surfaced and overridden deliberately by the owner.</p>
+    <p>Flip condition: if the rewrite cannot be verified in a fresh clone of the remote, the route reverts to extraction rather than being declared done locally.</p>
   </div>
   <div class="deck done">
-    <span class="tag">Taken 01:32</span>
-    <h4>The idle check is pure_read and has no mutating verb</h4>
-    <p>Rejected: giving it a <code>mark</code> command to update queue states. Rejected because a tool that writes must enter the reviewed write inventory, and the gain was convenience only.</p>
-    <p><strong>Would flip it:</strong> if editing the queue by hand turns out to be the reason states go stale.</p>
+    <span class="tag">Recorded 2026-08-17</span>
+    <h4>The baseline is reclassified from urgent to blocked</h4>
+    <p>The source made it item zero because it could not be done later. On inspection the five values are already written down, so what cannot be done later has already been done. Only the recompute tool is missing, and it needs a file from outside.</p>
+    <p>Deciding not to treat it as urgent is itself the decision, recorded here rather than discovered later in a report.</p>
   </div>
   <div class="deck done">
-    <span class="tag">Taken 01:38</span>
-    <h4>The tester pack skips the humanizer pass</h4>
-    <p>It is an operational runbook whose register must match the team docs beside it, not standalone founder prose. Recorded here because deciding not to do a standing step is itself a decision.</p>
-    <p><strong>Would flip it:</strong> a tester saying it reads like a machine wrote it.</p>
+    <span class="tag">Recorded 2026-08-17</span>
+    <h4>One shared exception path, not three</h4>
+    <p>The three queued refusals each needed an owner and an expiry. Rather than three mechanisms, the existing exemption file gains two fields. Chosen because the file is already hardened against the obvious abuse and already understood by the team.</p>
+    <p>Flip condition: if the existing parser cannot take the fields without breaking its callers, the exception path becomes its own small module and the three refusals wait for it.</p>
   </div>
 </div>
 
 <footer>
-  <p class="contract">The tick contract: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions. An unticked box means the check has not run, not that the work feels incomplete.</p>
-  <p>Refreshed 2026-08-12 01:52 JST by session 4538d5df. Derived from docs/plan/PLAN-2026-08-12-AGGRESSIVE.md and docs/plan/QUEUE.json. Tree at 317564f plus uncommitted work from this session.</p>
+  <p class="contract">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions. A green from a script written here is worth nothing until somebody has tried to make it lie.</p>
+  <p>Refreshed 2026-08-17 by the session holding the baton, pack 2026-08-17-adopter-feedback-finish. BrotherMode at <code>3ced3e2</code>. Both repositories are public and this page names no client, no company and no reviewer. Roles only.</p>
 </footer>
 
 </div>

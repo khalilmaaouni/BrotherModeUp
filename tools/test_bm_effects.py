@@ -452,6 +452,15 @@ def _argv_for(fixture, module, verb):
         ("brothermode_cli.py", "status"):
             ["status", "--project-id", fixture.project_id],
         ("bm_learn.py", "lookup"): ["lookup", "--query", "a test query"],
+        # Added 2026-08-17 with bm_escalate.py's registry entry. Both verbs
+        # take a required --objective, so a bare argv exits 2 on usage and the
+        # verb never reaches its body, which this suite correctly refuses to
+        # read as a pure_read pass. That refusal is why the entry could not be
+        # declared without these two lines.
+        ("bm_escalate.py", "check"):
+            ["check", "--objective", "a bm-effects-test objective"],
+        ("bm_escalate.py", "packet"):
+            ["packet", "--objective", "a bm-effects-test objective"],
         ("bm_packs.py", "stakes"): ["stakes", fixture.candidate_id],
         ("bm_view.py", "explain"): ["explain", "--reason", "absolute-write-scope"],
         ("bm_lint_walltime.py", "main"):
