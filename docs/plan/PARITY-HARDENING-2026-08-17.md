@@ -1,5 +1,11 @@
 # Hardening the six capabilities still below GitHub Actions
 
+Status: CURRENT. This is a live design, not a record of one. Three of its six
+items landed on 2026-08-17 (the credential sandbox, the Python 3.9 floor, and
+receipt signing); the rest are open, and the Linux item is blocked on disk space
+rather than on a decision. Mark this HISTORICAL when the open items close or the
+design is superseded.
+
 Founder instruction, 2026-08-17: for each capability where the local gate runner
 is still below what Actions gave, design a hardening that reaches an honest pass;
 find free and unlimited marketplace plugins that help; and make Actions optional,
