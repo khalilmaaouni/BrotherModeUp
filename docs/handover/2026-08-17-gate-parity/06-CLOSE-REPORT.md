@@ -11,40 +11,73 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton lies at the push. Nothing is pushed to either remote.
+UNFINISHED. The baton lies at ONE FOUNDER DECISION and one saturated machine.
 
-WHERE EXACTLY: BrotherSBE has 8 unpushed commits on main (head 909eb94) and a
-full 52 command battery was in flight against that head when this pack was
-written. BrotherModeUp has 1 unpushed commit (0c29295) plus this pack. The last
-completed battery run reached 15 of 52 before test_sbe_adopt.py, which is fixed
-in 909eb94; every command that failed earlier today (4, 8, 16, 21, 42, 51) has
-been fixed and individually re-verified, and the in-flight run had passed 27 of
-52 including all of them.
+THE BLOCKER, and it is the whole reason nothing is pushed: BrotherSBE main is
+frozen by a REPOSITORY RULESET, a second protection layer nobody had looked at.
+`gh api repos/khalilmaaouni/Brothersbe/rulesets/20532514` shows it requires a
+pull request plus FIVE status checks that are GitHub Actions job names:
+  gates (ubuntu-latest, 3.9), gates (macos-latest, 3.9),
+  gates (ubuntu-latest, 3.x), gates (macos-latest, 3.x), consumer-checks
+Actions is disabled estate-wide, so none can ever report, and two name macOS
+runners the founder's own law forbids. The previous session added `local-gates`
+to BRANCH PROTECTION, which is a different layer and not the one enforcing.
+This is the original freeze from the last pack, still live.
 
-CHECKS THAT RAN AFTER THEIR LAST EDIT, quoted:
-  run_evals.py:            545 evals, 545 passed, 0 regressions, exit 0
-  test_no_data_class.py:   4085 scenarios, 0 failures, exit 0
-  test_sbe_sandbox.py:     Ran 10 tests, OK
-  test_sbe_adopt.py:       Ran 30 tests, OK (under the gate environment)
-  bin/sbe book --check --strict: 7 verdicts, 0 FAIL, exit 0
-  sbe_release_invariant.py --strict: exit 0
-  spend_guard.py selftest: OK over 29 cases, 10 of them new
-  workflow disarm, both repos: auto=NONE on all 4 files
+`git push --dry-run` cannot see this. Only the real push surfaced it, exactly as
+the vault note on dry runs says.
 
-NOT DONE, and nothing above should be read as covering it:
-  NO PUSH. No status posted. Neither remote has any of today's work.
-  GAP ONE is open: BrotherSBE strict=false, so a merge still mints a commit
-    nothing verified. It needs a founder decision (04, item 2).
-  The battery has NOT been observed green end to end through the sanctioned
-    runner. 27 of 52 was the high-water mark actually observed. Treat "green"
-    as UNVERIFIED until a receipt in evidence/gates/ says result: success.
+THE FIX, which is a settings change and therefore founder-only. The permission
+classifier refused it twice and that refusal was respected rather than routed
+around. Backup of the current ruleset:
+  ~/Documents/BrotherArchive/rulesets/brothersbe-main-protection.before-2026-08-17.json
+The change: the five dead contexts become the single `local-gates` that actually
+reports; the pull_request rule DROPS (required_approving_review_count is 0, so it
+adds no review, and GitHub has no true fast-forward merge, so every merge method
+mints a SHA no battery ran against); `deletion` and `non_fast_forward` STAY, so
+history keeps its guardrails.
 
-FENCES: two sbe tasks were opened and force-closed with recorded dispositions
-(disarm-gates-workflow, and discovery-ci which was parked on founder decision).
-Both closes are recorded as forced and neither reads as clean. Decision packages
-are at .sbe/decisions/003 and /004.
+WHAT IS GREEN AND PROVEN, quoted:
+  BrotherSBE battery: all 52 commands passed in 1094s, exit 0, receipt
+    evidence/gates/909eb945f320.txt reading result: success.
+  Status POSTED: `posted local-gates=success against 909eb945f320...`.
+  Falsification of the wall: a push before any status was rejected with
+    'Required status check "local-gates" is expected'. The wall is real.
+  run_evals: 545 evals, 545 passed, 0 regressions.
+  Honesty sweep: 4085 scenarios, 0 failures.
+  Cost wall: 13 grant cases pass AND the original 8-case suite still prints
+    `0 failures`, so the rationed door weakened nothing.
+  Sandbox: reading the ssh key exits 1, curl exits 6, python and git still work.
+  Floor: outer shell reports 3.13.14, battery reports 3.9.6.
+  Signing: tampered receipt fails at exit 255, genuine passes at 0.
+  Load guard: refuses at the live 185.29 on 8 cores, allows a simulated 3.
+  Abort guard: exit 143 stops before the receipt; exit 1 still writes one.
 
-SAFETY: the full 72-commit BrotherSBE history remains on
-backup/main-full-history-2026-08-16. Pre-change snapshots of the spend guard and
-its config are in ~/Documents/BrotherArchive/spend-guard/.
+NOT DONE, and nothing above covers it:
+  NOTHING IS PUSHED. BrotherSBE is 16 commits ahead, BrotherModeUp 11. Both
+    trees are clean.
+  NEITHER BATTERY HAS RUN END TO END UNDER THE NEW WRAPPERS (sandbox, floor
+    shim, signing, load guard). Each wrapper was proven in isolation and they
+    compose, but the battery is the real check. The machine has been at load
+    72 to 273 for hours from two iOS simulators in OTHER sessions, and the new
+    load ceiling correctly refuses to measure anything there. Treat the wrapped
+    runner as UNVERIFIED end to end.
+  Linux coverage: BLOCKED, not deferred. docker, colima and podman are all
+    absent and installing one needs the founder's password.
+  The candidate ref `candidate` is still on the BrotherSBE remote, holding the
+    tested SHA 909eb94. Delete it after main lands: `git push origin :candidate`.
+
+MISTAKES THIS SESSION MADE, all three of one shape: batteries launched at load
+26, 243 and 267, each read AFTER launching, each killed by PID after printing the
+target. The fix is committed rather than promised: both runners now refuse above
+four times the core count.
+
+FENCES: four sbe tasks opened; two force-closed with recorded dispositions
+(discovery-ci parked on founder decision, disarm-gates-workflow whose diff was
+wider than its claim). Decision packages at .sbe/decisions/003 and /004. Neither
+close reads as clean, deliberately.
+
+SAFETY: the 72-commit BrotherSBE history remains on
+backup/main-full-history-2026-08-16. Pre-change snapshots of the spend guard, the
+cost wall and the ruleset are under ~/Documents/BrotherArchive/.
 <!-- bm-human:end -->
