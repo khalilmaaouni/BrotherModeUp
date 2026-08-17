@@ -25,7 +25,26 @@ set -o pipefail
 cd "$(dirname "$0")/.." || exit 2
 REPO="khalilmaaouni/BrotherModeUp"
 POST=1
-[ "${1:-}" = "--no-post" ] && POST=0
+FLOOR=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-post) POST=0 ;;
+    # THE 3.9 FLOOR, which is a PROMISE ON THE FRONT PAGE and was tested only in
+    # a workflow that no longer fires. Actions ran both ends of the supported
+    # range; this machine runs 3.13 and nothing was checking the floor at all.
+    # No install and no password were needed to fix that: Apple's Command Line
+    # Tools already ship Python 3.9.6 at /usr/bin/python3, beside the newer
+    # interpreter on PATH. This flag shims that one to the front of the
+    # battery's PATH.
+    #
+    # Cadence, mirroring the founder decision quoted in the gates workflow (the
+    # floor is the BLOCKING leg because it is the promise, the newest
+    # interpreter is informational): 3.13 on every run, the floor at release
+    # candidates and on any change to dependencies or syntax surface.
+    --floor)   FLOOR=1 ;;
+    *) echo "usage: local-gates.sh [--no-post] [--floor]"; exit 2 ;;
+  esac
+done
 
 # Tracked modifications only: untracked files do not change what the commit
 # under test contains. A battery run against a tree still being edited
@@ -82,7 +101,33 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "about the commit."
   exit 2
 fi
-GATE_ENV=(PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}")
+GATE_PATH="$PATH"
+FLOOR_NOTE="not run (3.13 leg only)"
+if [ "$FLOOR" = 1 ]; then
+  # A shim directory holding one symlink, prepended to the battery's PATH, so
+  # every `python3` the battery invokes resolves to the floor interpreter
+  # without touching the outer shell or installing anything.
+  if [ ! -x /usr/bin/python3 ]; then
+    echo "REFUSED: --floor asked for the 3.9 floor and /usr/bin/python3 is not"
+    echo "executable, so the floor could not be tested. A floor run that"
+    echo "silently used the newer interpreter would be the worst outcome here."
+    exit 2
+  fi
+  FLOOR_V="$(/usr/bin/python3 -V 2>&1)"
+  case "$FLOOR_V" in
+    "Python 3.9"*) ;;
+    *) echo "REFUSED: /usr/bin/python3 reports '$FLOOR_V', not a 3.9 series."
+       echo "The floor this project promises is 3.9; refusing rather than"
+       echo "reporting a floor run that tested something else."
+       exit 2 ;;
+  esac
+  mkdir -p "${TMPDIR:-/tmp}/gates-py39"
+  ln -sf /usr/bin/python3 "${TMPDIR:-/tmp}/gates-py39/python3"
+  GATE_PATH="${TMPDIR:-/tmp}/gates-py39:$PATH"
+  FLOOR_NOTE="$FLOOR_V via /usr/bin/python3"
+  echo "floor: $FLOOR_NOTE"
+fi
+GATE_ENV=(PATH="$GATE_PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}")
 DECLARED=0
 while IFS= read -r kv || [ -n "$kv" ]; do
   case "$kv" in ''|\#*) continue;; esac
@@ -98,8 +143,33 @@ echo "gate: python3 tools/test_all.py"
 echo "sha:  $SHA"
 echo "log:  $LOG"
 echo "env:  $DECLARED declared from $ENV_FILE, 4 inherited (PATH HOME TMPDIR LANG), ~$STRIPPED stripped"
+# --- the battery runs without the keys or the network ------------------------
+# scripts/gates.sb denies reads of the ssh keys, the gh config, the keychains
+# and the vault, and denies the network outright. See that file for why it is
+# allow-default with a denylist rather than the reverse, and for what that
+# costs. The runner's own fetch and status POST stay OUTSIDE this wrapper: they
+# are the runner's work, not the code under test's.
+#
+# Absence is not fatal and does not silently downgrade: a missing profile or a
+# missing sandbox-exec is SAID, and recorded in the receipt, so a run without
+# isolation is never mistaken for one with it.
+SANDBOX=()
+SANDBOX_NOTE="NONE (battery ran with this user's full access)"
+if [ -f scripts/gates.sb ] && command -v sandbox-exec > /dev/null 2>&1; then
+  SANDBOX=(sandbox-exec -f scripts/gates.sb
+           -D HOME_SSH="$HOME/.ssh"
+           -D HOME_GH="$HOME/.config/gh"
+           -D HOME_KEYCHAINS="$HOME/Library/Keychains"
+           -D HOME_AWS="$HOME/.aws"
+           -D VAULT="${BROTHERMODE_VAULT:-$HOME/Documents/Kay Vault}")
+  SANDBOX_NOTE="scripts/gates.sb (no network, no ssh keys, no gh config, no keychain, no vault)"
+else
+  echo "WARNING: no sandbox. $SANDBOX_NOTE"
+fi
+echo "sandbox: $SANDBOX_NOTE"
+
 START=$SECONDS
-env -i "${GATE_ENV[@]}" python3 tools/test_all.py > "$LOG" 2>&1
+"${SANDBOX[@]}" env -i "${GATE_ENV[@]}" python3 tools/test_all.py > "$LOG" 2>&1
 CODE=$?
 DURATION=$((SECONDS - START))
 
@@ -147,7 +217,9 @@ exit:       $CODE
 all_green:  $GREEN
 duration_s: $DURATION
 host:       $(uname -sm)
-python:     $(python3 -V 2>&1)
+python:     $(env -i "${GATE_ENV[@]}" python3 -V 2>&1)
+floor_leg:  $FLOOR_NOTE
+sandbox:    $SANDBOX_NOTE
 env_file:   $ENV_FILE sha256=$ENV_SHA
 env_declared: $DECLARED variable(s) from that file
 env_inherited: PATH HOME TMPDIR LANG
@@ -155,7 +227,39 @@ env_stripped: ~$STRIPPED ambient variable(s) removed before the battery ran
 ran_by:     local gate runner, scripts/local-gates.sh
 ran_at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)
 RECEIPT
-echo "receipt: evidence/gates/${SHA:0:12}.txt"
+
+# --- sign the receipt --------------------------------------------------------
+# WHY A SIGNATURE AND NOT JUST A RECEIPT. Forging a green `local-gates` status
+# needs only the GitHub token, whose scopes here are repo, workflow, gist and
+# user: anyone holding it can POST success for any commit without running
+# anything. The receipt above makes that visible by what it lacks, which is
+# DETECTION. A signature is the second, different credential that makes the
+# forgery hard: the private half lives only on this machine and is never a push
+# credential, so a leaked token cannot produce one.
+#
+# Rejected alternative, deliberately: a git-notes receipt. Notes are just
+# another push-scoped ref, forgeable by the same token that forges the status.
+# That is ceremony, not identity.
+#
+# HONEST LIMIT, and it is a real one: a malicious process running as this user
+# can read the key and sign. This defeats a leaked-token remote forger, not a
+# compromised machine. Keeping the code under test away from the key is the
+# sandbox's job, not this signature's.
+#
+# Failure to sign is NOT fatal and does not change the verdict: the battery
+# result stands on its own, and a receipt without a signature is a weaker record
+# rather than a wrong one. It says so out loud instead of failing silently.
+GATES_KEY="${GATES_SIGNING_KEY:-$HOME/.ssh/id_ed25519_gates}"
+if [ -f "$GATES_KEY" ]; then
+  if ssh-keygen -Y sign -f "$GATES_KEY" -n gates-receipt -q \
+       "evidence/gates/${SHA:0:12}.txt" 2>/dev/null; then
+    echo "receipt: evidence/gates/${SHA:0:12}.txt (signed)"
+  else
+    echo "receipt: evidence/gates/${SHA:0:12}.txt (UNSIGNED: ssh-keygen -Y sign failed)"
+  fi
+else
+  echo "receipt: evidence/gates/${SHA:0:12}.txt (UNSIGNED: no key at $GATES_KEY)"
+fi
 
 if [ "$POST" = 0 ]; then
   echo "(--no-post) nothing sent to GitHub."
