@@ -377,6 +377,19 @@ df58f6f22475159a0d31e8f9c154eefe2abfb47b9d9ef5825c2e1bd5092070ea  docs/handover/
 c2dedd93d419ccaa7c57e501e44cf0fd8ce306e56b9a6cd78a6eefd24644726d  docs/handover/2026-08-17-adopter-feedback-finish/06-CLOSE-REPORT.md
 2a5f01d309c4c48be3bb9f8df7108af462d13054ac88e15134dc35a998296bcd  docs/handover/2026-08-17-adopter-feedback-finish/07-THE-PLAN-AND-START-PROMPT.md
 2736e75b4b39aa6aaa949e755cd21993b64d0b0d0398417818cedf3b8266d32b  docs/handover/2026-08-17-adopter-feedback-finish/COMMAND-CENTER.html
+3acadb4e76138350644a1ff2d8dc44eea35645e5588b45033eb26545823d8d76  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/00-READ-ME-FIRST.md
+e14545f6f3d978a796c922083cda04ec153fc1a4ffb16bc9b72a77202d395d90  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/01-HANDOVER.md
+405a683435093b0fd306cced415514cb3ea69cbfdcc234055473515f29a86ce6  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/02-LEARNINGS-AND-MISTAKES.md
+f6cdf310c9bd9b34493ec2ecb171856f416585a95d982c45da60c7e273ef1902  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/03-RULES-AND-PROCESS-FIXES.md
+2967e9ad486974b72e110e1f38ddc60d3474bf12a61eb2be6208c4f1c6b04a7c  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/04-NEXT-LOOPS-PRIORITIZED.md
+fc0dd3d22b9a14c4f6622d96e0573c52c8be206efc32632b53b8beddde818532  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/05-VAULT-AND-OBSIDIAN.md
+4952efa092dd92268e0e7d13e4e2638bf6716baa5ff64905545edb42fb85ce8f  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/06-CLOSE-REPORT.md
+a48f071e4f77ed4c80d708a319bc6983c733fef18a10068cb0b98cee4a049cfe  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/07-LANE-A-PART-2-CONTRACTS.md
+2ccf40372babf85a8fd2a6be05dcdadcf76e4cf9dd94cddf85bdd8d13b3bd0e2  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/08-OPEN-ITEMS-REEXTRACTED.md
+182c6af8b9af588b77baf4bf01ea5bec183aa984285f297dd1f1acbf4dabcbd7  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/09-M24-claim-controls.md
+9e87004b6a860ef528ed1ee56ce072335d4fe5f9d02e82ddc1ed4ac0ab8f1a2c  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/10-M25-done-check-wrong-reason.md
+a0c2f0d8dd08f6a84f1561920a322a787f0a1ace34ffbaeffa1a472664f65c9b  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/COMMAND-CENTER.html
+a455ea92364c4d2f94286872f2765d33cafa4a2516377ebe354d94bb16e48622  docs/handover/2026-08-17-adopter-lane-a-and-claim-registries/GANTT.html
 9b834f64c54d0c8138827e7755514720fb05d8f5d7941bd98f88df6b51e7f932  docs/handover/2026-08-17-below-gh-actions/00-READ-ME-FIRST.md
 e0b1732b3bfd372cb3da7e27402de85bcd399047e91b18f02e247682c4804036  docs/handover/2026-08-17-below-gh-actions/01-HANDOVER.md
 9bfc59223bbc5833cc3fa4f466dfb336762cbb6bc9685b52fab230a1dfe6e005  docs/handover/2026-08-17-below-gh-actions/02-LEARNINGS-AND-MISTAKES.md
@@ -436,7 +449,7 @@ e3140168f8d779ee4ba31caf7a16f5ce365ac332a57e63f10e30e506ad405767  docs/mistakes/
 e2d433dae9c7b17fd44b95c4261c5acc4b57048f33930da2fb6c7f1a2685010c  docs/mistakes/M21-one-registry-checked-and-po6-reported-as-done.md
 087c0b756602898fd7b76c05f50e34a090ff519bd8a574a4c00492a6038af7a8  docs/mistakes/M22-the-ignore-rule-was-never-carried-to-a-user.md
 bb839cec6bb35994e458eb5870b35c326046c81154297f5fd7a9235b75320507  docs/mistakes/M23-two-controls-disagreed-because-one-read-the-rendered-page.md
-350d15a87b9d227d007623d8c37d2b9db6e97d0cec9dee998190a7e54859a646  docs/mistakes/M24-claim-controls-that-cannot-reach-a-verdict.md
+182c6af8b9af588b77baf4bf01ea5bec183aa984285f297dd1f1acbf4dabcbd7  docs/mistakes/M24-claim-controls-that-cannot-reach-a-verdict.md
 9e87004b6a860ef528ed1ee56ce072335d4fe5f9d02e82ddc1ed4ac0ab8f1a2c  docs/mistakes/M25-a-done-check-that-passed-for-the-wrong-reason.md
 0b9443765c2a336d56861113b26df0bda3a203b982e5a61fbc925b721bdbc424  docs/mistakes/README.md
 7242532d66710c59782cd3ba9c26331adf06950d3ae496569b1d217e5d7270dd  docs/one-pager.src.html
@@ -450,7 +463,7 @@ aa0d7596134bd016691c53da3f46f6a8acab12ae3b1cc262d791ce58256c39c4  docs/plan/DEFE
 74c25b4c725d5afd8ff77d4b39144cebfd5151301fab3488d61a331e0e3cdae3  docs/plan/DEFECT-tag-version-disagreement-2026-08-12.md
 94e495d7a135713fd2063074c13bb025a4e18f0628598e4f78dac200767b5e9f  docs/plan/DELIVERY-VS-FEEDBACK-2026-08-16.md
 a78a0d2ca9baeb3c08527861bc232eefcf0677cae2aa31be6479f55b7356804a  docs/plan/FINALIZATION-ROADMAP-2026-08-15.md
-d85ecc75dbf79978ac327ddfedd4bf6cf132ccafc37382c6b2ac0c4fc9aabb92  docs/plan/GANTT.html
+a455ea92364c4d2f94286872f2765d33cafa4a2516377ebe354d94bb16e48622  docs/plan/GANTT.html
 483b1a5b4f8e3de69512085288474e6ff9510dfbd529ad563f7fcb67f0464ea6  docs/plan/GE0-TRUTH-MAP-2026-08-11.md
 0b5344c14e15b895166a201db8256b74c0591c5425ec81932aa9e1d46647aa1b  docs/plan/HANDOVER-2026-08-10-evening.md
 d26f03b750ed72ab3c6c7662758426aca191365d6dbc04a593298d0b50b065c3  docs/plan/INTEGRITY-SYSTEM-INTAKE-2026-08-15.md

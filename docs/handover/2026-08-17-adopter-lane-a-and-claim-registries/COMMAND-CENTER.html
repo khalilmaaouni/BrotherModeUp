@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode Command Centre</title>
+<style>
+:root{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+    --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+    --bm-settled-ink:#6FD3AE; --bm-settled-tint:#12281F;
+    --bm-needs-you-ink:#FF9C63; --bm-needs-you-tint:#2E1810;
+    --bm-at-risk-ink:#E5B75C; --bm-at-risk-tint:#2A2212;
+    --bm-for-info-ink:#6FB8E8; --bm-for-info-tint:#101F2C;
+    --bm-idle-ink:#98A1AB; --bm-idle-tint:#1B2128;
+  }
+}
+:root[data-theme="dark"]{
+  --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+  --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+  --bm-settled-ink:#6FD3AE; --bm-settled-tint:#12281F;
+  --bm-needs-you-ink:#FF9C63; --bm-needs-you-tint:#2E1810;
+  --bm-at-risk-ink:#E5B75C; --bm-at-risk-tint:#2A2212;
+  --bm-for-info-ink:#6FB8E8; --bm-for-info-tint:#101F2C;
+  --bm-idle-ink:#98A1AB; --bm-idle-tint:#1B2128;
+}
+:root[data-theme="light"]{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-tint:#F0F1F2;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--sans);font-size:16px;line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--bm-accent);margin:0 0 10px}
+h1{font-family:var(--serif);font-size:clamp(30px,5vw,44px);line-height:1.1;margin:0 0 12px;font-weight:600}
+.stamp{font-family:var(--mono);font-size:12.5px;color:var(--bm-muted);border-left:3px solid var(--bm-accent);padding:6px 0 6px 12px;margin:0 0 28px}
+h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600}
+h2 .n{font-family:var(--mono);font-size:13px;color:var(--bm-muted);font-weight:400;margin-left:8px}
+h3{font-size:16px;margin:24px 0 8px;font-weight:600}
+.lede{color:var(--bm-muted);margin:0 0 16px;max-width:78ch}
+.northstar{background:var(--bm-accent-tint);border:1px solid var(--bm-accent);border-radius:10px;padding:18px 20px;margin:0 0 30px}
+.northstar .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--bm-accent);display:block;margin-bottom:6px}
+.northstar p{margin:0;font-family:var(--serif);font-size:19px;line-height:1.45}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:14px;margin:0 0 12px}
+.card{background:var(--bm-paper);border:1px solid var(--bm-rule);border-radius:10px;padding:15px 16px}
+.card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--bm-muted);display:block;margin-bottom:7px}
+.card p{margin:0 0 6px;font-size:14.5px;line-height:1.45}
+.card.now{border-left:4px solid var(--bm-settled-rule)}
+.card.you{border-left:4px solid var(--bm-needs-you-rule)}
+.card.risk{border-left:4px solid var(--bm-at-risk-rule)}
+.card.fc{border-left:4px solid var(--bm-for-info-rule)}
+.big{font-family:var(--serif);font-size:26px;line-height:1.1;display:block;margin-bottom:4px}
+.scroll{overflow-x:auto;border:1px solid var(--bm-rule);border-radius:10px;background:var(--bm-paper);padding:14px;margin:0 0 8px}
+table.g{border-collapse:collapse;width:100%;min-width:860px;font-size:13px}
+table.g th{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--bm-muted);text-align:center;padding:0 0 8px;border-bottom:1px solid var(--bm-rule)}
+table.g th.lbl{text-align:left;width:300px;padding-left:2px}
+table.g td{padding:4px 0;border-bottom:1px solid var(--bm-rule)}
+table.g td.lbl{padding-right:14px;font-size:13.5px;line-height:1.35}
+.cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-muted);background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px}
+.bar{height:17px;border-radius:4px}
+.bar.done{background:var(--bm-settled-rule)}
+.bar.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 4px,transparent 4px 8px);border:1px solid var(--bm-accent);opacity:.85}
+.bar.est{background:var(--bm-accent);opacity:.16;border:1px dashed var(--bm-accent)}
+.bar.wall{background:repeating-linear-gradient(45deg,var(--bm-needs-you-rule) 0 4px,transparent 4px 8px);border:1px solid var(--bm-needs-you-rule);opacity:.85}
+.bar.parked{background:var(--bm-idle-tint);border:1px dashed var(--bm-idle-rule);opacity:.7}
+tr.parkedrow td.lbl{color:var(--bm-muted)}
+.key{display:flex;flex-wrap:wrap;gap:16px;font-family:var(--mono);font-size:11px;color:var(--bm-muted);margin:8px 0 0;align-items:center}
+.key i{display:inline-block;width:22px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.deck{border:1px solid var(--bm-rule);border-radius:10px;padding:16px 17px;background:var(--bm-paper)}
+.deck.you{border-left:4px solid var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.deck.done{border-left:4px solid var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.deck h4{margin:0 0 8px;font-size:15.5px;font-weight:600}
+.deck p{margin:0 0 8px;font-size:14px;line-height:1.5}
+.deck .tag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;display:inline-block;margin-bottom:7px}
+.deck.you .tag{color:var(--bm-needs-you-ink)}
+.deck.done .tag{color:var(--bm-settled-ink)}
+.alert{border:1px solid var(--bm-rule);border-left:4px solid var(--bm-at-risk-rule);background:var(--bm-at-risk-tint);border-radius:10px;padding:15px 17px;margin:0 0 13px}
+.alert.info{border-left-color:var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.alert.good{border-left-color:var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.alert h4{margin:0 0 7px;font-size:15.5px;font-weight:600}
+.alert dl{margin:0;display:grid;grid-template-columns:88px 1fr;gap:4px 12px;font-size:14px}
+.alert dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--bm-muted);padding-top:3px}
+.alert dd{margin:0;line-height:1.5}
+.chip{font-family:var(--mono);font-size:11.5px;background:var(--bm-accent-tint);color:var(--bm-accent);border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px}
+ul.ledger{list-style:none;margin:10px 0 0;padding:0}
+ul.ledger li{border-bottom:1px solid var(--bm-rule);padding:11px 0 11px 30px;position:relative}
+ul.ledger li::before{position:absolute;left:0;top:10px;font-family:var(--mono);font-size:14px}
+ul.ledger li.tick::before{content:"[x]";color:var(--bm-settled-ink)}
+ul.ledger li.open::before{content:"[ ]";color:var(--bm-muted)}
+ul.ledger .t{font-size:14.5px;display:block;margin-bottom:5px}
+ul.ledger .ev{font-family:var(--mono);font-size:11.5px;color:var(--bm-muted);background:var(--bm-idle-tint);border-radius:5px;padding:6px 9px;display:block;white-space:pre-wrap;word-break:break-word;line-height:1.45}
+ul.ledger li.tick .ev{color:var(--bm-settled-ink);background:var(--bm-settled-tint)}
+footer{margin:56px 0 0;padding:20px 0 0;border-top:2px solid var(--bm-accent);font-size:13.5px;color:var(--bm-muted)}
+footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);margin:0 0 10px;max-width:74ch}
+code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">BrotherMode // command centre // the Toolkit program</p>
+<h1>Toolkit: the capability broker, ratified and starting</h1>
+<p class="stamp">Refreshed 2026-08-15 by session ae1ced66 on Fable, at the founder's direct ask: competitor comparison, finalization roadmap, Bitbucket support. What changed: the ceremony backlog was cleared (21 handovers acknowledged and read, 3 dead-owner records parked and cancelled, detect now clean); a three-researcher comparison pass landed in docs/plan/FINALIZATION-ROADMAP-2026-08-15.md together with the five-phase finalization roadmap; the Bitbucket lane landed as docs/BITBUCKET.md, bitbucket-pipelines.yml and a README pointer, with its unexecuted parts labeled UNVERIFIED on the page itself; and the stamp-and-manifest pair a dead session left staged at 8c8ff3c is committed with this refresh. NIGHT, SAME SESSION: the founder routed the sibling's adopter review here for adaptation and ordered a weekend emergency plan. Both delivered: docs/plan/WEEKEND-EMERGENCY-PLAN-2026-08-15.md (five cases, exact commands) and docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md (boundary law PROPOSED, success pinned to three numbers with installs baseline ZERO, no new gates). T3 capability records landed through a builder and ticked below; TK4 is parked by name under the new priority and is the queue's next buildable item. EVENING, SAME SESSION, after the founder's unleash directive: three builder agents ran in isolated worktrees and their work is folded, gated and landed. T2 conflict detection ticked (its box below quotes the run), TK10 fixed a purge that crashed outright on any project holding a receipt, TK11 gave receipts a command line surface, and the queue depth moved 29 to 26. The installed skill clone was synced v3.1.0 to v3.3.0, closing the schema-ahead refusal every session had seen since 2026-08-12. LATE SAME SESSION: the founder answered all three standing decisions through the question windows and v3.3.0 was cut per the standing Friday decision, carrying the Bitbucket lane, the comparison and the roadmap on an unchanged engine; testers are two named engineers; the founder is creating the Bitbucket workspace himself. Previous refresh: 2026-08-12 17:05 JST by session 5a0c3c2d, the scheduled board task. FOCUS ORDER: Toolkit is the only active lane; every other lane is parked below with its reason.
+TICK CONTRACT: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions.
+CROSS-PROJECT NOTE: on 2026-08-12 session cca07ba2 (a SaveClaudeTokens session, at the founder's explicit request) added one parked lane for SaveClaudeTokens V2 so its shipped status is visible here. That project keeps its own board (artifact 9fe48602); this line is a pointer, not a Toolkit lane, and the FOCUS ORDER above is unchanged.</p>
+
+<div class="northstar">
+  <span class="k">North star</span>
+  <p>BrotherMode is where Claude Code work becomes a controlled delivery. The Toolkit extends that control over every other tool on the machine: the best plugin does each job, and BrotherMode owns the record of what happened.</p>
+</div>
+
+<h2>At a glance</h2>
+<div class="strip">
+  <div class="card now">
+    <span class="k">Now</span>
+    <span class="big">Ratified 30/30</span>
+    <p>Plan designed with Fable, thirty founder answers recorded as store decisions with flip conditions. Build starts at T1, inventory.</p>
+  </div>
+  <div class="card you">
+    <span class="k">Waiting on Khalil</span>
+    <span class="big">1 doing</span>
+    <p>All three standing decisions were answered on 2026-08-15 through the question windows: testers are two named engineers, v3.3.0 cut the same day, and you are creating the Bitbucket workspace now. The one thing still in your hands is that workspace; say the word when it exists.</p>
+  </div>
+  <div class="card risk">
+    <span class="k">Risk watch</span>
+    <span class="big">New subsystem</span>
+    <p>The one task last night that hit unforeseen ground ran SLOWER than judged (0.66x). Toolkit is all new ground, so forecasts here sit at the slow end and say so.</p>
+  </div>
+  <div class="card fc">
+    <span class="k">Forecast</span>
+    <span class="big">7 to 19 h</span>
+    <p>Agent clock across T1 to T8, stated raw. Calibration n=10, median 2.24x fast, spread 0.66 to 5.33; new-subsystem work is forecast WITHOUT the fast multiplier, per the rule captured last night.</p>
+  </div>
+</div>
+
+<h2>Short range <span class="n">the Toolkit lane, today onward, half-day blocks</span></h2>
+<p class="lede">The only active lane, per decision 27. Solid is done and evidenced. Hatched petrol is scheduled agent work. Faint is the estimate range. Orange is a founder gate.</p>
+<div class="scroll">
+<table class="g">
+<thead><tr><th class="lbl">Loop</th><th>Tue am</th><th>Tue pm</th><th>Wed am</th><th>Wed pm</th><th>Thu am</th><th>Thu pm</th><th>Fri am</th><th>Fri pm</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">4/4</span>T0a Plan designed, research done, board rebuilt</td>
+<td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">30/30</span>T0b Thirty answers recorded as decisions</td>
+<td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T1 Inventory: bm_toolkit.py inventory</td>
+<td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T2 Conflict detection, fixtures from this machine</td>
+<td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T3 Capability records, static DECLARED reach</td>
+<td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T4 Routing table plus route command</td>
+<td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T5 Receipts, nine fields, NO-DATA path, criterion links (R1.2 folded in)</td>
+<td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>T6 The five-step pipeline on O4, real cargo</td>
+<td></td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Fri: v3.3.0 cut on landed R1 work, founder gate</td>
+<td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>T7 Retention proposals, T8 doctor and gate wiring</td>
+<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td></tr>
+</tbody>
+</table>
+</div>
+<p class="key"><span><i class="bar done"></i>done, output quoted</span><span><i class="bar sched"></i>scheduled, agent clock</span><span><i class="bar est"></i>estimate range</span><span><i class="bar wall"></i>founder gate, wall clock</span><span><i class="bar parked"></i>parked lane</span></p>
+
+<h2>Long range <span class="n">the program, with every parked lane visible</span></h2>
+<div class="scroll">
+<table class="g">
+<thead><tr><th class="lbl">Lane</th><th>12 Aug</th><th>15 Aug</th><th>18 Aug</th><th>22 Aug</th><th>1 Sep</th><th>8 Sep</th><th>30 Sep</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">2/9</span>TOOLKIT, the only active lane</td>
+<td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/9</span>R1 PROVE, v3.3.0 cuts Friday on landed work</td>
+<td><div class="bar done"></div></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>v3.4.0: Toolkit reaches the testers</td>
+<td></td><td></td><td></td><td><div class="bar wall"></div></td><td></td><td></td><td></td></tr>
+<tr class="parkedrow"><td class="lbl"><span class="cnt">parked</span>R1 remainder (R1.2, R1.5, R1.6): resumes after Toolkit MVP</td>
+<td></td><td></td><td><div class="bar parked"></div></td><td><div class="bar parked"></div></td><td></td><td></td><td></td></tr>
+<tr class="parkedrow"><td class="lbl"><span class="cnt">parked</span>Vault agent-memory program (decision 23): own item, not in Toolkit MVP</td>
+<td></td><td></td><td></td><td><div class="bar parked"></div></td><td><div class="bar parked"></div></td><td></td><td></td></tr>
+<tr class="parkedrow"><td class="lbl"><span class="cnt">parked</span>R3 TRUST AND PILOT: waits on Toolkit receipts existing</td>
+<td></td><td></td><td></td><td></td><td><div class="bar parked"></div></td><td></td><td></td></tr>
+<tr class="parkedrow"><td class="lbl"><span class="cnt">parked</span>External executors, Cline / OpenHands / Cursor CLI (decision 24): STRICTLY LAST</td>
+<td></td><td></td><td></td><td></td><td></td><td><div class="bar parked"></div></td><td><div class="bar parked"></div></td></tr>
+<tr class="parkedrow"><td class="lbl"><span class="cnt">shipped</span>SaveClaudeTokens V2: separate public plugin, own board at artifact 9fe48602; honest meter and opt-in tools live on main (0c293ed)</td>
+<td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Decisions waiting on you <span class="n">answered 2026-08-15; one action in your hands</span></h2>
+<div class="decks">
+  <div class="deck you">
+    <span class="tag">In your hands now</span>
+    <h4>Create the Bitbucket workspace and mirror, and enable Pipelines on it</h4>
+    <p>You chose to create it now (2026-08-15). Ten minutes at bitbucket.org: workspace, empty repository, Pipelines toggle. The next session then pushes the release, runs both install commands from docs/BITBUCKET.md against it, and closes the three UNVERIFIED labels with quoted output.</p>
+  </div>
+  <div class="deck">
+    <span class="tag">Answered</span>
+    <h4>Testers: two named engineers</h4>
+    <p>Named 2026-08-15. The tester pack and install card are ready as they stand; hand them docs/team/TESTER-PACK.md and the first cold-install transcripts close the zero-installs number.</p>
+  </div>
+  <div class="deck">
+    <span class="tag">Answered and executed</span>
+    <h4>v3.3.0 cut on Friday 15 August</h4>
+    <p>Chosen and cut the same day, carrying the Bitbucket lane, the comparison, and the roadmap on an unchanged engine. Release evidence quoted in the ledger below and in CHANGELOG.md.</p>
+  </div>
+</div>
+
+<h2>Risk management, insights and alerts <span class="n">6</span></h2>
+
+<div class="alert">
+  <h4>The adopter review's lesson, adapted: green gates can hide a failed plan</h4>
+  <dl>
+    <dt>What</dt><dd>The sibling product's adopter review found five of sixteen flaws belonged to the team, not the tooling, so every tooling fix could land perfectly and the queue would not move. The founder ordered the lesson adapted here: docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md, four items, weekend priority.</dd>
+    <dt>Why</dt><dd>BrotherMode's version of the same trap is measuring itself by its own gates. Success is now pinned to three numbers (external installs, baseline ZERO on 2026-08-15; the testers' cold-install outcomes; felt-outcome scores from people other than the founder), defence BM-A2 on that page. A boundary law is PROPOSED for SKILL.md; only the founder lands it. No new blocking gate comes from any of this.</dd>
+    <dt>Action</dt><dd>Read the three numbers at every board refresh. Yours: the Bitbucket workspace, then handing the two testers the pack; both feed the numbers directly.</dd>
+    <dt>When</dt><dd>This weekend; the weekend plan carries the same order.</dd>
+  </dl>
+</div>
+
+<div class="alert good">
+  <h4>The 2026-08-15 comparison pass confirms the moat, and names the real risk</h4>
+  <dl>
+    <dt>What</dt><dd>Three researchers read the orchestration-layer field live: Ruflo (ex claude-flow, 67,852 stars), superpowers (272,120), BMAD (51,907), spec-kit (128,294), plus three smaller ones. None ships an enforced one-writer fence, a refusing handover ceremony, forecast calibration, or a founder progress page. Full table with URLs: docs/plan/FINALIZATION-ROADMAP-2026-08-15.md.</dd>
+    <dt>Why</dt><dd>The differentiators are real, and adoption is the weakness in the other direction: every rival beats us on reach, and our external install count is zero. A moat nobody has crossed into is indistinguishable from a product nobody has tried.</dd>
+    <dt>Action</dt><dd>The roadmap orders the answer: finish Toolkit, then the cold-install proof (your testers), then fold the comparison into docs/ECOSYSTEM.md through its weekly pass.</dd>
+    <dt>When</dt><dd>Comparison numbers re-read at the ECOSYSTEM weekly pass; they are a 2026-08-15 snapshot.</dd>
+  </dl>
+</div>
+
+<div class="alert good">
+  <h4>The differentiation is confirmed by the platform's own documentation</h4>
+  <dl>
+    <dt>What</dt><dd>Claude Code ships per-plugin detail views, context-cost estimates and an unused-plugin flag, and performs NO cross-plugin diff and NO conflict detection. Confirmed absent from the official plugin docs, URL in the plan.</dd>
+    <dt>Why</dt><dd>It means F2 fills a real gap the platform owner has left open, rather than racing the platform on discovery, which is the race the marketplace decision refuses.</dd>
+    <dt>Action</dt><dd>None from you. It is written into the plan with its source.</dd>
+    <dt>When</dt><dd>Re-verify the gap still exists at each Claude Code major release; the platform closing it is the plan's biggest external risk.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Toolkit is new-subsystem work, which is where forecasts break</h4>
+  <dl>
+    <dt>What</dt><dd>Last night's calibration says well-specified work runs about 2 to 4 times faster than judged, and the ONE task that hit unforeseen ground ran slower than judged, 0.66x. Every Toolkit loop parses surfaces nobody here has parsed before.</dd>
+    <dt>Why</dt><dd>The multiplier tracks specification quality, not size. Toolkit forecasts are therefore stated RAW, no fast multiplier applied, per the rule captured last night pending your approval.</dd>
+    <dt>Action</dt><dd>Nothing now. Each loop records forecast and actual; the sample will say whether toolkit-class work earns its own multiplier.</dd>
+    <dt>When</dt><dd>Reforecast after T1 and T2 land, the first two real data points on this class.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Hookify ordering is undocumented, so one conflict class needs an experiment</h4>
+  <dl>
+    <dt>What</dt><dd>Research confirmed Hookify rules land on the same PreToolUse and Stop surface as every other plugin, and cross-plugin ordering and block-versus-allow collision behavior is undocumented.</dd>
+    <dt>Why</dt><dd>F2 wants to report what HAPPENS when two blockers disagree, and for this class the truth is not in any file; it needs a controlled experiment on a throwaway config.</dd>
+    <dt>Action</dt><dd>T2 includes one measured experiment: two deliberately conflicting hooks, observed resolution, written into the conflict-classes file as measured fact.</dd>
+    <dt>When</dt><dd>During T2, this week.</dd>
+  </dl>
+</div>
+
+<div class="alert info">
+  <h4>BMAD's on-disk footprint is unconfirmed, so its route stays disabled</h4>
+  <dl>
+    <dt>What</dt><dd>The research pass could not confirm what state files BMAD-METHOD writes. Every other researched tool has a named namespace.</dd>
+    <dt>Why</dt><dd>A route to a tool whose state footprint is unknown would put an unmeasured conflict surface inside the product that sells conflict detection.</dd>
+    <dt>Action</dt><dd>The BMAD route ships in the seed table marked DISABLED with this reason; a follow-up repo-tree read enables it.</dd>
+    <dt>When</dt><dd>Before T4 closes.</dd>
+  </dl>
+</div>
+
+<h2>The ledger <span class="n">every box carries its proof</span></h2>
+
+<h3>Phase T0 &middot; ratification <span class="chip">4 of 4</span></h3>
+<ul class="ledger">
+<li class="tick"><span class="t">The plan exists, designed with Fable, and answers the review finding that blocked the old design</span>
+<span class="ev">docs/plan/TOOLKIT-PLAN-2026-08-12.md; T1 answered by splitting observation into a static
+DECLARED half (ships complete in MVP, derived from manifests) and a dynamic half (accumulates
+through receipts). Sections 2, 4 and 5b.</span></li>
+<li class="tick"><span class="t">The ecosystem research completed with sources, twelve tools</span>
+<span class="ev">harness gap confirmed at code.claude.com/docs/en/discover-plugins: per-plugin detail, no
+cross-plugin diff. claude-mem five hooks + exclusivity; GSD .planning/ + own acceptance
+criteria; arc .arc/; CE docs/solutions/; Higgsfield hosted MCP, no key; Cursor CLI headless.</span></li>
+<li class="tick"><span class="t">Thirty questions asked through the windows, thirty answered, all recorded</span>
+<span class="ev">store decisions 1 to 30 on record toolkit-replan (019b6008), each with alternatives and flip
+condition. 27 recommended, 3 founder-shaped: TDD door open (22), Obsidian memory backbone
+with agent-memory direction (23), external executors strictly last (24).</span></li>
+<li class="tick"><span class="t">The conflict fixture is real and measured on this machine</span>
+<span class="ev">7 plugins register Stop; 10 layers on PreToolUse; 5 planning workflows; 5 definitions of
+done; brothersbe cached at rc.1 AND rc.38 simultaneously. Gathered 2026-08-12 morning from
+hooks.json files and settings.json, commands in the plan.</span></li>
+</ul>
+
+<h3>Phase T1 to T8 &middot; the build <span class="chip">3 of 8</span></h3>
+<ul class="ledger">
+<li class="done"><span class="t">T1 Inventory lists skills, plugins, hooks, MCP servers, CLIs with source and version</span>
+<span class="ev">ticked 2026-08-15, run on THIS machine after the last edit: "SUMMARY: 9 marketplaces, 74 plugins (39 not enabled), 37 skills, 9 mcp servers, 0 unreadable surfaces."</span></li>
+<li class="done"><span class="t">T2 Conflict detection finds the seven-Stop-hook and ten-PreToolUse facts by itself</span>
+<span class="ev">ticked 2026-08-15, run on THIS machine after the fold-in: "SUMMARY: 10 classes checked, 4 fired, 0 clear, 6 no-data." Fired: multi-stop-hook count=6, multi-pretooluse-blocker count=9, multi-version-cached (brothersbe at 2 versions, token-shield at 4), installed-not-enabled count=39. The counts moved off the plan's 7 and 10 because the machine itself changed since 2026-08-12; the verb reads the machine, not the plan. Six classes without a mechanical detector say NO-DATA by name rather than reading as clean; test_bm_toolkit.py 25 tests OK.</span></li>
+<li class="done"><span class="t">T3 Capability records carry DECLARED reach derived from artifacts</span>
+<span class="ev">ticked 2026-08-15, run on THIS machine after the fold-in: "SUMMARY: 121 records, 120 derived, 1 hand-asserted." Derived records name their source files (manifest and hooks paths quoted per record); the hand-asserted override renders under its own HAND-ASSERTED heading with the marker on every line. Derive-at-read, no schema change; test_bm_toolkit.py 28 tests OK.</span></li>
+<li class="open"><span class="t">T4 Route command names capability, reason, and the degrade path when absent</span>
+<span class="ev">check: python3 tools/bm_toolkit.py route "task description"   BMAD route present and DISABLED</span></li>
+<li class="open"><span class="t">T5 Receipts carry nine fields; unverifiable output produces a NO-DATA receipt; a verification row cannot be filed without naming its criterion (R1.2, folded in per decision 32)</span>
+<span class="ev">check: suite proves all three paths; receipts are store rows rendered into the packet</span></li>
+<li class="open"><span class="t">T6 The five-step pipeline runs on O4 and delivers one evidence packet</span>
+<span class="ev">check: record, Superpowers TDD, Code Review, BrotherMode rerun, one packet; a receipt per
+external step; O4's own done-check green: claim then park from two separate shells</span></li>
+<li class="open"><span class="t">T7 Retention proposals generated from receipts for founder ratification</span>
+<span class="ev">check: python3 tools/bm_toolkit.py retention   proposes per capability used in T6</span></li>
+<li class="open"><span class="t">T8 Doctor reports undeclared use and conflicts; suite registered in all five registries</span>
+<span class="ev">check: scripts/doctor.py output plus the PF-3 five-registry sweep: SUITES, CI workflow,
+effects registry, write_sites, pyproject</span></li>
+</ul>
+
+<h2>Decisions recorded <span class="n">the three founder-shaped ones</span></h2>
+<div class="decks">
+  <div class="deck done">
+    <span class="tag">Decision 22</span>
+    <h4>TDD routed now, door open to a native core later</h4>
+    <p>Superpowers does implementation method today. A minimal native TDD loop may be absorbed later, and the trigger is proven routing friction, measured rather than felt. Nothing native is built until then.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Decision 23</span>
+    <h4>The Obsidian vault is the memory backbone</h4>
+    <p>External memory routed read-only, co-used only when necessary and preferred. Standing direction: strengthen the vault with agent-memory database capabilities, semantic recall and episodic summaries. Its own program item, parked visibly above.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Decision 24</span>
+    <h4>External executors strictly last</h4>
+    <p>Cline, OpenHands, Cursor CLI wait for everything else plus the connector model. The receipt schema carries executor identity from day one so their receipts are representable when they arrive.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Decision 31</span>
+    <h4>The native floor law</h4>
+    <p>Every spine step carries a native floor BrotherMode owns; routed capabilities are upgrades on top, never dependencies underneath. Absorption needs all four criteria: sufficient when minimal, differentiating, north-star-close, necessary.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Decision 32</span>
+    <h4>Borrow essences, not code</h4>
+    <p>GSD's criterion-linked acceptance folds into T5. Compound Engineering's learning loop closes through T7 receipts feeding the vault. The tools themselves stay coordinated, never absorbed.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Decision 33</span>
+    <h4>One capability layer, three siblings, invisible</h4>
+    <p>BrotherMode, BrotherSBE and the future BrotherDS share one inventory, one conflict map, one receipt schema, one retention memory. The user never runs a toolkit command in the normal loop; a first-day user needing one would be a defect.</p>
+  </div>
+</div>
+
+<footer>
+  <p class="contract">The tick contract: a box ticks only when its done-check ran after the last edit and that output is quoted beside it. Percentages are counts of records, never impressions. An unticked box means the check has not run, not that the work feels incomplete.</p>
+  <p>Refreshed 2026-08-15 by session ae1ced66 on Fable. Derived from docs/plan/TOOLKIT-PLAN-2026-08-12.md, store decisions 1 to 35 on record 019b6008, and docs/plan/FINALIZATION-ROADMAP-2026-08-15.md.</p>
+</footer>
+
+</div>
+</body>
+</html>
