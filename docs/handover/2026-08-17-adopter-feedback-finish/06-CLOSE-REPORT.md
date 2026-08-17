@@ -11,5 +11,35 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FILL-BY-HAND: replace this whole block. The FIRST LINE must start with the exact word FINISHED, or the exact word UNFINISHED followed by exactly where the baton lies.
+UNFINISHED. The baton lies at TASK 0, a confidentiality decision only the owner
+can make, and it blocks every public push.
+
+WHAT THIS SESSION FINISHED, with the check that proves it:
+  Client-name scrub of this repository's working tree. Verified after the last
+    edit: whole-word scan for both client tokens returns 0 content hits and 0
+    path hits across tracked AND untracked files; the English word "hurry" still
+    appears 6 times in .py files, which is the proof the scan did not overreach;
+    python3 tools/test_bm_docs.py Ran 230 tests, OK (skipped=1). Committed as
+    38c859b and merge 97e5fd3.
+  The open-issue inventory: thirteen items, each with the file evidence showing
+    it is still open, its size, and the north star stage it serves.
+  This plan, with lane, agent type and model per task, and the start prompt.
+
+WHAT IS NOT DONE:
+  GIT HISTORY still carries the names, roughly 196 occurrences, in two PUBLIC
+    repositories. A scrub cannot fix it. Task 0.
+  NOTHING IS PUSHED. BrotherMode is 17 commits ahead, the sibling 16.
+  NONE of the thirteen adopter issues is fixed by this session. This pack plans
+    them; it does not close them.
+  The sibling's push is blocked by a ruleset; the corrected payload is ready and
+    applying it is an owner action.
+  BrotherMode owes one clean battery run; a committed collector takes it in the
+    next quiet window.
+
+FENCES: none held by this session in this repository. One worktree branch,
+worktree-agent-a57b00076e1a6c5ed, was merged to main and can be deleted.
+
+SAFETY: pre-change snapshots of the spend guard, the cost wall and the sibling's
+ruleset are under ~/Documents/BrotherArchive/. The sibling's full pre-squash
+history remains on backup/main-full-history-2026-08-16.
 <!-- bm-human:end -->

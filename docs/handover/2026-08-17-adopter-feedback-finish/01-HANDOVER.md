@@ -264,5 +264,47 @@ None outstanding.
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FILL-BY-HAND: what happened this session, and what is next.
+## What this pack is for
+
+The adopter team used both products and raised issues. Some were fixed, some were
+fixed only in source and never shipped to them, and thirteen remain open. This
+pack plans the finishing work down to task level with an agent and a model on
+each lane.
+
+## What happened immediately before it
+
+A confidentiality problem was found and half fixed. Both repositories are PUBLIC
+and this one's tracked files carried the adopter team's real name on 85 lines
+across 35 files, on 10 file paths including a whole handover directory, plus six
+reviewers' personal names, an internal change name and a third party product
+name. The working tree is now clean, verified whole-word at 0 content hits and 0
+path hits across tracked and untracked files, with the English word "hurry"
+deliberately preserved at 6 occurrences as proof the scan did not overreach.
+
+GIT HISTORY WAS NOT FIXED and cannot be by a scrub. Roughly 196 occurrences
+remain readable with git log on a public clone. That is task 0 in the plan and it
+is the owner's decision, not the next session's.
+
+## The state of the two products
+
+BrotherMode: 17 commits ahead of origin, tree clean, main protected requiring the
+local-gates status. Its battery was last observed at 36 of 37 suites green; the
+37th was a documentation failure caused by this session's own writing and is
+fixed, so one clean run is owed. A collector script takes that run in the next
+quiet window and writes to ~/Documents/BrotherArchive/gates-when-quiet.log.
+
+BrotherSBE: 16 commits ahead of origin, tree clean, battery GREEN end to end at
+52 of 52 with a signed receipt, and BLOCKED from pushing by a repository ruleset
+requiring five status checks that can never report. The corrected payload is
+ready at ~/Documents/BrotherArchive/rulesets/brothersbe-main-protection.FIXED.json
+and applying it is an owner action.
+
+## Why the plan is shaped the way it is
+
+The adopter team's loudest complaint was that a green verdict over-claims. Lane A
+answers exactly that, in one file, in three T1 tasks, which is why it runs first
+rather than the largest item. The hardest item, requirement drift, gets a design
+pass and no code, because a staleness clock plus supersession links is a data
+model decision and writing code before the model is how it becomes fifty
+point-in-time designs instead of one that evolves.
 <!-- bm-human:end -->

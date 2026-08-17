@@ -11,5 +11,13 @@ A copy of `docs/plan/COMMAND-CENTER.html`, from the moment this pack was generat
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FILL-BY-HAND: anything else the next session should know before reading further.
+Read 06-CLOSE-REPORT.md first, then 07-THE-PLAN-AND-START-PROMPT.md, which holds
+the task plan, the model and agent assignments, and the prompt to paste into a
+new session.
+
+ONE SENTENCE: thirteen issues the adopter team raised are still open, the plan
+sequences them into seven lanes, and TASK 0 is a confidentiality decision that
+blocks every public push until the owner answers it.
+
+BOTH PRODUCT REPOSITORIES ARE PUBLIC. Use roles, never names.
 <!-- bm-human:end -->
