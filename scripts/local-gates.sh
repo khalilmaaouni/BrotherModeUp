@@ -234,6 +234,25 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   exit 2
 fi
 
+# --- a killed run is not a verdict ------------------------------------------
+# FOUND BY ITS OWN ARTIFACT, 2026-08-17: this session killed a battery for load
+# reasons, the script ran on past the kill to its receipt block, and left a
+# receipt reading `result: failure` with nothing but `exit: 143` to say it had
+# been terminated rather than genuinely red. The signing step then SIGNED that
+# receipt, so an abort produced a cryptographically vouched record that reads
+# like a real verdict. A signature on a lie is worse than no signature.
+#
+# Anything above 128 is a signal death (143 SIGTERM, 137 SIGKILL, 130 SIGINT).
+# Such a run wrote no verdict, so it writes no receipt and posts no status: it
+# says what happened and exits. This is the one path where writing nothing is
+# more honest than writing something.
+if [ "$CODE" -gt 128 ]; then
+  echo "ABORTED: the battery was killed by signal $((CODE - 128)) after ${DURATION}s."
+  echo "No receipt and no status: a run that was terminated produced no verdict,"
+  echo "and a receipt saying 'failure' would be read as one. Re-run when ready."
+  exit 2
+fi
+
 # --- durable receipt -----------------------------------------------------
 # Founder decision 2026-08-17. Actions kept public permanent logs; a temp file
 # does not. The receipt travels with the code, so a green status from months
