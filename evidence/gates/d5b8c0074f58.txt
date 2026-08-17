@@ -1,0 +1,10 @@
+sha:        d5b8c0074f5890c15b6fdd6d7d7962ec9142b0e5
+result:     success
+summary:    test_all: 3278 tests across 37 suites, 5 skipped, 2642.2s wall. ALL GREEN
+exit:       0
+all_green:  1
+duration_s: 2642
+host:       Darwin arm64
+python:     Python 3.13.14
+ran_by:     local gate runner, scripts/local-gates.sh
+ran_at:     2026-08-17T03:14:18Z
