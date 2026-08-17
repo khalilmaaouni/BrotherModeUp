@@ -251,7 +251,7 @@ None outstanding.
 <!-- bm-human:begin -->
 This session ran long and delivered a lot: v3.3.0 released, Bitbucket
 support written with executed proof, the competitor comparison and the
-finalization roadmap, the weekend emergency plan, the the adopter team review
+finalization roadmap, the weekend emergency plan, the adopter review
 adapted into BrotherMode scope, six Toolkit items, the idle control on
 session start, the tester pack hardened by an adversarial read, the
 two-host law and the narrowed target, and the delivery artifact mapping

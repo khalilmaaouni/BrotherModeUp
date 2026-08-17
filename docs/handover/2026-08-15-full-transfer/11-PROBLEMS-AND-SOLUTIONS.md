@@ -3,7 +3,7 @@ Status: CURRENT. Written 2026-08-15.
 # The team's problems, one by one, and what the two products do about each
 
 Source: `Verified_Delivery_Team_Feedback (1).docx`, five reviewers (the analyst lead,
-the engineering lead, the delivery lead, the non-developer reviewer, the senior reviewer) plus one live change, the reference change.
+the engineering lead, the delivery lead, the non-developer reviewer, the senior reviewer) plus one live reference change.
 Every status line below was checked against code read today, not against
 the feedback's description of the code and not against memory. Where a
 claim could not be checked in the time available it says so.
@@ -96,7 +96,7 @@ the PATH, and Python plus the CLI are still prerequisites the person has
 to satisfy alone.
 
 Why it happens. The install path was designed for engineers who already
-have both. the non-developer reviewer is the person the product most needs, and the least
+have both. The non-developer reviewer is the person the product most needs, and the least
 equipped path is hers.
 
 Solutions.
@@ -130,7 +130,7 @@ Raised by the analyst lead. BAs do not hand over conversations, they hand over a
 full specification document with the core acceptance criteria in the
 ticket.
 
-Status today. The guide's description is wrong about the adopter team practice, and
+Status today. The guide's description is wrong about the adopter team's practice, and
 the reviewer's warning is the important half: people stop trusting a
 document that describes their own job incorrectly.
 
@@ -217,7 +217,7 @@ Solutions.
    messages and the notes file across the change's range, proposes rows,
    and writes only what a person confirms. Nobody is asked to type
    anything twice, and the empty table fills from real history.
-   Done-check: run over the the reference change range, propose rows,
+   Done-check: run over the reference change's range, propose rows,
    and show a non-empty table where the previous run showed zero.
 2. Refuse to close a change whose architecture decision record cites an
    alternative that no decision row explains. Stronger, and it adds an
@@ -334,8 +334,8 @@ Solutions.
 
 ### P8. Ordinary changes are sized as heavy ones
 
-Raised by the analyst lead, and proven on the live change: the reference change, a
-new field pulled through Strapi and the API to the client, was sized T2.
+Raised by the analyst lead, and proven on the live reference change: a
+new field pulled through the CMS and the API to the client was sized T2.
 
 Status today. FIXED AT 15:39 ON 2026-08-15, in commit `4912bd8`, by a
 concurrent session, 28 minutes after this page was committed saying it was
@@ -575,7 +575,7 @@ Solutions.
 
 Raised by the analyst lead and by the QC lead's own position. QC verifies far more slowly
 than AI-assisted developers build, so a proof list written early adds a
-step without removing the bottleneck. the QC lead will not accept against
+step without removing the bottleneck. The QC lead will not accept against
 acceptance criteria: what she finds is unnatural behaviour, UX problems
 once she is hands on, misunderstandings between her and the BA, and
 awkward text where the translator lacked context. The closing finding is
@@ -1007,6 +1007,6 @@ and never scheduled the measurement that decides whether any of it worked:
    permanently fixes the honesty of a green verdict).
 5. P3 solution 1, then P7 solution 1, then P11, then P6, then P10.
 
-The one next action: send 3.2.0 to the analyst lead and the engineering lead with P9 and P14 named,
+The one next action: send 3.2.0 to the two lead reviewers with P9 and P14 named,
 because everything else in this list is cheaper to decide once we know
 whether those two are actually closed.

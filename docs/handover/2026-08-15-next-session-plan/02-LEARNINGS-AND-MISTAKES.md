@@ -23,5 +23,5 @@ No structural facts are generated for this page; the store has no concept of a m
    defect, not a communication one.
 
 4. Eighteen real problems survived 3174 passing tests. Green is not
-   true. This is the same gap the the adopter team team named from the outside.
+   true. This is the same gap the adopter team named from the outside.
 <!-- bm-human:end -->

@@ -9,7 +9,7 @@ of coming work. Flip condition: the founder naming a client on Azure.
 
 Written under the original tri-host order of 2026-08-16, superseded the
 same day by the two-host law in CLAUDE.md: GitHub canonical, Bitbucket
-for the the adopter team team. BrotherMode's engine speaks plain
+for the adopter team. BrotherMode's engine speaks plain
 git and calls no host API, so the enforcement layer runs identically on an
 Azure remote. This page follows docs/BITBUCKET.md's pattern exactly: what
 was executed is quoted, and what nobody has executed is labeled UNVERIFIED

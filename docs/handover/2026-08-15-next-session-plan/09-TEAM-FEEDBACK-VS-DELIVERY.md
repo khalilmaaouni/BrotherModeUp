@@ -4,10 +4,10 @@ Status: CURRENT.
 
 The delivery artifact the founder asked for: every issue the five
 reviewers raised (the analyst lead, the engineering lead, the delivery lead, the non-developer reviewer, the senior reviewer, plus the live
-the reference change run), against what has actually shipped, what is
+reference-change run), against what has actually shipped, what is
 planned with a name, and what is honestly not addressed. Lane per the
 boundary law: BrotherMode governs one person's session, BrotherSBE
-governs a change between people, the adopter team owns what only the adopter team can decide.
+governs a change between people, the adopter team owns what only that team can decide.
 Nothing below claims more than a check that ran.
 
 ## Directly answered by work already shipped
@@ -21,13 +21,13 @@ Nothing below claims more than a check that ran.
    decision the team asked for ("before we expand, not during") is
    exactly the founder's target amendment of 2026-08-16. Remaining:
    the mirror account step, then certification closes the labels.
-2. "Green gates under-represent how much checking remains" (the analyst lead, the QC lead,
+2. "Green gates under-represent how much checking remains" (the analyst lead, the QA lead,
    the closing finding). SHIPPED as doctrine the same week, before this
    document arrived: docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md
    BM-A3 states this exact risk in nearly the team's words (every gate
    green while the real numbers do not move means the plan failed and
    the gates will say otherwise), and the roadmap's success scorecard
-   counts outcomes, not gate verdicts. What the QC lead finds outside the
+   counts outcomes, not gate verdicts. What the QA lead finds outside the
    criteria (unnatural behaviour, UX, translator context) is named in
    the sibling's amendment set as the labour and scope lanes, not
    gated.
@@ -75,11 +75,11 @@ Nothing below claims more than a check that ran.
    page: the installer refuses Windows by design, WSL is the
    documented path.
 
-## the adopter team's alone, named per the boundary law, never gated by us
+## The adopter team's alone, named per the boundary law, never gated by us
 
 8. QC verifies slower than AI-assisted developers build; a proof list
-   written early stays basic; the QC lead accepts against the feature, not
-   the criteria list. These are the five the adopter team-owned flaws from the
+   written early stays basic; the QA lead accepts against the feature, not
+   the criteria list. These are the five adopter-owned flaws from the
    ownership analysis, and the tooling's honest posture, already
    doctrine in BM-A1: measure it, reveal it, remove labour that feeds
    it, never add an obligation and call it a fix. The queue numbers
@@ -94,6 +94,6 @@ sibling's plan (7), or the adopter team's own decisions (8). Nothing was dropped
 and nothing was gated in response, per the no-new-gates rule.
 
 Does not prove: that any shipped item changed the team's lived queue
-numbers. That measurement starts when the pack reaches the analyst lead and the engineering lead
+numbers. That measurement starts when the pack reaches the two testers
 and the Bitbucket mirror exists, and the scorecard that decides it is
 BM-A2's three numbers, not this page.
