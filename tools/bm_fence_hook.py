@@ -58,6 +58,7 @@ import json
 import os
 import posixpath
 import secrets
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -675,10 +676,168 @@ _FAIL_REASONS = {
     "no-root": (
         "no BrotherMode project root was found, so there is no fence here",
         "run `python3 tools/bm_store.py init` if this should be a project"),
+    "battery-unreadable": (
+        "a test gate may be running against this checkout and its state "
+        "could not be established, so the write could invalidate a live "
+        "baseline run",
+        "read the bm_fence_hook line on stderr for the lock path, check the "
+        "lock by hand, then retry"),
     "unknown": (
         "the fence could not complete its check",
         "read the bm_fence_hook line on stderr for the reason"),
 }
+
+
+_GATE = None
+_GATE_ERROR = None
+
+
+def _load_gate_module():
+    """Import tools/test_all.py beside this file, or return None and record
+    why. Same construction as _load_store_module, same reason. The gate
+    lock's format has exactly one owner (test_all.py, which writes it), so
+    this hook never parses the lock itself: lock_path and lock_state are
+    asked, never re-derived, and an unloadable owner means the battery fence
+    is reported as unchecked rather than guessed at."""
+    global _GATE, _GATE_ERROR
+    if _GATE is not None or _GATE_ERROR is not None:
+        return _GATE
+    try:
+        import importlib.util
+        path = os.path.join(HERE, "test_all.py")
+        spec = importlib.util.spec_from_file_location("bm_test_all", path)
+        if spec is None or spec.loader is None:
+            _GATE_ERROR = "no import spec for %s" % path
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules.setdefault("bm_test_all", mod)
+        _GATE = mod
+        return _GATE
+    except Exception as e:
+        _GATE_ERROR = "%s: %s" % (type(e).__name__, e)
+        return None
+
+
+def _is_tracked(root, rel):
+    """True, False, or None when git could not answer (no repository, no git
+    on PATH, a timeout). None is NO-DATA and the caller reports it; it is
+    never the same answer as False."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", root, "ls-files", "--error-unmatch", "--", rel],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30,
+            env={k: v for k, v in os.environ.items()
+                 if not k.startswith("GIT_")})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode == 0:
+        return True
+    # Exit 1 is git's own answer for "not tracked"; anything else (128 for
+    # not-a-repository, and so on) means the question could not be asked.
+    if r.returncode == 1:
+        return False
+    return None
+
+
+def _battery_decision(root, raw_targets, cwd, notes):
+    """A deny payload when a LIVE gate lock covers a git-TRACKED target,
+    else None, with every unestablishable state reported into `notes`.
+
+    Battery fence (incident 2026-08-17): one session edited a tracked file
+    nineteen minutes into another session's `tools/test_all.py` baseline
+    run, invalidating it; nothing had announced the run. The gate lock
+    test_all.py has always taken now doubles as that announcement, and this
+    hook refuses tracked-file writes while it is live, for EVERY session
+    including the one that started the gate, because a same-session edit
+    invalidates the baseline identically (the recorded failure class of
+    measuring a tree you are still editing).
+
+    Handled inline rather than through _FailOpen: a broken battery check
+    must degrade to a loud note while the FENCE check still runs; raising
+    would skip the fence too. In enforced mode an unestablishable battery
+    state refuses, C-01's direction, through the battery-unreadable copy."""
+    switch = os.environ.get("BM_FENCE_BATTERY", "").strip().lower()
+    if switch in ("off", "0"):
+        notes.append(
+            "bm_fence_hook: BM_FENCE_BATTERY=%s, so the battery fence was "
+            "NOT checked and this write may invalidate a running gate. "
+            "Unset it to restore the check." % switch)
+        return None
+
+    def nodata(detail):
+        if enforced_mode():
+            summary, remedy = _FAIL_REASONS["battery-unreadable"]
+            notes.append(
+                "bm_fence_hook: FAILING CLOSED, the write is refused "
+                "because the battery state could not be checked. Reason: %s"
+                % detail)
+            return deny_payload(
+                "BrotherMode is in enforced mode and refused this write "
+                "because %s. To fix it, %s. To go back to warning only, set "
+                "BM_FENCE_MODE=advisory." % (summary, remedy))
+        notes.append(
+            "bm_fence_hook: the battery fence was NOT checked (%s); the "
+            "write is allowed. A running gate, if any, may be invalidated "
+            "by it." % detail)
+        return None
+
+    gate = _load_gate_module()
+    if gate is None:
+        return nodata("test_all.py beside this hook could not be loaded "
+                      "(%s)" % _GATE_ERROR)
+    try:
+        path = gate.lock_path(os.path.join(root, "tools"))
+        if not os.path.exists(path):
+            return None
+        state, holder = gate.lock_state(path)
+    except Exception as e:
+        return nodata("%s: %s" % (type(e).__name__, e))
+    if state == "absent":
+        return None
+    if state == "stale":
+        notes.append(
+            "bm_fence_hook: a gate lock exists at %s but its holder is "
+            "provably gone (%s). It is ignored; the next gate run cleans "
+            "it, or delete it by hand." % (path, holder))
+        return None
+    if state == "unreadable":
+        return nodata("the gate lock at %s exists but could not be read; "
+                      "an unreadable lock is reported, never silently "
+                      "ignored" % path)
+    for raw in raw_targets:
+        rel = canonical_target(root, raw, cwd)
+        if rel is None:
+            continue
+        tracked = _is_tracked(root, rel)
+        if tracked is None:
+            refused = nodata("the gate is running but git could not say "
+                             "whether %s is tracked" % rel)
+            if refused is not None:
+                return refused
+            continue
+        if not tracked:
+            continue
+        return deny_payload(
+            "BrotherMode battery fence: the test gate is running against "
+            "this checkout right now (%s, lock %s), and %s is tracked by "
+            "git here, so writing it would invalidate the run's baseline. "
+            "That is the recorded failure class of measuring a tree you "
+            "are still editing, and it holds for EVERY session, including "
+            "the one that started the gate.\n"
+            "What proceeds, and nothing else does:\n"
+            "  1. Wait for the gate to finish; the lock disappears when it "
+            "does.\n"
+            "  2. Write an untracked scratch path instead; only tracked "
+            "files are fenced.\n"
+            "  3. A crashed run reads as stale and is ignored "
+            "automatically; a LIVE lock means its pid answered a liveness "
+            "probe just now.\n"
+            "  4. A deliberate override is BM_FENCE_BATTERY=off, announced "
+            "on stderr on every write while it is set."
+            % (holder, path, rel))
+    return None
 
 
 def fence_mode(env=None):
@@ -903,6 +1062,14 @@ def decide(payload):
         # H4: fold case where this project's filesystem folds it, not
         # where sys.platform guesses it does.
         bs.note_fs_case(root)
+
+        # Battery fence, BEFORE the claims load on purpose: a store with
+        # zero claims raises no-active-claims and fails open below, and a
+        # running gate deserves its refusal even in a project with no
+        # fences declared at all.
+        battery = _battery_decision(root, raw_targets, cwd, notes)
+        if battery is not None:
+            return battery, notes
 
         rows = active_claims(root)
         if not rows:

@@ -239,6 +239,29 @@ Two smaller notes in the same spirit:
 7. Covered by an active record this session owns: allow.
 8. Covered by nothing: allow, unless strict mode is on.
 
+Between steps 3 and the claims comparison sits one independent check, the battery
+fence, added after the 2026-08-17 incident in which one session edited a tracked
+file nineteen minutes into another session's `python3 tools/test_all.py` baseline
+run, invalidating it; the second session only discovered the run through pgrep.
+The gate lock `test_all.py` has always taken (crash-safe `O_CREAT|O_EXCL` in the
+system temp directory, staleness decided by the holder pid's liveness first, age
+only where a pid cannot be probed) now doubles as the announcement: its token
+records pid, start time, HEAD sha and the starting session (`BM_FENCE_SESSION_ID`,
+then `CLAUDE_SESSION_ID`, else `unrecorded`), and the hook asks `test_all.py`'s
+own `lock_path` and `lock_state` rather than parsing the file itself, so the
+format keeps exactly one owner. While the lock is LIVE, a write to a git-TRACKED
+target is denied for **every** session, including the one that started the gate,
+because a same-session edit invalidates the baseline identically (the recorded
+failure class of measuring a tree you are still editing). Untracked scratch paths
+stay writable. A stale lock (holder provably gone) is reported and ignored; a
+lock or a trackedness question the hook cannot read is reported loudly and, in
+advisory mode, never blocks; enforced mode refuses it, C-01's direction, through
+the `battery-unreadable` reason. `BM_FENCE_BATTERY=off` disables the check and is
+announced on stderr on every write while set. It runs before the claims load on
+purpose: a store with zero claims fails open below, and a running gate deserves
+its refusal even in a project with no fences declared. The battery classes in
+`tools/test_bm_fence_hook.py` hold all of this in place.
+
 ### Taking a fence over
 
 The deny message names the command. It is `bm_store.py`'s own documented door for a record

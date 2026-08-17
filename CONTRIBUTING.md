@@ -56,6 +56,14 @@ can say no, and `tools/test_bm_fence_hook.py` holds that behavior in place.
 Claim a file before you write it; do not start a second parallel effort on a
 file another effort already owns.
 
+**No edits to tracked files while the gate runs.** The gate lock
+`tools/test_all.py` takes now doubles as a battery-in-progress announcement,
+and the same fence hook refuses a write to any git-tracked file while a live
+gate lock covers the checkout, for every session including the one that
+started the run: an edit mid-run invalidates the baseline the gate is
+measuring. Untracked scratch files stay writable. The refusal names the
+holder and every door that opens; docs/HOOKS.md has the full state table.
+
 **No em or en dashes, anywhere.** Not in this file, not in code comments,
 not in commit messages, not in generated output. Use a comma, a colon, or a
 period instead. The test that enforces it is

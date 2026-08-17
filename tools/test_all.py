@@ -390,8 +390,15 @@ class GateLockBusy(Exception):
     """Another gate run holds the lock and did not release it in time."""
 
 
-def lock_path():
-    tag = hashlib.sha256(HERE.encode("utf-8")).hexdigest()[:16]
+def lock_path(tools_dir=None):
+    """The lock file for the checkout whose tools directory is `tools_dir`,
+    defaulting to this one. Parameterized (battery fence, 2026-08-17) so
+    tools/bm_fence_hook.py can ask about the checkout it is GUARDING rather
+    than the checkout it happens to be installed in. The key stays the tools
+    directory, unchanged since the lock shipped, so runners and readers
+    built at different times keep meeting the same path."""
+    key = os.path.realpath(HERE if tools_dir is None else tools_dir)
+    tag = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return os.path.join(tempfile.gettempdir(),
                         "brothermode-test-gate-%s.lock" % tag)
 
@@ -404,43 +411,66 @@ def _lock_holder(path):
         return "(holder record unreadable)"
 
 
-def _lock_is_stale(path):
-    """True only when the holder is provably gone. An unparseable or empty file
-    is a lock being taken RIGHT NOW, not a dead one, so it falls back to age.
+def lock_state(path):
+    """("absent" | "live" | "stale" | "unreadable", holder_text). The one
+    classifier of the lock token; _lock_is_stale delegates here so exactly
+    one reading of the format exists for the runner and for the fence hook
+    that consumes it (battery fence, 2026-08-17).
 
-    LIVENESS IS CHECKED FIRST, AND IT WINS. A process that answers os.kill(pid,
-    0) is running, and a running gate is not stale no matter how long it has
-    been running. Age is only consulted where the pid cannot be probed."""
+    LIVENESS IS CHECKED FIRST, AND IT WINS. A process that answers
+    os.kill(pid, 0) is running, and a running gate is not stale no matter how
+    long it has been running. An unparseable or empty file is a lock being
+    taken RIGHT NOW, not a dead one, so age decides for it. A file that
+    EXISTS but cannot be read is "unreadable", which callers must report
+    rather than swallow: it is never the same answer as absent."""
     try:
         with io.open(path, encoding="utf-8", errors="replace") as fh:
-            fields = fh.read().split()
+            raw = fh.read()
     except (IOError, OSError):
-        return False
+        if not os.path.exists(path):
+            return "absent", ""
+        return "unreadable", "(holder record unreadable)"
+    fields = raw.split()
+    holder = raw.strip() or "(holder record not yet written)"
     try:
         pid = int(fields[0])
         stamp = float(fields[1])
     except (IndexError, ValueError):
         try:
-            return (time.time() - os.path.getmtime(path)) > LOCK_STALE_SECONDS
+            old = (time.time() - os.path.getmtime(path)) > LOCK_STALE_SECONDS
         except OSError:
-            return False
+            return "absent", ""
+        return ("stale" if old else "live"), holder
     if os.name == "posix" and pid > 0:
         try:
             os.kill(pid, 0)
         except OSError as exc:
             # ESRCH means no such process, which is the ONLY provably gone
             # case. EPERM means it exists and is not ours, which is alive.
-            return exc.errno == errno.ESRCH
+            if exc.errno == errno.ESRCH:
+                return "stale", holder
+            return "live", holder
         # Alive. Not stale, however old. A slow gate is not a dead one.
-        return False
-    return (time.time() - stamp) > LOCK_STALE_SECONDS
+        return "live", holder
+    return ("stale" if (time.time() - stamp) > LOCK_STALE_SECONDS
+            else "live"), holder
 
 
-def acquire_gate_lock(timeout=None, owner="test_all", quiet=False):
+def _lock_is_stale(path):
+    """True only when the holder is provably gone. Delegates to lock_state,
+    which keeps the token's one classifier; see its docstring for the rules.
+    An unreadable-but-present file is NOT stale, exactly as before."""
+    return lock_state(path)[0] == "stale"
+
+
+def acquire_gate_lock(timeout=None, owner="test_all", quiet=False,
+                      tools_dir=None):
     """Take the checkout-wide test lock. Returns a handle, or None when an
     ancestor process already holds it (test_all running a suite as a child), in
-    which case there is nothing to take and nothing to release."""
-    path = lock_path()
+    which case there is nothing to take and nothing to release. `tools_dir`
+    keys the lock to another checkout, which only tests use: the runner
+    always locks its own."""
+    path = lock_path(tools_dir)
     inherited = os.environ.get(LOCK_ENV)
     if inherited:
         if inherited == path and os.path.exists(path):
@@ -866,6 +896,35 @@ def _run_one(name, timeout=None):
     return ok, tests, skipped, elapsed, tail, out
 
 
+def _battery_sha():
+    """HEAD of this checkout, short, or "unknown". Fail-soft on purpose: the
+    lock must still announce a running gate in a checkout where git cannot
+    answer, and a missing sha is displayed as exactly that."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", REPO, "rev-parse", "--short=12", "HEAD"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30,
+            env={k: v for k, v in os.environ.items()
+                 if not k.startswith("GIT_")})
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return (r.stdout.strip()
+            if r.returncode == 0 and r.stdout.strip() else "unknown")
+
+
+def _battery_session():
+    """The session that started this gate, for ATTRIBUTION in the fence
+    hook's refusal message, never for its decision: a same-session write
+    mid-gate invalidates the run exactly as a foreign one does, so the
+    battery fence exempts nobody. Env order matches tools/bm_handover.py."""
+    for var in ("BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+        v = os.environ.get(var, "").strip()
+        if v:
+            return v
+    return "unrecorded"
+
+
 def main(argv):
     if any(a in ("-h", "--help") for a in argv):
         sys.stdout.write(__doc__)
@@ -906,7 +965,9 @@ def main(argv):
         return rc
 
     try:
-        lock = acquire_gate_lock(owner="test_all pid %d" % os.getpid())
+        lock = acquire_gate_lock(owner="test_all pid %d sha %s session %s"
+                                 % (os.getpid(), _battery_sha(),
+                                    _battery_session()))
     except GateLockBusy as exc:
         sys.stderr.write("test_all: REFUSING to run. %s\n" % exc)
         return 2

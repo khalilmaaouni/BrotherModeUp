@@ -1687,6 +1687,199 @@ class _LeakCheckingResult(unittest.TextTestResult):
         super(_LeakCheckingResult, self).stopTest(test)
 
 
+# ---------------------------------------------------------------------------
+# The battery fence (incident 2026-08-17): a live gate lock over this checkout
+# refuses tracked-file writes for every session, reports what it cannot read,
+# and in advisory mode never lets an unestablishable state block.
+# ---------------------------------------------------------------------------
+
+_taspec = importlib.util.spec_from_file_location(
+    "bm_test_all", os.path.join(HERE, "test_all.py"))
+ta = importlib.util.module_from_spec(_taspec)
+_taspec.loader.exec_module(ta)
+sys.modules.setdefault("bm_test_all", ta)
+
+
+class BatteryFenceBase(FenceHookBase):
+    """FenceHookBase plus a real git repository (the battery fence judges
+    trackedness through git, so the fixture must be able to answer) and a
+    gate lock released even when a test fails mid-way. The store deliberately
+    holds ZERO claims: the battery refusal must not depend on any fence being
+    declared, and every deny asserted below proves that at the same time."""
+
+    def setUp(self):
+        FenceHookBase.setUp(self)
+        self.lock = None
+        for k in ("BM_FENCE_MODE", "BM_FENCE_BATTERY", "CLAUDE_SESSION_ID"):
+            os.environ.pop(k, None)
+        for args in (["init", "-q", "."],
+                     ["config", "user.email", "e@e"],
+                     ["config", "user.name", "T"],
+                     ["add", "src/app.py"],
+                     ["commit", "-qm", "one"]):
+            r = subprocess.run(["git", "-C", self.root] + args,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               universal_newlines=True,
+                               env={k: v for k, v in os.environ.items()
+                                    if not k.startswith("GIT_")})
+            self.assertEqual(r.returncode, 0,
+                             "git %s failed in the fixture: %s"
+                             % (args, r.stderr))
+
+    def tearDown(self):
+        if self.lock:
+            ta.release_gate_lock(self.lock, quiet=True)
+        os.environ.pop(ta.LOCK_ENV, None)
+        FenceHookBase.tearDown(self)
+
+    def tools_dir(self):
+        return os.path.join(self.root, "tools")
+
+    def take_lock(self, owner="test_all pid taken-by-test"):
+        self.lock = ta.acquire_gate_lock(owner=owner, quiet=True,
+                                         tools_dir=self.tools_dir())
+        # acquire exports LOCK_ENV for child suites; this process is a test,
+        # not a suite runner, so scrub it rather than leak it to other tests.
+        os.environ.pop(ta.LOCK_ENV, None)
+        return self.lock
+
+    def crashed_lock(self):
+        """A lock left by a run that died without releasing: acquired in a
+        child that exits through os._exit, so the file survives and its
+        recorded pid is provably gone."""
+        code = (
+            "import importlib.util, os, sys\n"
+            "spec = importlib.util.spec_from_file_location('bm_test_all', %r)\n"
+            "ta = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(ta)\n"
+            "ta.acquire_gate_lock(owner='crashed-gate', quiet=True,\n"
+            "                     tools_dir=%r)\n"
+            "os._exit(0)\n"
+            % (os.path.join(HERE, "test_all.py"), self.tools_dir()))
+        r = subprocess.run([sys.executable, "-c", code],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           universal_newlines=True, env=_clean_env())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        path = ta.lock_path(self.tools_dir())
+        self.assertTrue(os.path.exists(path))
+        return path
+
+    def edit_payload(self, rel, session):
+        return payload(session, self.root, tool_name="Edit",
+                       tool_input={"file_path": os.path.join(self.root, rel),
+                                   "old_string": "a", "new_string": "b"})
+
+
+class BatteryFenceRefuses(BatteryFenceBase):
+
+    def test_a_tracked_write_during_a_live_gate_is_denied(self):
+        self.take_lock()
+        decision, notes = self.decide(
+            self.edit_payload("src/app.py", self.OTHER))
+        reason = self.assertDenied(decision)
+        self.assertIn("battery fence", reason)
+        self.assertIn("src/app.py", reason)
+        self.assertIn("BM_FENCE_BATTERY", reason)
+
+    def test_the_starting_session_is_not_exempt(self):
+        os.environ["BM_FENCE_SESSION_ID"] = self.VICTIM
+        self.take_lock(owner="test_all pid 1 sha deadbeef session %s"
+                       % self.VICTIM)
+        decision, _notes = self.decide(
+            self.edit_payload("src/app.py", self.VICTIM))
+        reason = self.assertDenied(decision)
+        self.assertIn("battery fence", reason)
+        self.assertIn("EVERY session", reason)
+
+    def test_an_untracked_write_during_a_live_gate_is_allowed(self):
+        self.take_lock()
+        decision, _notes = self.decide(
+            self.edit_payload("src/other.py", self.OTHER))
+        self.assertAllowed(decision)
+
+    def test_the_deny_holds_with_zero_claims_in_the_store(self):
+        # The store FenceHookBase builds holds no claims, so without the
+        # battery check this payload would fail OPEN through
+        # no-active-claims. The deny therefore proves the battery check runs
+        # BEFORE the claims load.
+        self.take_lock()
+        decision, _notes = self.decide(
+            self.edit_payload("src/app.py", self.OTHER))
+        self.assertDenied(decision)
+
+
+class BatteryFenceHonesty(BatteryFenceBase):
+
+    def test_a_stale_lock_is_reported_and_ignored(self):
+        self.crashed_lock()
+        decision, notes = self.decide(
+            self.edit_payload("src/app.py", self.OTHER))
+        self.assertAllowed(decision)
+        self.assertTrue(any("provably gone" in n for n in notes), notes)
+
+    def test_an_unreadable_lock_is_reported_never_silently_ignored(self):
+        path = ta.lock_path(self.tools_dir())
+        os.mkdir(path)
+        try:
+            decision, notes = self.decide(
+                self.edit_payload("src/app.py", self.OTHER))
+            self.assertAllowed(decision)
+            self.assertTrue(
+                any("could not be read" in n for n in notes), notes)
+        finally:
+            os.rmdir(path)
+
+    def test_enforced_mode_refuses_what_it_cannot_read(self):
+        path = ta.lock_path(self.tools_dir())
+        os.mkdir(path)
+        os.environ["BM_FENCE_MODE"] = "enforced"
+        try:
+            decision, _notes = self.decide(
+                self.edit_payload("src/app.py", self.OTHER))
+            reason = self.assertDenied(decision)
+            self.assertIn("enforced mode", reason)
+        finally:
+            os.rmdir(path)
+
+    def test_the_kill_switch_allows_and_says_so(self):
+        self.take_lock()
+        os.environ["BM_FENCE_BATTERY"] = "off"
+        decision, notes = self.decide(
+            self.edit_payload("src/app.py", self.OTHER))
+        self.assertAllowed(decision)
+        self.assertTrue(any("BM_FENCE_BATTERY" in n for n in notes), notes)
+
+
+class BatteryTokenRecords(BatteryFenceBase):
+
+    def test_lock_state_reads_what_acquire_wrote(self):
+        self.take_lock(owner="test_all pid 1 sha deadbeef session sess-x")
+        state, holder = ta.lock_state(ta.lock_path(self.tools_dir()))
+        self.assertEqual(state, "live")
+        self.assertEqual(int(holder.split()[0]), os.getpid())
+        self.assertIn("sha deadbeef", holder)
+        self.assertIn("session sess-x", holder)
+
+    def test_battery_session_reads_the_documented_env_order(self):
+        os.environ["CLAUDE_SESSION_ID"] = "claude-abc"
+        self.assertEqual(ta._battery_session(), "claude-abc")
+        os.environ["BM_FENCE_SESSION_ID"] = "fence-def"
+        self.assertEqual(ta._battery_session(), "fence-def")
+        os.environ.pop("BM_FENCE_SESSION_ID", None)
+        os.environ.pop("CLAUDE_SESSION_ID", None)
+        self.assertEqual(ta._battery_session(), "unrecorded")
+
+    def test_a_crashed_locks_slot_is_reclaimed_by_the_next_run(self):
+        self.crashed_lock()
+        self.lock = ta.acquire_gate_lock(owner="next-gate", quiet=True,
+                                         timeout=5,
+                                         tools_dir=self.tools_dir())
+        os.environ.pop(ta.LOCK_ENV, None)
+        state, holder = ta.lock_state(self.lock)
+        self.assertEqual(state, "live")
+        self.assertEqual(int(holder.split()[0]), os.getpid())
+
+
 if __name__ == "__main__":
     unittest.main(
         verbosity=2,
