@@ -82,6 +82,27 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   exit 2
 fi
 
+# --- durable receipt -----------------------------------------------------
+# Founder decision 2026-08-17. Actions kept public permanent logs; a temp file
+# does not. The receipt travels with the code, so a green status from months
+# ago can still be examined, and a forged status is visible by the receipt it
+# does not have. Written on pass AND fail: a gate that only records its wins
+# is a worse record than none.
+mkdir -p evidence/gates
+cat > "evidence/gates/${SHA:0:12}.txt" <<RECEIPT
+sha:        $SHA
+result:     $STATE
+summary:    $SUMMARY
+exit:       $CODE
+all_green:  $GREEN
+duration_s: $DURATION
+host:       $(uname -sm)
+python:     $(python3 -V 2>&1)
+ran_by:     local gate runner, scripts/local-gates.sh
+ran_at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)
+RECEIPT
+echo "receipt: evidence/gates/${SHA:0:12}.txt"
+
 if [ "$POST" = 0 ]; then
   echo "(--no-post) nothing sent to GitHub."
   [ "$STATE" = "success" ]
