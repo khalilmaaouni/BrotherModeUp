@@ -14,7 +14,7 @@ File 07 is the ordered checklist and it supersedes any list here.
 Short form: A1 run one undisturbed gate. A2 fix SBE2 so gates stop
 looking stalled. A3 the two erasure defects, SBE9 and SBE10. A4 the
 redaction switch, SBE14. A5 the install-boundary identity, SBE1. A6 the
-cold install with the analyst lead and the engineering lead. A7 Bitbucket certification once the
+cold install with the two testers. A7 Bitbucket certification once the
 mirror exists. Then the rest of SBE1 to SBE18 in priority order, then
 the vision fold.
 <!-- bm-human:end -->

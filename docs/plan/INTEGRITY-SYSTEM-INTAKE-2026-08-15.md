@@ -47,7 +47,7 @@ Genuinely NEW, the long-range candidates to size and sequence:
 ## The founder's fit constraints, binding on the adaptation
 
 Individual contributors and 2 to 15 person startups: every mechanism must
-pass the labour test imported in the the adopter team adaptation (it removes more
+pass the labour test imported in the adopter-review adaptation (it removes more
 typing than it adds, or it gets cut), and the boundary law (measure,
 reveal, remove labour; never add an obligation and call it a fix).
 Seamless BrotherMode and BrotherSBE integration: BrotherMode governs one

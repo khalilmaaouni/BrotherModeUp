@@ -111,6 +111,7 @@
 - `night-phase-c-close` (1441a056) state=complete session=[WITHHELD: 8 chars of founder text] version=2
 - `night-progress-template` (df4bdc25) state=complete session=[WITHHELD: 8 chars of founder text] version=2: project-template/PROGRESS.html, references/status-view.md, project-template/README.md
 - `night-queue-and-board` (500e030b) state=parked session=[WITHHELD: 28 chars of founder text] version=2: docs/plan/QUEUE.json, docs/plan/GANTT.html
+- `northstar-plan-2026-08-15--prov-e082b639` (e082b639) state=parked session=[WITHHELD: 21 chars of founder text] version=16
 - `omit-session-probe` (32c531a9) state=complete session=[WITHHELD: 28 chars of founder text] version=4: docs/plan/PROBE-TARGET.md
 - `overnight-2026-08-12-team-version--prov-08e95ec5` (08e95ec5) state=parked session=d79520aa-92de-4f0e-b679-2ca215511a9c version=2
 - `overnight-v3-2-0-and-team-rollout--prov-042f0ebd` (042f0ebd) state=parked session=31456097-4efb-4470-aa61-5ff5e8b9afa7 version=2
@@ -241,6 +242,20 @@
 - `b35bec1c` 2026-08-14T23:44:17Z: [WITHHELD: 21 chars of founder text] ([WITHHELD: 311 chars of founder text])
 - `b35bec1c` 2026-08-14T23:51:14Z: [WITHHELD: 24 chars of founder text] ([WITHHELD: 335 chars of founder text])
 - `8e65cda2` 2026-08-15T04:36:55Z: [WITHHELD: 26 chars of founder text] ([WITHHELD: 418 chars of founder text])
+- `e082b639` 2026-08-15T12:54:38Z: [WITHHELD: 28 chars of founder text] ([WITHHELD: 464 chars of founder text])
+- `e082b639` 2026-08-15T12:54:38Z: [WITHHELD: 24 chars of founder text] ([WITHHELD: 431 chars of founder text])
+- `e082b639` 2026-08-15T12:54:38Z: [WITHHELD: 24 chars of founder text] ([WITHHELD: 407 chars of founder text])
+- `e082b639` 2026-08-15T12:54:39Z: [WITHHELD: 21 chars of founder text] ([WITHHELD: 380 chars of founder text])
+- `e082b639` 2026-08-15T12:54:39Z: [WITHHELD: 26 chars of founder text] ([WITHHELD: 237 chars of founder text])
+- `e082b639` 2026-08-15T12:54:39Z: [WITHHELD: 27 chars of founder text] ([WITHHELD: 413 chars of founder text])
+- `e082b639` 2026-08-15T12:54:39Z: [WITHHELD: 29 chars of founder text] ([WITHHELD: 398 chars of founder text])
+- `e082b639` 2026-08-15T12:54:39Z: [WITHHELD: 25 chars of founder text] ([WITHHELD: 275 chars of founder text])
+- `e082b639` 2026-08-15T15:51:01Z: [WITHHELD: 25 chars of founder text] ([WITHHELD: 650 chars of founder text])
+- `e082b639` 2026-08-15T16:02:13Z: [WITHHELD: 36 chars of founder text] ([WITHHELD: 727 chars of founder text])
+- `e082b639` 2026-08-15T16:03:45Z: [WITHHELD: 39 chars of founder text] ([WITHHELD: 907 chars of founder text])
+- `e082b639` 2026-08-15T16:21:53Z: [WITHHELD: 43 chars of founder text] ([WITHHELD: 1401 chars of founder text])
+- `e082b639` 2026-08-15T16:46:20Z: [WITHHELD: 45 chars of founder text] ([WITHHELD: 1361 chars of founder text])
+- `e082b639` 2026-08-15T23:15:32Z: [WITHHELD: 17 chars of founder text] ([WITHHELD: 871 chars of founder text])
 
 ## Unacknowledged handovers
 
@@ -249,29 +264,5 @@ None outstanding.
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-WHAT THIS SESSION WAS. The founder brought a five-reviewer feedback document
-from the pilot team and asked for every problem analysed one by one with
-solutions, then for the system to learn to recognise when it is stuck and ask
-a person, then gave the north-star chain (human intent to verified reality)
-and asked for it to govern everything.
-
-WHAT LANDED, all on main and pushed:
-- docs/plan/ADOPTER-TEAM-PROBLEMS-AND-SOLUTIONS-2026-08-15.md: fourteen problems,
-  each with status checked against code, cause, up to three solutions naming
-  files and done-checks, plus nine holes nobody had raised (H1 to H9) and the
-  judgement on an outside architecture proposal.
-- tools/bm_escalate.py plus docs/ESCALATION.md: the attempt ledger and the
-  rule that says stop and ask. Four triggers, 32 tests.
-- docs/NORTH-STAR-CHAIN.md, DIGEST.md, PRODUCT-DIRECTION.md: the chain is the
-  authority, arrives at session start, and tools/bm_idle.py enforces its stage
-  names on the queue.
-- docs/plan/north-star-chain.html: the chain as a page, redesigned, published.
-- tools/bm_project.py: a task can no longer be born past the gates it is meant
-  to walk through.
-- tools/bm_lead.py: the command a beginner is handed at the authorisation step
-  no longer dies on paste.
-- docs/deltas/: three BrotherSBE patches held rather than folded, with the
-  checked reason why.
-
-WHAT IS NEXT, in the order it should be done, is file 04.
+FILL-BY-HAND: what happened this session, and what is next.
 <!-- bm-human:end -->

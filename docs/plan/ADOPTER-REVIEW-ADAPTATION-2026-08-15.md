@@ -1,8 +1,8 @@
 Status: CURRENT.
 
-# What the the adopter team review changes for BrotherMode, 2026-08-15
+# What the adopter review changes for BrotherMode, 2026-08-15
 
-The sibling product's the adopter team review produced an amendment set
+The sibling product's adopter review produced an amendment set
 (BrotherSBE, docs/adoption/2026-08-15-plan-amendment-instructions.md). The
 founder ordered its lessons adapted to BrotherMode's own flows, in
 BrotherMode scope only, without duplicating BrotherSBE's work. This page is
@@ -45,7 +45,7 @@ succeeded. The only numbers that decide it:
 
 1. External installs, from filed transcripts. Baseline 2026-08-15: ZERO,
    single sourced from this repository's own records.
-2. Cold-install outcomes from the named testers, the analyst lead and the engineering lead: did the
+2. Cold-install outcomes from the two named testers: did the
    two-command install work first try, and what broke if not.
 3. Felt-outcome scores (the 1 to 5 ask at loop close) from people other
    than the founder. Baseline: none exist.
@@ -76,7 +76,7 @@ and this page agree on that order.
 
 ## What stays in BrotherSBE's lane, deliberately
 
-- The the adopter team adjustment plan amendments themselves (A1 through A9 over
+- The adopter-team adjustment plan amendments themselves (A1 through A9 over
   there): that plan, its parts, and its done-checks are the sibling's
   files. Nothing here edits them.
 - Approval concentration (their A4): it counts signed approval trailers,
