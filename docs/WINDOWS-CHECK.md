@@ -32,8 +32,10 @@ a real answer, not a failure on your part.
 
 Open PowerShell and run these two commands, one at a time:
 
-    git clone https://github.com/khalilmaaouni/BrotherModeUp.git
-    cd BrotherModeUp
+```
+git clone https://github.com/khalilmaaouni/BrotherModeUp.git
+cd BrotherModeUp
+```
 
 **What you should see:** lines about downloading, ending without the word
 `error`.
@@ -47,11 +49,15 @@ Open PowerShell and run these two commands, one at a time:
 Run this one command. It takes a long time, often 10 to 45 minutes. That is
 normal. Leave it alone and let it finish.
 
-    python tools/test_all.py
+```
+python tools/test_all.py
+```
 
 **What you should see** at the very end, on the last line:
 
-    test_all: NNNN tests across NN suites, N skipped, NNNN.Ns wall. ALL GREEN
+```
+test_all: NNNN tests across NN suites, N skipped, NNNN.Ns wall. ALL GREEN
+```
 
 The important words are **ALL GREEN** at the end.
 
@@ -69,7 +75,9 @@ line. Do not try to fix anything.
 
 Run this:
 
-    python scripts/doctor.py
+```
+python scripts/doctor.py
+```
 
 **What you should see:** a list of checks, each ending in PASS, FAIL or SKIP.
 
@@ -84,8 +92,10 @@ SKIP is not a problem. It means that check had nothing to look at.
 
 Run these two commands:
 
-    claude plugin marketplace add khalilmaaouni/BrotherModeUp
-    claude plugin install brothermode@brothermode-marketplace
+```
+claude plugin marketplace add khalilmaaouni/BrotherModeUp
+claude plugin install brothermode@brothermode-marketplace
+```
 
 **What you should see:** a line saying `Successfully installed`.
 
@@ -97,20 +107,26 @@ Run these two commands:
 
 Repeat steps 1 to 4, replacing the addresses with these:
 
-    git clone https://github.com/khalilmaaouni/Brothersbe.git
-    cd Brothersbe
+```
+git clone https://github.com/khalilmaaouni/Brothersbe.git
+cd Brothersbe
+```
 
 For step 2 in this repository, the test command is different. Run:
 
-    bash scripts/local-gates.sh --no-post
+```
+bash scripts/local-gates.sh --no-post
+```
 
 If `bash` is not available, say so in the form and skip step 2 for this one.
 That is a useful answer by itself.
 
 For step 4, the two install commands are:
 
-    claude plugin marketplace add khalilmaaouni/Brothersbe
-    claude plugin install brothersbe@brothersbe
+```
+claude plugin marketplace add khalilmaaouni/Brothersbe
+claude plugin install brothersbe@brothersbe
+```
 
 ---
 
@@ -121,42 +137,44 @@ If something did not work, write what actually happened. **A problem you report
 is worth more than a green tick**, because problems on Windows are exactly what
 this check exists to find.
 
-    -----------------------------------------------------------
-    WINDOWS CHECK
+```
+-----------------------------------------------------------
+WINDOWS CHECK
 
-    Your name:
-    Date:
-    Windows version:
-    Python version (from `python --version`):
-    Git version (from `git --version`):
-    Claude Code version (from `claude --version`):
+Your name:
+Date:
+Windows version:
+Python version (from `python --version`):
+Git version (from `git --version`):
+Claude Code version (from `claude --version`):
 
-    --- BrotherMode ---
-    Step 1, clone worked (yes / no):
-    Step 2, last line of the test output:
-    Step 2, did it say ALL GREEN (yes / no):
-    Step 2, any FAIL lines (paste them, or write none):
-    Step 3, how many PASS:
-    Step 3, how many FAIL:
-    Step 3, names of anything that FAILed:
-    Step 4, plugin installed (yes / no):
-    Step 4, message if it failed:
+--- BrotherMode ---
+Step 1, clone worked (yes / no):
+Step 2, last line of the test output:
+Step 2, did it say ALL GREEN (yes / no):
+Step 2, any FAIL lines (paste them, or write none):
+Step 3, how many PASS:
+Step 3, how many FAIL:
+Step 3, names of anything that FAILed:
+Step 4, plugin installed (yes / no):
+Step 4, message if it failed:
 
-    --- BrotherSBE ---
-    Step 1, clone worked (yes / no):
-    Step 2, did the gates script run at all (yes / no / bash not available):
-    Step 2, last line of the output:
-    Step 2, any FAIL lines (paste them, or write none):
-    Step 3, how many PASS:
-    Step 3, how many FAIL:
-    Step 3, names of anything that FAILed:
-    Step 4, plugin installed (yes / no):
-    Step 4, message if it failed:
+--- BrotherSBE ---
+Step 1, clone worked (yes / no):
+Step 2, did the gates script run at all (yes / no / bash not available):
+Step 2, last line of the output:
+Step 2, any FAIL lines (paste them, or write none):
+Step 3, how many PASS:
+Step 3, how many FAIL:
+Step 3, names of anything that FAILed:
+Step 4, plugin installed (yes / no):
+Step 4, message if it failed:
 
-    --- Anything else ---
-    Anything confusing, slow, or broken that the steps above did not ask about:
+--- Anything else ---
+Anything confusing, slow, or broken that the steps above did not ask about:
 
-    -----------------------------------------------------------
+-----------------------------------------------------------
+```
 
 ---
 
@@ -173,8 +191,10 @@ that a normal user would also hit.
 **Do I need to undo anything afterwards?** Only if you want to. To remove the
 plugins:
 
-    claude plugin uninstall brothermode
-    claude plugin uninstall brothersbe
+```
+claude plugin uninstall brothermode
+claude plugin uninstall brothersbe
+```
 
 The downloaded folders can simply be deleted.
 
