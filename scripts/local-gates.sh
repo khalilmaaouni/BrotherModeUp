@@ -45,11 +45,61 @@ if pgrep -f "tools/test_all.py" > /dev/null 2>&1; then
   exit 2
 fi
 
+# --- refuse a tree carrying an interpreter poison ---------------------------
+# The tracked-file guard above cannot see this class, because the files are
+# UNTRACKED and it deliberately ignores untracked files. Demonstrated on the
+# sibling repository 2026-08-17, not reasoned about: a sitecustomize.py holding
+# `os._exit(0)`, anywhere Python will import it from, makes every python3
+# process exit 0 before running a line of the code under test. The measurement
+# was zero bytes of output and exit 0 from a suite that normally prints and
+# passes. Python imports sitecustomize and usercustomize automatically at
+# startup, and a .pth file in a site directory executes any line beginning
+# `import`, so all three are refused here rather than merely stripped from the
+# environment: PYTHONPATH is stripped below, but a poison file sitting in the
+# CHECKOUT ITSELF is on sys.path regardless of PYTHONPATH.
+POISON="$(find . -maxdepth 2 \( -name sitecustomize.py -o -name usercustomize.py -o -name '*.pth' \) \
+          -not -path './.git/*' 2>/dev/null | head -5)"
+if [ -n "$POISON" ]; then
+  echo "REFUSED: the tree carries interpreter startup files, which run before"
+  echo "any code under test and can force a green battery:"
+  echo "$POISON" | sed 's/^/  /'
+  echo "Remove them, or if one is legitimate, name it in scripts/gates.env's"
+  echo "comments and narrow this check deliberately."
+  exit 2
+fi
+
+# --- build the battery's environment from a committed file ------------------
+# DECLARED, NOT INHERITED. Until 2026-08-17 this ran with whatever the invoking
+# shell held, so the verdict of the required status was a function of (commit,
+# operator) and nothing recorded the operator half. scripts/gates.env carries
+# the whole policy and its reasoning. PATH, HOME, TMPDIR and the locale are
+# inherited on purpose and recorded in the receipt: they identify the machine,
+# which this design declares rather than reproduces.
+ENV_FILE="scripts/gates.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "REFUSED: $ENV_FILE is missing, so the battery's environment is undeclared."
+  echo "A verdict from an undeclared environment is a fact about this shell, not"
+  echo "about the commit."
+  exit 2
+fi
+GATE_ENV=(PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}")
+DECLARED=0
+while IFS= read -r kv || [ -n "$kv" ]; do
+  case "$kv" in ''|\#*) continue;; esac
+  case "$kv" in *=*) ;; *) echo "REFUSED: $ENV_FILE line is not KEY=VALUE: $kv"; exit 2;; esac
+  GATE_ENV+=("$kv")
+  DECLARED=$((DECLARED + 1))
+done < "$ENV_FILE"
+STRIPPED=$(( $(env | grep -c .) - 4 ))
+[ "$STRIPPED" -lt 0 ] && STRIPPED=0
+ENV_SHA="$(shasum -a 256 "$ENV_FILE" | cut -d' ' -f1)"
+
 echo "gate: python3 tools/test_all.py"
 echo "sha:  $SHA"
 echo "log:  $LOG"
+echo "env:  $DECLARED declared from $ENV_FILE, 4 inherited (PATH HOME TMPDIR LANG), ~$STRIPPED stripped"
 START=$SECONDS
-BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py > "$LOG" 2>&1
+env -i "${GATE_ENV[@]}" python3 tools/test_all.py > "$LOG" 2>&1
 CODE=$?
 DURATION=$((SECONDS - START))
 
@@ -98,6 +148,10 @@ all_green:  $GREEN
 duration_s: $DURATION
 host:       $(uname -sm)
 python:     $(python3 -V 2>&1)
+env_file:   $ENV_FILE sha256=$ENV_SHA
+env_declared: $DECLARED variable(s) from that file
+env_inherited: PATH HOME TMPDIR LANG
+env_stripped: ~$STRIPPED ambient variable(s) removed before the battery ran
 ran_by:     local gate runner, scripts/local-gates.sh
 ran_at:     $(date -u +%Y-%m-%dT%H:%M:%SZ)
 RECEIPT
