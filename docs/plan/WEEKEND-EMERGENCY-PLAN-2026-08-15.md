@@ -22,7 +22,7 @@ Healthy looks like: detect reports no unacknowledged handovers and no
 dead-owner leftovers, doctor reports 11 of 11, the tree is clean at or
 ahead of c1bd563. Anything else: find your case below.
 
-## Case 1: the analyst lead or the engineering lead's install fails
+## Case 1: one tester's install fails
 
 The most likely weekend event, because nobody outside this machine has
 ever run the install. Do not debug live on their machine beyond this list.
@@ -115,9 +115,9 @@ close the three UNVERIFIED labels. The push gates (secret scan, dash
 scan, attribution scan over the pushed range) apply to the mirror push
 exactly as to origin.
 
-## The weekend's fix priority, added after the the adopter team review landed
+## The weekend's fix priority, added after the adopter review landed
 
-The founder ordered the the adopter team review's lessons adapted to BrotherMode the
+The founder ordered the adopter review's lessons adapted to BrotherMode the
 same evening: docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md is that
 adaptation and it is the weekend's fix lens. Its order agrees with this
 plan: the Bitbucket seam first the moment the workspace exists (Case 5),

@@ -7,7 +7,7 @@ them.
 # The north star push: self-analysis, positioning, and the two-week plan
 
 Written 2026-08-15 (Saturday, 21:30 JST) on the founder's order: plan the
-next two weeks against the north star, serve the the adopter team team's daily work,
+next two weeks against the north star, serve the adopter team's daily work,
 and unify BrotherMode with BrotherSBE end to end. Six read-only agents ran
 one wave, tiers declared per brief. Every claim below names the file or the
 command that produced it, and the corrections this session made to its own
@@ -170,10 +170,10 @@ tier is EFFORT (T1 one session, T2 a few subagents, T3 a fleet).
 BrotherSBE's tier is RISK (T0 to T3 from five intake answers). The same
 STATE.md lines carrying "Tier T1" are what the assurance product parses.
 
-## 6. The the adopter team team, answered end to end
+## 6. The adopter team, answered end to end
 
 Fourteen distinct struggles were recorded from the analyst lead, the engineering lead, the delivery lead, the non-developer reviewer,
-the senior reviewer, the QA lead, and the live the reference change run. Nine of
+the senior reviewer, the QA lead, and the live reference-change run. Nine of
 the fourteen are owned by BrotherSBE, two by BrotherMode, two by both, one
 by the adopter team itself.
 
@@ -275,7 +275,7 @@ both products. Closes the largest gap in the chain, IS the architecture
 sync, and hands the tester the list of what nobody checked.
 
 **MOVE B, INSTALL.** The documented install registers the plugin and writes
-its identity stamp, then reaches the analyst lead and the engineering lead on Bitbucket. This is the
+its identity stamp, then reaches the two testers on Bitbucket. This is the
 number the founder scored 1 of 10.
 
 **MOVE C, CLOSE THE LOOP.** The acceptance record and the post-merge
@@ -309,7 +309,7 @@ agent that designed the change.
 | W5 | The three P0 erasure and redaction defects: SBE14, SBE10, SBE9 | evidence-integrity | sonnet each in a worktree, strongest verifies adversarially | each documented reproduction fails to reproduce, quoted |
 | W6 | Break the tier word collision: BrotherMode effort becomes E1, E2, E3 | provenance | haiku sweeps, strongest reviews | no bare "Tier T" survives in a rendered STATE.md; both products' docs disambiguated |
 | W7 | O23 reframed: the assurance product asks the store instead of parsing the generated view | provenance | strongest designs, sonnet builds | `sbe fences` here prints zero unparseable lines, or an honest NO-DATA naming the store API |
-| W8 | Tester pack to the analyst lead and the engineering lead with the Bitbucket path | verified-reality | founder-gated | an install transcript on disk from a machine that is not this one |
+| W8 | Tester pack to the two testers with the Bitbucket path | verified-reality | founder-gated | an install transcript on disk from a machine that is not this one |
 
 ### Week two, Monday 2026-08-24 to Sunday 2026-08-30
 

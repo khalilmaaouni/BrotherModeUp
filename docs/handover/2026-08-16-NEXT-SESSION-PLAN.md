@@ -53,7 +53,7 @@ kill it before the wall clock says 25 minutes.
       commit into the installed tree and teaching doctor to compare.
       Until this lands, a green gate proves the repository, not the code
       that actually runs the hooks.
-- [ ] A6. Only then, the cold install with the analyst lead and the engineering lead, using
+- [ ] A6. Only then, the cold install with the two testers, using
       docs/team/TESTER-PACK.md, which was adversarially reviewed and
       corrected this session. File their transcripts under
       docs/evidence/tester-pack/.
@@ -83,7 +83,7 @@ priority order, one at a time, after checklist A.
 
 Released v3.3.0. Bitbucket support written with executed proof. The
 competitor comparison and the finalization roadmap. The weekend
-emergency plan. The the adopter team review adapted into BrotherMode scope. Five
+emergency plan. The adopter review adapted into BrotherMode scope. Five
 Toolkit items (TK1 to TK4 plus TK10 and TK11). The idle control on
 session start. The tester pack hardened. The two-host law and the
 narrowed target in PRODUCT-DIRECTION.md. The delivery artifact mapping
