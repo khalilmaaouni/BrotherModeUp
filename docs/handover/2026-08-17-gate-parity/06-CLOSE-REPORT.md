@@ -54,7 +54,8 @@ WHAT IS GREEN AND PROVEN, quoted:
   Abort guard: exit 143 stops before the receipt; exit 1 still writes one.
 
 NOT DONE, and nothing above covers it:
-  NOTHING IS PUSHED. BrotherSBE is 16 commits ahead, BrotherModeUp 11. Both
+  NOTHING IS PUSHED. BrotherSBE is 16 commits ahead, the BrotherMode
+    repository 11. Both
     trees are clean.
   NEITHER BATTERY HAS RUN END TO END UNDER THE NEW WRAPPERS (sandbox, floor
     shim, signing, load guard). Each wrapper was proven in isolation and they

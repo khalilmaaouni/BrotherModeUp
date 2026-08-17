@@ -9,7 +9,7 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-1. PUSH. Both repositories have unpushed commits and BrotherModeUp's main is now
+1. PUSH. Both repositories have unpushed commits, and the BrotherMode repository's main is now
    protected, which creates a real ordering problem: GitHub cannot accept a
    status for a commit it has never seen, and protection refuses a push without
    that status. The route is push to a side branch first so the object exists,
