@@ -112,7 +112,7 @@ and remote, scripts/release-smoke-install.sh PASS.
 1. Bitbucket workspace and mirror: the founder creates it now. The moment
    it exists, Phase 3's verification loop runs and the UNVERIFIED labels
    on docs/BITBUCKET.md close with quoted output.
-2. Testers: the analyst lead and the engineering lead, from the founder's own team. The tester pack
+2. Testers: two named engineers from the founder's own team. The tester pack
    and install card are ready to hand them as they stand.
 3. The cut: v3.3.0, cut 2026-08-15, the same day, per the standing Friday
    decision on the board. Phases 1 and 2 may run as the two parallel lanes
@@ -130,7 +130,7 @@ second, and Bitbucket certification (blocked on the mirror account step)
 third. An Opus review verified the repository did not yet encode this
 order and this section is the fix.
 
-## What decides success, imported 2026-08-15 from the the adopter team review
+## What decides success, imported 2026-08-15 from the adopter review
 
 This roadmap is judged by the three numbers in
 docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md section BM-A2 (external

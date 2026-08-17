@@ -256,7 +256,7 @@ a person, then gave the north-star chain (human intent to verified reality)
 and asked for it to govern everything.
 
 WHAT LANDED, all on main and pushed:
-- docs/plan/the adopter team-TEAM-PROBLEMS-AND-SOLUTIONS-2026-08-15.md: fourteen problems,
+- docs/plan/ADOPTER-TEAM-PROBLEMS-AND-SOLUTIONS-2026-08-15.md: fourteen problems,
   each with status checked against code, cause, up to three solutions naming
   files and done-checks, plus nine holes nobody had raised (H1 to H9) and the
   judgement on an outside architecture proposal.

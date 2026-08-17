@@ -32,7 +32,7 @@ docs/plan/INTEGRITY-SYSTEM-INTAKE-2026-08-15.md (both vision docs, the
 fold plan), docs/plan/WEEKEND-EMERGENCY-PLAN-2026-08-15.md. Queue depth
 17, top items: O21 (name the claiming command in FIRST-DAY), TK6
 (attended pipeline), TK7, TK8, the vision fold with founder windows, the
-Bitbucket mirror moment, the analyst lead and the engineering lead's pack (now adversarially
+Bitbucket mirror moment, the two testers' pack (now adversarially
 hardened, BrotherSBE pin moved to v3.2.0). The founder's model order:
 launch the fresh session on Opus if Fable credits are out.
 
@@ -109,7 +109,7 @@ and pushed at 322d98b with the gate ALL GREEN at 3159 tests, exit 0:
 
 - The weekend emergency plan (docs/plan/WEEKEND-EMERGENCY-PLAN-2026-08-15.md):
   five cases, each with exact commands anyone can run.
-- The the adopter team review adapted to BrotherMode scope
+- The adopter review adapted to BrotherMode scope
   (docs/plan/ADOPTER-REVIEW-ADAPTATION-2026-08-15.md): boundary law PROPOSED
   for SKILL.md, success pinned to three numbers with the install baseline
   stated as ZERO, no new gates.
@@ -117,6 +117,6 @@ and pushed at 322d98b with the gate ALL GREEN at 3159 tests, exit 0:
   decision under the founder's priority.
 
 Remaining is founder-owned or next-session work: the Bitbucket workspace
-(he is creating it), handing the tester pack to the analyst lead and the engineering lead, TK4 then
+(he is creating it), handing the tester pack to the two testers, TK4 then
 TK6 from the queue top.
 <!-- bm-human:end -->

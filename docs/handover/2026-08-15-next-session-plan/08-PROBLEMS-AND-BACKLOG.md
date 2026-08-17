@@ -83,7 +83,7 @@ The product's own discipline found these, which is the argument for the
 discipline. But four of them are wrong today, two of those touch
 erasure and redaction, and none of the eighteen was caught by 3174
 passing tests. That is the gap between a green gate and a true one, and
-it is the same gap the the adopter team review named from the outside.
+it is the same gap the adopter review named from the outside.
 
 Recommended order: the two erasure defects and the redaction switch
 first, because they are correctness and privacy rather than structure;

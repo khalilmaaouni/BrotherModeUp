@@ -62,7 +62,7 @@ prompt). Kill by PID after printing the target.
   target was constrained to GitHub or Bitbucket): every development,
   past and forward, works on GitHub AND Bitbucket Cloud by default.
   GitHub is the main target and canonical home; Bitbucket carries the
-  the adopter team team. Concretely: the engine speaks plain git only (never gh,
+  adopter team. Concretely: the engine speaks plain git only (never gh,
   never a host API, in tools/ or hooks/); every host-facing feature
   ships both legs or labels the missing leg UNVERIFIED by name
   (docs/BITBUCKET.md is the pattern); CI parity is
