@@ -469,8 +469,11 @@ def acquire_gate_lock(timeout=None, owner="test_all", quiet=False,
     ancestor process already holds it (test_all running a suite as a child), in
     which case there is nothing to take and nothing to release. `tools_dir`
     keys the lock to another checkout, which only tests use: the runner
-    always locks its own."""
-    path = lock_path(tools_dir)
+    always locks its own. The default path calls lock_path with NO argument
+    rather than passing None through, because the P9 suite patches
+    lock_path with a zero-argument stand-in to redirect the lock into a
+    private directory, and that seam is part of the function's contract."""
+    path = lock_path() if tools_dir is None else lock_path(tools_dir)
     inherited = os.environ.get(LOCK_ENV)
     if inherited:
         if inherited == path and os.path.exists(path):

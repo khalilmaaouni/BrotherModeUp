@@ -1227,7 +1227,17 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # remote, no network, and every program either starts
                    # is a file in this repository's own tools directory.
                    "bm_sessionstart.py": {"subprocess"},
-                   "bm_hookchain.py": {"subprocess"}}
+                   "bm_hookchain.py": {"subprocess"},
+                   # bm_fence_hook.py (the battery fence, 2026-08-17) asks
+                   # git two local questions while a gate lock is live: `git
+                   # ls-files --error-unmatch` for whether a target is
+                   # tracked, and nothing else. Local read, no remote, no
+                   # push; the same reasoning as bm_passport above: git's
+                   # own index is the answer to trackedness, and a private
+                   # reimplementation of the index format to dodge an
+                   # import would be the worse trade. SECURITY.md documents
+                   # this beside the other five.
+                   "bm_fence_hook.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
