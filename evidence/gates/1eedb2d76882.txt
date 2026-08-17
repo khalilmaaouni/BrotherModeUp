@@ -1,0 +1,16 @@
+sha:        1eedb2d768823aea9b23bc3d510708d04886b6c7
+result:     failure
+summary:    test_all: 3278 tests across 37 suites, 5 skipped, 984.6s wall. 1 SUITE(S) FAILED
+exit:       1
+all_green:  0
+duration_s: 984
+host:       Darwin arm64
+python:     Python 3.13.14
+floor_leg:  not run (3.13 leg only)
+sandbox:    scripts/gates.sb (no network, no ssh keys, no gh config, no keychain, no vault)
+env_file:   scripts/gates.env sha256=e1b438a0fb974380cb04620860b2585d645ef8f63147c192c5794243d854c419
+env_declared: 2 variable(s) from that file
+env_inherited: PATH HOME TMPDIR LANG
+env_stripped: ~52 ambient variable(s) removed before the battery ran
+ran_by:     local gate runner, scripts/local-gates.sh
+ran_at:     2026-08-17T07:41:27Z
