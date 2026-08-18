@@ -1941,3 +1941,31 @@ archive metadata or images, and that is the actual gap.
 CHEAPEST MITIGATION if a tar is ever added to a delivery path: pass
 `--group=staff --owner=$(id -un)` (GNU tar) or pipe through a normalising step,
 so the archive records a neutral group rather than the domain one.
+
+## A hand-built probe of the fence hook is not the fence hook (measured 2026-08-19)
+
+Three times in one night a session asked a control a question by re-deriving
+its answer instead of letting the control answer, and twice it was wrong.
+
+The sharpest instance, because it failed in the dangerous direction. A session
+built a JSON payload by hand, piped it to the fence hook, read exit 0, and
+concluded six files were free to edit. The real PreToolUse hook then refused
+one of them by name, quoting a live fence line the probe had reported as
+allowed. A synthetic probe is a SECOND IMPLEMENTATION of the question, and it
+disagreed with the first silently.
+
+Two narrower mistakes the same night, both caught: reading the word "fence"
+out of the hook's own warning text and treating it as a refusal, when the
+warning says the opposite (it could NOT enforce), and grepping STATE.md for
+fence lines rather than asking the hook, which would have reported roughly
+twenty live claims where the hook enforces almost none.
+
+THE RULE THIS EARNS: the only authoritative answer to "may I write this file"
+is attempting the write and letting the hook refuse. There is no supported
+query verb today (`fences` is not a command this hook has), and until there is
+one, treat any probe as a guess. Filed as M11.
+
+WORTH KNOWING BESIDE IT: the hook does not gate Bash. A session working
+through shell redirection crosses every fence unrefused and finds out only
+afterwards, which is why editing shared code through the dedicated edit tool
+is the safer habit even when a shell would be quicker.
