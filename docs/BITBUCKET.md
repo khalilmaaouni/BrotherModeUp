@@ -52,7 +52,7 @@ Two honest caveats, both from the same documentation page:
 
 - Ref pinning. The docs state git-based marketplace sources support a
   branch or tag ref, but the exact `@ref` command syntax is only shown in
-  examples for GitHub shorthand. Whether `<url>@v3.3.0` parses is
+  examples for GitHub shorthand. Whether `<url>@v3.3.1` parses is
   UNVERIFIED until somebody runs it.
 - Private mirrors. Background marketplace auto-updates disable credential
   helpers for https, so a private Bitbucket mirror may fail to auto-update.
@@ -62,7 +62,7 @@ The tagged git clone install, the most proven path on GitHub, translates
 directly:
 
 ```bash
-git clone --branch v3.3.0 --depth 1 https://bitbucket.org/<workspace>/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.1 --depth 1 https://bitbucket.org/<workspace>/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 UNVERIFIED end to end: no public Bitbucket mirror of this repository exists

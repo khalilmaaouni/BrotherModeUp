@@ -1,6 +1,6 @@
 {
   "name": "brothermode",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "description": "Turn an idea into a verified result with a guided start, honest forecasts, clear status, and a checked delivery. Verified on Claude Code; the plugin install is proven end to end by scripts/release-smoke-install.sh, and the tagged git clone remains the immutable option for auditors.",
   "author": {
     "name": "Khalil Maaouni"

@@ -39,7 +39,7 @@ plugins to Claude Code, and having both wires two hook chains at once.
 **BrotherMode:**
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.0
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
 ```
 
 ```bash
@@ -56,7 +56,7 @@ claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.2.0
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.3.0` and `@v3.2.0` matter. They pin each install to a released tag
+The `@v3.3.1` and `@v3.2.0` matter. They pin each install to a released tag
 instead of whatever happens to be on the default branch today. Two testers on
 different commits cannot tell a bug from a version difference, and that has
 cost this project real time before.

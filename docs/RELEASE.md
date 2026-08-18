@@ -166,10 +166,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v3.3.0 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v3.3.0` checks out that exact tag, not a moving branch head. It
+`--branch v3.3.1` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -556,6 +556,36 @@ Until this loop, that placement was recorded only as a code comment inside
 this document's fence, so its own comment still needs to change to point here
 rather than re-deriving the reasoning; that edit belongs to whoever owns that
 file next.
+
+## 3.3.1, the corrective release (2026-08-18)
+
+The current version is `3.3.1`, and it exists for one reason: `v3.3.0` shipped
+a `CHECKSUMS.sha256` that names a file the tag does not contain
+(`docs/program/absolute-lead/evidence/BENCH/20260807T140548Z-v2/H7/B/transcript.txt`).
+`scripts/verify-install.sh` is the one command this page tells a user to run
+to answer "is my copy the copy you published", and against a correct install
+of v3.3.0 it reports a failure. The engine was never wrong; the manifest was
+generated against a tree that still held that path, which is the ordering
+defect step 3 above exists to prevent.
+
+Two things about how it was found are worth keeping, because both are about
+checks that stay quiet:
+
+- The release-truth suite SKIPS its tag checks when the documented tag is
+  absent, and a shallow clone has no tags, so every session working in one saw
+  green. It was found on 2026-08-18 by a full battery run in a checkout that
+  had the tags fetched.
+- `git fetch --tags` does NOT repair a stale local tag; it refuses with "would
+  clobber existing tag". `git fetch --tags --force` does. A local `v3.3.0`
+  pointing at a different commit than origin's is therefore easy to carry for
+  days without noticing.
+
+One check in that suite CANNOT be green between the release-cut commit and the
+tag: the assertion that `install_target_tag` resolves in git. Step 2b re-pins
+the install pages to the tag this release is about to become, and step 5 is
+founder-gated, so the pinned tag does not exist yet at the moment the commit
+lands. That is the runbook's own ordering, not a defect, and it re-arms the
+moment the founder cuts the tag.
 
 ## The version law (release-closure program, 2026-08-01)
 

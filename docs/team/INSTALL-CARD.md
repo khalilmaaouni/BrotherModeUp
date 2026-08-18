@@ -40,7 +40,7 @@ newer using only the standard library, and git. Nothing to pip install.
 **BrotherMode**, two plain shell commands, pasted into any terminal once:
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.0
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
 ```
 
 ```bash
@@ -57,7 +57,7 @@ claude plugin marketplace add khalilmaaouni/BrotherSBE@v3.2.0
 claude plugin install brothersbe@brothersbe
 ```
 
-The `@v3.3.0` and `@v3.2.0` pin each marketplace to a released tag rather than
+The `@v3.3.1` and `@v3.2.0` pin each marketplace to a released tag rather than
 a moving branch, so everybody gets the same thing. BrotherSBE's own README
 still documents the unpinned form; pin it here anyway, because a pilot in
 which two people are on different commits of the same tool cannot tell a bug

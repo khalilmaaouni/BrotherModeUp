@@ -1,6 +1,49 @@
 # Changelog
 
-## Unreleased
+## 3.3.1, released 2026-08-18 (annotated tag v3.3.1, on the commit that alone carries VERSION 3.3.1 per rule 1)
+
+A corrective release. `v3.3.0` shipped a `CHECKSUMS.sha256` that lists a file
+the tag does not contain
+(`docs/program/absolute-lead/evidence/BENCH/20260807T140548Z-v2/H7/B/transcript.txt`),
+so `scripts/verify-install.sh`, the one command this project offers a user for
+answering "is my copy the copy you published", reported a failure on a
+correct install of v3.3.0. Nothing in the engine was wrong; the manifest was
+generated against a tree that still held that path. This release exists to
+give the integrity check a manifest it can pass, and the defect is the reason
+the version moved at all.
+
+The failure was invisible to earlier sessions because the release-truth test
+SKIPS when the documented tag is absent, and a shallow clone has no tags. It
+was found on 2026-08-18 when the full battery ran on a checkout that had them.
+
+- **The manifest describes the tree it ships with.** Regenerated last, after
+  every tracked-file change in this release, which is the ordering
+  `scripts/doctor.py` check 9 exists to hold. `scripts/verify-install.sh`
+  reports 1080 files matching, 0 mismatched, 0 missing at the release commit.
+- **Cursor compatibility mode** arrives as a shipped feature (detail below).
+  It was carried on a branch since 2026-08-10 and had never reached a
+  release.
+- **The battery fence and the gate lock.** `tools/bm_fence_hook.py` gains a
+  test-gate lock that refuses edits while a battery is running, which closes
+  the class of false signal this project has recorded before: a suite
+  measured against a tree the session was still editing. Its no-network
+  posture is declared per file and per module in `SECURITY.md`, which now
+  counts eight subprocess-using tools rather than seven.
+- **The published surface carries no operator identity.** Absolute home
+  paths and a named vault are out of every tracked file outside dated
+  `docs/` material, `BROTHERMODE_VAULT` replaces the hard-coded path, and
+  `tools/test_bm_docs.py` gains two rules that fail a page reintroducing
+  either. Dated evidence under `docs/` is deliberately untouched, because
+  rewriting verbatim command output falsifies it and the same bytes remain
+  in git history regardless.
+- **The Cursor lifecycle is declared in the effect registry.**
+  `tools/bm_effects.py` carries all fourteen verbs, with `cancel` and
+  `worktree-remove` classed `destructive_external_action` because both reach
+  `git worktree remove --force`, which discards uncommitted work.
+- Still unproven, and still stated: nobody outside this machine has run the
+  two-command install, the Cursor fence is ADVISORY rather than refusing
+  until a live canary is recorded, and `docs/KNOWN-LIMITS.md` continues to
+  carry the open items this entry does not re-argue.
 
 ### Cursor compatibility mode (2026-08-10)
 
