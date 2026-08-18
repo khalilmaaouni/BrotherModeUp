@@ -1199,7 +1199,35 @@ class TestProjectSecurityClaims(unittest.TestCase):
                    # reimplementing that parser to dodge an import would
                    # be a worse trade than one named exception.
                    # SECURITY.md documents this beside the other four.
-                   "bm_passport.py": {"subprocess"}}
+                   "bm_passport.py": {"subprocess"},
+                   # bm_bbstatus.py (2026-08-17, the two-host law) is the
+                   # ONLY entry in this table that names urllib, and it is
+                   # written out rather than folded in with the subprocess
+                   # ones. It is the reporting arm of
+                   # scripts/local-gates.sh: after a battery finishes, it
+                   # POSTs one build status to Bitbucket Cloud, which is a
+                   # network WRITE and the only one in this project. It is
+                   # never wired into a hook, never runs on its own, and is
+                   # reached exactly once per deliberate `local-gates.sh`
+                   # invocation on a checkout whose origin is Bitbucket.
+                   # The exemption is per FILE and per MODULE NAME like
+                   # every other, so no second file inherits it, and
+                   # SECURITY.md carries the same sentence rather than
+                   # leaving this table the only place it is admitted.
+                   "bm_bbstatus.py": {"urllib"},
+                   # bm_sessionstart.py and bm_hookchain.py (2026-08-17,
+                   # the Windows hook port) drive SIBLING TOOLS as local
+                   # processes, which is what the `sh` wrapper they
+                   # replaced did. Both were POSIX shell until this change
+                   # and therefore invisible to this Python-only check
+                   # while they held exactly the same power; the port
+                   # brings them INSIDE the audited set rather than
+                   # leaving them outside it. Local execution only, the
+                   # same posture as bm_autosave.py driving git: no
+                   # remote, no network, and every program either starts
+                   # is a file in this repository's own tools directory.
+                   "bm_sessionstart.py": {"subprocess"},
+                   "bm_hookchain.py": {"subprocess"}}
         for n in sorted(os.listdir(tools)):
             if not n.endswith(".py") or n.startswith("test_"):
                 continue
@@ -5857,11 +5885,12 @@ class TestP17PackagingManifestMatchesTheRepository(unittest.TestCase):
     #: by the packaging. A new unclassified file fails this suite, which is
     #: the whole point: the decision gets made by a person, once, on purpose.
     REPO_ONLY_ASSETS = {
-        "bm_sessionstart.sh": (
-            "the SessionStart hook script. Documented in docs/SETUP.md as a "
-            "path inside a skill checkout, and it resolves its siblings by "
-            "its own location, so it is meaningless in site-packages. A "
-            "package install wires no hooks by design (docs/PACKAGING.md)."),
+        # bm_sessionstart.sh's entry is GONE from this table, and its
+        # absence is the 2026-08-17 Windows port rather than an oversight:
+        # the file is bm_sessionstart.py now, so py-modules can see it and
+        # the two tests above govern it like every other module. It was
+        # only ever classified here because a .sh file is invisible to
+        # py-modules, which can name modules and nothing else.
         "write_sites.json": (
             "the reviewed inventory of write sites. A review artifact for "
             "this suite (test_no_unreviewed_write_sites), read by no "

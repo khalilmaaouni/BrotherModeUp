@@ -112,7 +112,7 @@ what it names and run it again rather than working around it.
 
 NOT ENFORCED, stated plainly: the opening half is discipline. Nothing refuses a
 session that skips detect, because wiring it needs hooks/hooks.json and
-tools/bm_sessionstart.sh, which are under another lane's claims. The closing
+tools/bm_sessionstart.py, which are under another lane's claims. The closing
 half is enforced by verify-close only when somebody runs it.
 
 ## Key commands (from PROJECT.md)

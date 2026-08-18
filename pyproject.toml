@@ -135,6 +135,16 @@ py-modules = [
     "bm_forecast",
     "bm_idle",
     "bm_toolkit",
+    # 2026-08-17, the two-host law and the Windows hook port. All three
+    # arrived because the packaging gate REFUSED them, which is the whole
+    # reason that list is checked rather than trusted: bm_bbstatus is the
+    # gate runner's reporting arm, and bm_sessionstart and bm_hookchain are
+    # the two hook entry points that used to be POSIX shell and are now
+    # Python, so for the first time they are modules a packaged install can
+    # even carry.
+    "bm_bbstatus",
+    "bm_sessionstart",
+    "bm_hookchain",
 ]
 # brotherme/core/schema.py is library code tools/bm_store.py loads by path
 # (see _schema() there); without this the wheel/sdist never contain it and

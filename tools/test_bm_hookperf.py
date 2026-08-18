@@ -106,10 +106,19 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 HOOKS_JSON = os.path.join(ROOT, "hooks", "hooks.json")
-SESSIONSTART_SH = os.path.join(HERE, "bm_sessionstart.sh")
+SESSIONSTART = os.path.join(HERE, "bm_sessionstart.py")
 CONSENT_TEST = os.path.join(HERE, "test_bm_consent.py")
 HOOKBENCH_TEST = os.path.join(HERE, "test_bm_hookbench.py")
 INSTALL_PY = os.path.join(ROOT, "scripts", "install.py")
+
+# The chain table, imported rather than retyped, for the same reason
+# tools/bm_hookbench.py imports it: after the Windows port the Stop and
+# PreCompact commands name a driver, and the process arithmetic below has to
+# know how many programs that driver runs.
+_hcspec = importlib.util.spec_from_file_location(
+    "bm_hookchain_for_perf", os.path.join(HERE, "bm_hookchain.py"))
+hookchain = importlib.util.module_from_spec(_hcspec)
+_hcspec.loader.exec_module(hookchain)
 
 # bm_hookbench.py, imported rather than re-implemented: its Sandbox,
 # payload_for, groups_for, read_hook_chains, parse_command, summarize,
@@ -207,13 +216,33 @@ ACTIONS = (
 _SH_C_RE = re.compile(r"^sh -c '(.*)'$", re.DOTALL)
 
 
+_CHAIN_RE = re.compile(r"bm_hookchain\.py[\"']?\s+([a-z][a-z0-9-]*)")
+
+
 def count_real_processes(raw_command):
     """How many real OS processes ONE hooks.json command string spawns:
-    one for a bare command, or one for the outer `sh -c` plus one per
-    statement inside it (one more for each `|` a statement contains, since
-    every stage of a POSIX pipeline forks even when the left side is a
-    shell builtin like printf attaching to the pipe)."""
+    one for a bare command; one for the chain driver PLUS one per program in
+    the chain it names; or one for the outer `sh -c` plus one per statement
+    inside it (one more for each `|` a statement contains, since every stage
+    of a POSIX pipeline forks even when the left side is a shell builtin like
+    printf attaching to the pipe).
+
+    The chain-driver arm arrived with the 2026-08-17 Windows port and is the
+    reason the Stop count dropped from ten to five: the same four programs
+    now cost one driver plus four children instead of a shell, a cat, and
+    four two-stage pipes. The `sh -c` arm is KEPT rather than deleted with
+    its last caller, so that a hook which reaches for a shell again is
+    counted honestly rather than reported as one process."""
     stripped = raw_command.strip()
+    chain = _CHAIN_RE.search(stripped)
+    if chain and not stripped.startswith("sh -c"):
+        rows = hookchain.CHAINS.get(chain.group(1))
+        if rows is None:
+            raise PerfError(
+                "hooks/hooks.json names chain %r, which "
+                "tools/bm_hookchain.py does not define; it dies at every "
+                "firing" % chain.group(1))
+        return 1 + len(rows)
     match = _SH_C_RE.match(stripped)
     if not match:
         return 1
@@ -569,8 +598,14 @@ def detect_blockers():
     consent_mod = _load_module("bm_test_consent_for_hookperf", CONSENT_TEST)
     case = consent_mod.TelemetryEveryHookProgramPreConsentCase
     live_command_strings = len(chains)
-    live_programs = sum(
-        len(case._PROGRAM_RE.findall(g["raw_command"])) for g in chains)
+    # Counted THROUGH the chain driver, using the consent suite's own
+    # counter rather than a second copy of the rule: after the 2026-08-17
+    # Windows port the Stop and PreCompact commands name one driver each,
+    # and a naive count would report 8 programs where 12 run, which would
+    # make this blocker's headroom look like it had opened up when nothing
+    # about the invariant changed.
+    live_programs = case.count_wired_programs(
+        [(g["event"], g["raw_command"]) for g in chains])
     blockers.append({
         "owner_files": ["tools/test_bm_consent.py"],
         "invariant": ("MIN_WIRED_COMMAND_STRINGS=%d, MIN_WIRED_PROGRAMS=%d, "
@@ -648,22 +683,40 @@ class TestManifestFanoutStatic(unittest.TestCase):
                 [p["program"] for p in mine["programs"]],
                 [p["program"] for p in theirs["programs"]])
 
-    def test_the_stop_chain_is_counted_as_ten_real_processes(self):
-        """One outer sh, one cat, and four printf-into-python3 pipe stages
-        (two processes each): 1 + 1 + 4*2 = 10. Pinned so a change to the
-        Stop wiring's SHAPE (not just its programs) is caught here, where
-        the arithmetic is spelled out, rather than silently changing what
+    def test_the_stop_chain_is_counted_as_five_real_processes(self):
+        """One chain driver plus the four programs it runs: 1 + 4 = 5.
+
+        RE-PINNED 2026-08-17, from 10, and the old number is worth keeping
+        in this docstring because the drop IS the port's result rather than
+        a relaxed assertion. The Stop entry used to be `sh -c` wrapping a
+        script: one outer sh, one cat, and four printf-into-python3 pipe
+        stages at two processes each, 1 + 1 + 4*2 = 10. It is now one
+        python3 driver that reads stdin once and runs four children, so the
+        same four programs cost half the processes. The pin exists so a
+        change to the Stop wiring's SHAPE is caught here, where the
+        arithmetic is spelled out, rather than silently changing what
         docs/evidence/v3/hook-performance.md's fan-out table claims."""
         stop = [g for g in read_hook_chains_raw() if g["event"] == "Stop"]
         self.assertEqual(len(stop), 1)
-        self.assertEqual(count_real_processes(stop[0]["raw_command"]), 10)
+        self.assertEqual(count_real_processes(stop[0]["raw_command"]), 5)
 
-    def test_the_precompact_chain_is_counted_as_six_real_processes(self):
-        """One outer sh, one cat, two printf-into-python3 pipe stages:
-        1 + 1 + 2*2 = 6."""
+    def test_the_precompact_chain_is_counted_as_three_real_processes(self):
+        """One chain driver plus the two programs it runs: 1 + 2 = 3, down
+        from 6 for the same reason the Stop count above dropped from 10."""
         pc = [g for g in read_hook_chains_raw() if g["event"] == "PreCompact"]
         self.assertEqual(len(pc), 1)
-        self.assertEqual(count_real_processes(pc[0]["raw_command"]), 6)
+        self.assertEqual(count_real_processes(pc[0]["raw_command"]), 3)
+
+    def test_a_shell_wrapped_chain_would_still_be_counted_the_old_way(self):
+        """The sh -c arithmetic is KEPT rather than deleted with the last
+        caller, and this test is why it can be: if a future hook reaches for
+        a shell again, this file still counts its real process fan-out
+        correctly instead of reporting one. tools/test_bm_hooks.py refuses
+        such a hook outright; this makes sure the measurement would not lie
+        about it in the meantime."""
+        legacy = ("sh -c 'p=$(cat); printf %s \"$p\" | python3 a.py; "
+                  "printf %s \"$p\" | python3 b.py'")
+        self.assertEqual(count_real_processes(legacy), 6)
 
     def test_every_bare_command_counts_as_one_process(self):
         bare_events = ("SessionStart", "SessionEnd", "PostToolUse")
