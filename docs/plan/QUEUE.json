@@ -1077,7 +1077,7 @@
   },
   {
    "id": "M1",
-   "title": "BrotherMode's own hooks and agents load NOWHERE on the install shape people use: it is a directory copy under ~/.claude/skills carrying a hooks.json declaring six events and a plugin manifest, and nothing reads either, because a skill copy is not a plugin install. Measured: absent from 68 registered plugins, bm_fence_hook appears zero times in every settings file, and the fence refusal observed this session came from the SIBLING's registered hook, not ours",
+   "title": "BrotherMode's hooks do not load on THIS MACHINE because it carries a skill-directory copy rather than a plugin install; the packaging is correct and identical to the sibling's, which fires. Fix is the documented marketplace install, and the clone must be removed first or every hook fires twice",
    "state": "queued",
    "stage": "method",
    "clock": "agent",
@@ -1086,7 +1086,7 @@
     "scripts/install.py",
     "docs/KNOWN-LIMITS.md"
    ],
-   "done_check": "either the product is registered so its own hooks.json events fire, proven by observing one of its own hooks run, or docs/KNOWN-LIMITS.md states by name which declared hooks and agents do not load on a skill-copy install and which mechanisms still do"
+   "done_check": "after removing the clone install and running the two documented commands, one of this product's OWN hooks is observed firing (for example its fence hook refusing a write across a live claim by name), or the limits page states the shape difference, which it now does"
   },
   {
    "id": "M2",
@@ -1199,7 +1199,7 @@
   },
   {
    "id": "M11",
-   "state": "queued",
+   "state": "done",
    "stage": "provenance",
    "clock": "agent",
    "forecast_minutes": 30,
