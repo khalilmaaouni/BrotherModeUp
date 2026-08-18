@@ -154,11 +154,33 @@ class TestTheManifestIsRead(unittest.TestCase):
         self.assertIn("bm_ghost.py", str(caught.exception))
 
     def test_a_shell_program_is_named_and_marked_unrunnable(self):
+        """No hook is wired this way any more (tools/test_bm_hooks.py
+        refuses one), and the parser keeps handling the shape anyway: a
+        shell script it could not name at all would be a chain reported
+        shorter than the one the runtime runs."""
         programs = hb.parse_command(
-            'sh "${CLAUDE_PLUGIN_ROOT}/tools/bm_sessionstart.sh"')
+            'sh "${CLAUDE_PLUGIN_ROOT}/tools/bm_legacy_shell.sh"')
         self.assertEqual(len(programs), 1)
         self.assertFalse(programs[0]["runnable"])
         self.assertTrue(programs[0]["reason"].strip())
+
+    def test_the_chain_driver_is_expanded_into_the_programs_it_runs(self):
+        """The port's load-bearing parser change. A command naming the
+        driver must report the driver's PROGRAMS, or every total on
+        docs/PERFORMANCE.md silently becomes the cost of one process where
+        four run, which is the exact understatement this file exists to
+        prevent."""
+        programs = hb.parse_command(
+            'python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookchain.py" stop')
+        self.assertEqual([p["program"] for p in programs],
+                         [module for module, _args in hb.CHAINS["stop"]])
+        self.assertTrue(all(p["runnable"] for p in programs))
+
+    def test_an_undefined_chain_name_is_refused_rather_than_measured(self):
+        with self.assertRaises(hb.BenchError) as caught:
+            hb.parse_command(
+                'python3 "${CLAUDE_PLUGIN_ROOT}/tools/bm_hookchain.py" ghost')
+        self.assertIn("ghost", str(caught.exception))
 
     def test_the_matcher_is_a_regex_and_not_a_substring(self):
         """docs/HOOKS.md records that this project was already bitten once by
@@ -492,9 +514,15 @@ class TestARealMeasurement(unittest.TestCase):
             self.assertNotIn(node, blob)
         self.assertNotIn(os.path.expanduser("~"), blob)
 
-    def test_the_shell_hook_is_reported_as_not_run_rather_than_omitted(self):
+    def test_the_unmeasurable_hook_is_reported_rather_than_omitted(self):
+        """RENAMED and re-pointed 2026-08-17: the session-start hook is a
+        Python program now, not a shell script, and it is STILL not
+        measurable here, because it drives its sibling tools as real
+        processes and this tool spawns none. What must never change is that
+        an unmeasurable hook appears on the page as unmeasured WITH ITS
+        REASON, rather than quietly missing from a page of totals."""
         names = [entry["program"] for entry in self.record["unrunnable"]]
-        self.assertIn("bm_sessionstart.sh", names)
+        self.assertIn("bm_sessionstart.py", names)
         for entry in self.record["unrunnable"]:
             self.assertTrue(entry["reason"].strip())
 

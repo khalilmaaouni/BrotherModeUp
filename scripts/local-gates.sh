@@ -312,15 +312,58 @@ else
   echo "receipt: evidence/gates/${SHA:0:12}.txt (UNSIGNED: no key at $GATES_KEY)"
 fi
 
+# --- report the verdict to whichever host this checkout pushes to -----------
+# TWO-HOST LAW (founder order 2026-08-16, amended the same day). Until this
+# block existed the posting arm was `gh api` against a hardcoded GitHub
+# repository, so an adopter whose origin lives on Bitbucket Cloud got a
+# reporting refusal on top of a battery that had just passed. The ENGINE still
+# speaks plain git and nothing else, in tools/ and hooks/; this is the RUNNER,
+# and reporting a verdict is the runner's own work, not the code under test's.
+#
+# Routing is on the ORIGIN REMOTE rather than on a flag somebody has to
+# remember: the host is a fact about the checkout, and a flag would be one
+# more thing to get wrong on the machine where it matters most.
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+HOST_KIND="$(python3 tools/bm_bbstatus.py classify "$ORIGIN_URL" 2>/dev/null || echo unknown)"
+echo "host:    $HOST_KIND (from the origin remote)"
+
 if [ "$POST" = 0 ]; then
-  echo "(--no-post) nothing sent to GitHub."
+  echo "(--no-post) nothing sent to any host."
   [ "$STATE" = "success" ]
   exit $?
 fi
 
-gh api -X POST "repos/$REPO/statuses/$SHA" \
-  -f state="$STATE" -f context="local-gates" -f description="$DESC" > /dev/null \
-  && echo "posted local-gates=$STATE against $SHA" \
-  || { echo "POST FAILED: the result above still stands, it just was not reported."; exit 2; }
+case "$HOST_KIND" in
+  github)
+    # UNCHANGED, byte for byte, refusal included: sessions on the canonical
+    # checkout already treat a failed POST here as load bearing, and this
+    # change is about the other hosts, not about this one. Note the standing
+    # limit it inherits rather than fixes: $REPO is the canonical repository,
+    # so a GitHub FORK posts its verdict to the canonical repository or fails
+    # trying. Anyone in that position passes --no-post, which docs/BITBUCKET.md
+    # states beside the Bitbucket route.
+    gh api -X POST "repos/$REPO/statuses/$SHA" \
+      -f state="$STATE" -f context="local-gates" -f description="$DESC" > /dev/null \
+      && echo "posted local-gates=$STATE against $SHA" \
+      || { echo "POST FAILED: the result above still stands, it just was not reported."; exit 2; }
+    ;;
+  bitbucket)
+    # A reporting failure NEVER changes the gate's own verdict on this arm,
+    # and the difference from the GitHub arm above is deliberate rather than
+    # sloppy. On GitHub the nonzero return is old habit in this repository and
+    # sessions read it. On Bitbucket there is no such habit to preserve, and
+    # turning a green battery red because a credential was absent would teach
+    # the adopter team to distrust the gate, which is worse than an unreported
+    # pass. The verdict is printed either way, and so is the reason.
+    python3 tools/bm_bbstatus.py post --url "$ORIGIN_URL" --sha "$SHA" \
+      --state "$STATE" --description "$DESC" --context "local-gates" \
+      || echo "the result above still stands, it just was not reported."
+    ;;
+  *)
+    echo "host not recognized from the origin remote, so the verdict was"
+    echo "not posted anywhere. The result above still stands. Pass --no-post"
+    echo "to say so deliberately and silence this line."
+    ;;
+esac
 
 [ "$STATE" = "success" ]
