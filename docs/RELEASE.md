@@ -559,7 +559,7 @@ file next.
 
 ## 3.3.1, the corrective release (2026-08-18)
 
-The current version is `3.3.1`, and it exists for one reason: `v3.3.0` shipped
+Version `3.3.1` was cut on 2026-08-18, and it exists for one reason: `v3.3.0` shipped
 a `CHECKSUMS.sha256` that names a file the tag does not contain
 (`docs/program/absolute-lead/evidence/BENCH/20260807T140548Z-v2/H7/B/transcript.txt`).
 `scripts/verify-install.sh` is the one command this page tells a user to run
@@ -586,6 +586,30 @@ the install pages to the tag this release is about to become, and step 5 is
 founder-gated, so the pinned tag does not exist yet at the moment the commit
 lands. That is the runbook's own ordering, not a defect, and it re-arms the
 moment the founder cuts the tag.
+
+## 3.3.2.dev1, the development line opened by the 3.3.1 tag (2026-08-19)
+
+CURRENT STATE, 2026-08-19: `VERSION` reads `3.3.2.dev1`, a DEVELOPMENT
+identity, because `v3.3.1` was tagged and pushed and rule 3 of the version law
+requires the bump before any further commit lands. `release_tag` is `None` and
+`is_development` is True, both read from `tools/bm_project_facts.py` rather
+than from this sentence. No tag named `v3.3.2.dev1` will ever exist.
+
+`install_target_tag` deliberately stays `v3.3.1`, the last tag known to
+resolve, which is rule 5. The install instruction a reader copies is therefore
+unaffected by this bump, and that is the whole point of keeping the two facts
+separate.
+
+This bump also closes a drift worth naming rather than quietly fixing. Rule 3
+has been skipped at every release since `v3.1.0`: `VERSION` went release to
+release (3.1.0, 3.2.0, 3.2.1, 3.3.0, 3.3.1) with no development identity
+between them, so for each of those stretches an immutable tag and a moving
+branch both claimed one version while holding different code. That is the
+two-trees ambiguity that withdrew `v2.0.0-rc.1`. The four release-truth
+assertions that fail the moment `VERSION` moves without its manifests
+(`pyproject.toml`, the two plugin manifests, and this page) are what caught it
+here, and they are the reason the bump is a four-file change rather than a
+one-line one.
 
 ## The version law (release-closure program, 2026-08-01)
 

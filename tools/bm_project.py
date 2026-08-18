@@ -1045,8 +1045,39 @@ def cmd_next(argv):
         _print_json({"candidate_count": len(candidates), "picked": picked})
         return 0
     if picked is None:
+        # M3. The old message was true and was a dead end: a person who had
+        # just created their first task asked what to do next and was told
+        # only that nothing is ready, with no way out named. `next` reading
+        # only 'ready' is CORRECT and is not what changed here, because the
+        # protocol defines that state as "everything the task depends on is
+        # satisfied; it can be picked up". What was missing is that a task is
+        # BORN 'planned', nothing moves it, and nothing said so. Reported,
+        # never auto-advanced: moving somebody's task for them would decide
+        # that its dependencies are satisfied, which is exactly the judgement
+        # this state exists to record.
+        waiting = []
+        store = _read_store()
+        try:
+            for state in BIRTH_STATES[:1] + ("blocked",):
+                waiting.extend(store.list_tasks(project_id, status=state,
+                                                raw=want_raw))
+        finally:
+            store.close()
         _out("no recommended next task: 0 task(s) currently in state "
              "'ready' for project %s" % project_id)
+        if waiting:
+            planned = [t for t in waiting if t.get("status") == "planned"]
+            blocked = [t for t in waiting if t.get("status") == "blocked"]
+            if planned:
+                first = planned[0]
+                _out("BUT %d task(s) are still 'planned', which means nobody "
+                     "has said their dependencies are satisfied yet. To make "
+                     "one pickable:" % len(planned))
+                _out("  task transition --task-id %s --to ready --reason "
+                     "'<why it can start>'" % first.get("task_id"))
+            if blocked:
+                _out("%d task(s) are 'blocked' and need whatever blocked them "
+                     "cleared first." % len(blocked))
         return 0
     _out("next: %s - %s" % (picked.get("task_id"), picked.get("title")))
     _out("WHY: %d candidate(s) in state 'ready' (dependency-satisfied per "

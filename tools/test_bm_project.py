@@ -345,6 +345,66 @@ class TestRefusals(unittest.TestCase):
             self.assertIn("commands:", r.stdout)
 
 
+class TestNextNamesTheWayOut(unittest.TestCase):
+    """M3. `next` reading only 'ready' is correct and is NOT what changed:
+    the protocol defines that state as dependency-satisfied. What was wrong
+    is that a task is born 'planned', nothing moves it, and the dead end
+    named no exit. Reproduced before this existed: create a project, add one
+    task, ask for the next step, and get "0 task(s) currently in state
+    'ready'" with nothing else."""
+
+    def _project_with_one_task(self, root):
+        _init(root)
+        r = _run(["start", "--project-id", "px", "--name", "Probe"]
+                 + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = _run(["task", "add", "--project-id", "px", "--task-id", "t1",
+                  "--title", "do the thing"] + list(ACTOR), root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_the_dead_end_now_names_the_command_that_ends_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._project_with_one_task(root)
+            r = _run(["next", "--project-id", "px"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("0 task(s) currently in state 'ready'", r.stdout)
+            self.assertIn("still 'planned'", r.stdout)
+            self.assertIn("task transition --task-id t1 --to ready", r.stdout)
+
+    def test_following_that_command_makes_next_return_the_task(self):
+        """The half that proves the advice is not merely well worded."""
+        with tempfile.TemporaryDirectory() as root:
+            self._project_with_one_task(root)
+            r = _run(["task", "transition", "--task-id", "t1", "--to",
+                      "ready", "--reason", "nothing blocks it"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["next", "--project-id", "px"], root)
+            self.assertIn("next: t1 - do the thing", r.stdout)
+
+    def test_a_project_with_no_tasks_at_all_says_only_the_plain_line(self):
+        """No task means nothing to advise, so the extra guidance must not
+        appear and invent a task that does not exist."""
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            _run(["start", "--project-id", "px", "--name", "Probe"]
+                 + list(ACTOR), root)
+            r = _run(["next", "--project-id", "px"], root)
+            self.assertIn("0 task(s) currently in state 'ready'", r.stdout)
+            self.assertNotIn("still 'planned'", r.stdout)
+
+    def test_json_output_is_unchanged_by_this(self):
+        """The guidance is display only. --json is an export surface and a
+        consumer parsing it must see exactly what it saw before."""
+        with tempfile.TemporaryDirectory() as root:
+            self._project_with_one_task(root)
+            r = _run(["next", "--project-id", "px", "--json"], root)
+            payload = json.loads(r.stdout)
+            self.assertEqual({"candidate_count", "picked"}, set(payload))
+            self.assertEqual(0, payload["candidate_count"])
+            self.assertIsNone(payload["picked"])
+
+
 class TestScriptedFirstProject(unittest.TestCase):
     """D-4: the gate is executable. This drives every one of the seven
     command surfaces through subprocess against a temp root, and asserts
