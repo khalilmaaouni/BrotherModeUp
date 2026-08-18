@@ -179,16 +179,16 @@ your existing `hooks` block):
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_sessionstart.py", "timeout": 30 } ] }
     ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py outcomes-append", "timeout": 30 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py stop-warn; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_lead.py watchdog --tick; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_view.py render --if-stale; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_view.py alert --tick'", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_hookchain.py stop", "timeout": 30 } ] }
     ],
     "PreCompact": [
-      { "hooks": [ { "type": "command", "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_autosave.py precompact; printf %s \"$p\" | python3 ~/.claude/skills/brothermode/tools/bm_telemetry.py precompact-brief' ", "timeout": 60 } ] }
+      { "hooks": [ { "type": "command", "command": "python3 ~/.claude/skills/brothermode/tools/bm_hookchain.py precompact", "timeout": 60 } ] }
     ],
     "PreToolUse": [
       {
@@ -347,7 +347,7 @@ lines are not all written in the single-line, tier-tagged format the checker
 looks for), reported here rather than hidden.
 
 ```bash
-sh ~/.claude/skills/brothermode/tools/bm_sessionstart.sh
+python3 ~/.claude/skills/brothermode/tools/bm_sessionstart.py
 ```
 
 Expected: the 12-line digest, plus a nag that the weekly review has never run. That nag is your first to-do, not an error.

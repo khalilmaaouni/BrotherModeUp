@@ -153,7 +153,9 @@ controller added, about 4,400 are the engine and its command line and the rest
 are behavioral tests, including the tests that six adversarial refutation
 rounds produced. Those rounds are why the number moved twice in one day: each
 one reproduced a defect with a probe, and each reproduction became a permanent
-test rather than a note. Five shipping tools import subprocess, each for LOCAL execution: bm_autosave.py drives git (never a push, never a remote), bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command, bm_continue.py starts the successor session as one detached local `claude -p` process whose output goes to a local log file, bm_passport.py (the change-passport producer) runs exactly one command, `git -C <root> config user.name`, a local config read that answers the accountable-person field from a real source instead of guessing it, and brothermode_cli.py (the v3 public boundary) dispatches its eleven verbs to the existing local tools, with one stated network exception: its update check runs a single read-only `git ls-remote --tags` against the configured remote, a network READ that writes nothing and pushes nothing. All five are named exceptions in the no-network test, per file and per module, so no sixth tool inherits the allowance quietly.
+test rather than a note. Seven shipping tools import subprocess, each for LOCAL execution: bm_autosave.py drives git (never a push, never a remote), bm_controller.py (the Full-Auto controller) runs each unit's deterministic done-check as a local command, bm_continue.py starts the successor session as one detached local `claude -p` process whose output goes to a local log file, bm_passport.py (the change-passport producer) runs exactly one command, `git -C <root> config user.name`, a local config read that answers the accountable-person field from a real source instead of guessing it, and brothermode_cli.py (the v3 public boundary) dispatches its eleven verbs to the existing local tools, with one stated network exception: its update check runs a single read-only `git ls-remote --tags` against the configured remote, a network READ that writes nothing and pushes nothing. Two more joined them on 2026-08-17 when the session-start hook and the hook chain driver were ported from POSIX shell to Python so they can run on Windows: bm_sessionstart.py and bm_hookchain.py each start SIBLING TOOLS from this same repository as local processes, which is exactly what the `sh` wrapper they replaced did. Worth stating plainly rather than counting quietly: those two held this power before the port as well, and as shell scripts they were invisible to a check that reads Python imports, so the port brings them INSIDE the audited set rather than adding a new capability. Every one of these seven is a named exception in the no-network test, per file and per module, so no eighth tool inherits the allowance quietly.
+
+ONE TOOL MAKES A NETWORK WRITE, and it is the only one: tools/bm_bbstatus.py (2026-08-17) posts a single build status to Bitbucket Cloud after a local gate run finishes, so a team whose repository lives on Bitbucket sees the same verdict a GitHub team already saw through `gh`. It is never wired into a hook, never runs on its own, and is reached only when somebody runs scripts/local-gates.sh on a checkout whose origin is Bitbucket. Its credential comes from the environment and is never written to a receipt, a log or an error message. Like the others it is a named per-file exception in the no-network test, and additionally in the two-host lint in tools/test_bm_hooks.py, which refuses a host API anywhere else under tools/ or hooks/.
 
 The small-toolchain promise still stands: if the
 NON-test line count starts climbing like this, the honest move is to withdraw
@@ -269,7 +271,7 @@ the zero-network property above still holds with the check enabled. The cost of 
 choice: it can only see an update that something else already fetched, which is why
 it also warns when your copy is simply old.
 
-To disable it, remove the `check-update` line from `tools/bm_sessionstart.sh`.
+To disable it, remove the `check-update` line from `tools/bm_sessionstart.py`.
 
 ## The page that shows where your project stands, and what publishing it means
 
@@ -367,7 +369,7 @@ this project stops being able to promise anything".
   file says you said yes, so it is the switch that gates your data leaving
   a session. Read "program" strictly: one hook line can run more than one
   program (PreCompact runs two), and each one carries its own check. The
-  gated set is `bm_sessionstart.sh`, `bm_autosave.py`, the Bash audit's
+  gated set is `bm_sessionstart.py`, `bm_autosave.py`, the Bash audit's
   two phases, all three hook-wired `bm_telemetry.py` commands
   (`outcomes-append`, `precompact-brief`, `stop-warn`), and
   `bm_lead.py watchdog`. A test reads `hooks/hooks.json` and fails if a
