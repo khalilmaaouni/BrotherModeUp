@@ -252,6 +252,41 @@ machine with python3 and no POSIX shell. NOTHING here has executed on a real
 Windows machine. That is UNVERIFIED until one does, and
 `docs/WINDOWS-CHECK.md` is the written protocol for closing it.
 
+## The 2026-08-18 duo spec, shape by shape
+
+BrotherSBE and this repository were asked to hold Bitbucket support to the
+same eight shapes and three laws (docs/plans/2026-08-18-bitbucket-duo-spec.md
+in BrotherSBE; that file is the spec of record and is not copied here).
+Checked against this repository's own tree, one shape at a time:
+
+| # | Shape | Verdict here | Evidence |
+| --- | --- | --- | --- |
+| 1 | Host detection in one place | ALREADY-PRESENT | `tools/bm_bbstatus.py`'s `_host_of`/`classify` is the only place a git remote URL is parsed for its host. `scripts/local-gates.sh` reads the raw url itself (one line) and hands it to `classify` rather than parsing it a second time; a repository-wide search for a second implementation (`remote get-url`, `remote.origin.url`) found none. |
+| 2 | Read client for pull requests | N/A | This repository holds no pull-request-reading capability on either host. A repository-wide search for `api.github.com` and `api.bitbucket.org` matches only `tools/bm_bbstatus.py`, its test, and the two-host lint that polices for exactly this; nothing here reads PR reviews, approvals or participants. |
+| 3 | Write client for build status | ALREADY-PRESENT, one gap closed | `tools/bm_bbstatus.py` already carried the state map and both credential shapes, and laws 1 and 3 below were already proven. Law 2 (the credential never reaching a returned message) had no scrub and no test: `_auth_header` now returns `(header, secret)`, a `_scrub` helper was added, and `post_status` scrubs every message it returns. Two new tests feed a URLError whose text contains the token (Bearer shape) and the app password (Basic shape) and assert `<redacted>` stands in its place. |
+| 4 | Zero-network allow-list | ALREADY-PRESENT | `tools/test_bm_hooks.py`'s `HOST_API_EXEMPT` names `bm_bbstatus.py` by exact filename with its reason, checked for staleness by `test_every_exempted_file_exists_and_carries_a_reason`; `tools/test_bm.py` separately allow-lists it per file and per module for the `urllib` import (`"bm_bbstatus.py": {"urllib"}`); this file's own line 158 carries the matching sentence. `docs/KNOWN-LIMITS.md` does not name it; that is a documentation completeness gap, not a control gap, since the two enforced allow-lists above are what actually refuses a ninth tool. |
+| 5 | Environment allowlist carries both hosts | N/A | This repository has no registered-check-with-subprocess-environment-allowlist architecture for BrotherSBE's `ENV_ALLOWLIST` to extend into. The two mechanisms that touch subprocess environments here serve different purposes: `scripts/bm_ci_context.py`'s `PROVIDERS` dict already reads both hosts' CI identity variables side by side (for revision-identity capture, not trust filtering), and `tools/bm_controller.py`'s `_sanitised_env` is a GIT_-prefix denylist for redirection safety, unrelated to either host's CI variables. Building an allowlist neither mechanism needs would be a capability nobody asked for. |
+| 6 | Installer routes on the origin remote | N/A | `scripts/install.py` wires this plugin into the operator's own `~/.claude/settings.json`; it does not write CI files into a target repository the way BrotherSBE's `sbe init` does, so there is no install-time host detection to extend. The nearest relative is documented already, above: two hand-typed paths (GitHub shorthand or a Bitbucket URL) for installing THIS plugin from either host, chosen by the operator, never detected by code. |
+| 7 | CI census looks where each host keeps CI | N/A | This repository has no target-repository adoption or readiness census, no `sbe adopt` equivalent. It does not report on any other repository's CI presence; it only carries its own `bitbucket-pipelines.yml` at its own root, which is evidence about this repository, not a tool that inspects others. |
+| 8 | Adoption docs carry both hosts | N/A for the specific content named | The reference row asks for branch restrictions, merge checks, minimum approvals, default reviewers and a CODEOWNERS gap, paired against GitHub's equivalents. This repository uses neither host's branch protection or required-reviewer mechanism: the push policy is direct to main on both hosts, gates are enforced locally by `scripts/local-gates.sh`, and no CODEOWNERS file exists anywhere in the tree (checked directly). There is nothing to adopt on either side for that specific content. This file is this repository's cross-host adoption document for what it actually has: remote formats, install paths, the pull request creation flow, and CI setup, all stated for both hosts above. |
+
+The three laws, checked against `tools/bm_bbstatus.py` specifically, since
+that is the one module here that carries a Bitbucket credential:
+
+| Law | Verdict | Evidence |
+| --- | --- | --- |
+| No credential means zero network attempts | PROVEN | `tools/test_bm_bbstatus.py`'s `test_no_credential_names_both_shapes_and_attempts_nothing` asserts `opener.requests == []` against a recording stand-in transport, never the code's own claim. |
+| The credential never reaches output | PROVEN (2026-08-18) | `test_a_bearer_token_leaked_into_an_error_comes_back_redacted` and `test_an_app_password_leaked_into_an_error_comes_back_redacted` feed an error whose text CONTAINS the secret and assert it comes back as `<redacted>`. |
+| A status client reports a verdict, never reaches one | PROVEN | `post_status` never maps an unrecognized state to anything; it refuses the post outright by name (`test_a_bad_state_is_refused_by_name`), which is at least as strict as BrotherSBE's mapping to a non-optimistic state, and the two never disagree on the one property the law actually asks for: an unrecognized word cannot become SUCCESSFUL either way. Stated as a genuine difference rather than left for a reader to infer, per the duo spec's own rule. The CLI exit code (`main`, 0 when posted, 3 otherwise) reflects whether the report landed, never whether the reported build passed: posting a `failure` state still exits 0 when the POST itself succeeds. |
+
+PARITY BOOKKEEPING, named rather than silently left: the sibling
+repository's own `PARITY.md` should carry the mirror of this table, and was
+NOT updated in this change because the session that wrote this table was
+scoped to this repository's own tree only, the same gap the 2026-08-18
+Windows and Bitbucket session recorded above it having left. Whoever next
+holds a checkout of both repositories should copy this table's verdicts
+into BrotherSBE's `PARITY.md` and say so in that change.
+
 ## Sources
 
 - https://code.claude.com/docs/en/plugin-marketplaces (marketplace source

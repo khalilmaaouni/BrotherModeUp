@@ -18,6 +18,11 @@ WHAT THIS SUITE DEFENDS, in the order the failures would hurt:
      a failed POST included, and its Bitbucket and unknown arms contain no
      exit at all. Proven against scripts/local-gates.sh's own text, because
      that text is the control being trusted.
+  5. The credential never reaches a returned message, even when the
+     transport hands back text this module did not compose (a URLError
+     reason). Proven by making the recording opener raise an error whose
+     text CONTAINS the secret, then asserting the secret is gone and
+     `<redacted>` stands in its place, for both credential shapes.
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
@@ -156,7 +161,7 @@ class TestPostStatus(unittest.TestCase):
         opener = RecordingOpener()
         ok, message = bb.post_status(
             "https://bitbucket.org/nopair", self.SHA, "success", "d",
-            "local-gates", "", {"BITBUCKET_TOKEN": "t"}, opener)
+            "local-gates", "", {"BITBUCKET_TOKEN": "tok"}, opener)
         self.assertFalse(ok)
         self.assertIn("workspace/repository", message)
         self.assertEqual(opener.requests, [])
@@ -165,7 +170,7 @@ class TestPostStatus(unittest.TestCase):
         opener = RecordingOpener()
         ok, message = bb.post_status(
             self.URL, self.SHA, "greenish", "d", "local-gates", "",
-            {"BITBUCKET_TOKEN": "t"}, opener)
+            {"BITBUCKET_TOKEN": "tok"}, opener)
         self.assertFalse(ok)
         self.assertIn("greenish", message)
         self.assertEqual(opener.requests, [])
@@ -209,7 +214,7 @@ class TestPostStatus(unittest.TestCase):
         opener = RecordingOpener(error=error)
         ok, message = bb.post_status(
             self.URL, self.SHA, "success", "d", "local-gates", "",
-            {"BITBUCKET_TOKEN": "t"}, opener)
+            {"BITBUCKET_TOKEN": "tok"}, opener)
         self.assertFalse(ok)
         self.assertIn("401", message)
 
@@ -218,9 +223,42 @@ class TestPostStatus(unittest.TestCase):
         opener = RecordingOpener(error=error)
         ok, message = bb.post_status(
             self.URL, self.SHA, "success", "d", "local-gates", "",
-            {"BITBUCKET_TOKEN": "t"}, opener)
+            {"BITBUCKET_TOKEN": "tok"}, opener)
         self.assertFalse(ok)
         self.assertIn("no route to host", message)
+
+    def test_a_bearer_token_leaked_into_an_error_comes_back_redacted(self):
+        """Law 2. The opener is made to raise an error whose text CONTAINS
+        the token, standing in for whatever a transport might one day echo
+        back (a proxy diagnostic, a verbose URLError reason). The token
+        must never survive into the message this function returns."""
+        secret = "sekrit-token-should-never-print"
+        error = urllib.error.URLError(
+            "could not connect (sent Authorization: Bearer %s)" % secret)
+        opener = RecordingOpener(error=error)
+        ok, message = bb.post_status(
+            self.URL, self.SHA, "success", "d", "local-gates", "",
+            {"BITBUCKET_TOKEN": secret}, opener)
+        self.assertFalse(ok)
+        self.assertNotIn(secret, message)
+        self.assertIn("<redacted>", message)
+
+    def test_an_app_password_leaked_into_an_error_comes_back_redacted(self):
+        """Same law, the Basic-auth shape: the app password is the sensitive
+        half and must be scrubbed; the username is not sensitive and is not
+        asserted either way here."""
+        secret = "app-password-should-never-print"
+        error = urllib.error.URLError(
+            "could not connect (sent Authorization: Basic ...%s...)"
+            % secret)
+        opener = RecordingOpener(error=error)
+        ok, message = bb.post_status(
+            self.URL, self.SHA, "success", "d", "local-gates", "",
+            {"BITBUCKET_USERNAME": "kay", "BITBUCKET_APP_PASSWORD": secret},
+            opener)
+        self.assertFalse(ok)
+        self.assertNotIn(secret, message)
+        self.assertIn("<redacted>", message)
 
     def test_the_cli_post_without_credentials_exits_nonzero_with_the_reason(self):
         env = {k: v for k, v in os.environ.items()

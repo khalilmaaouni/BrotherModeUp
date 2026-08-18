@@ -24,6 +24,10 @@ WHAT IT PROMISES, and scripts/local-gates.sh holds the other half:
      treat that exit as load-bearing.
   3. On an unknown host nothing is posted and the runner says so. NO-DATA
      is never silent.
+  4. The credential never reaches a returned or printed message. `_scrub`
+     replaces it with `<redacted>` in every message `post_status` returns,
+     including the HTTPError and URLError branches, which carry text this
+     module did not compose and cannot fully predict.
 
 CREDENTIALS, from the environment only, never from a file in this
 repository (CLAUDE.md credential rules). Two shapes, tried in this order:
@@ -141,18 +145,32 @@ def workspace_repo(url):
 
 
 def _auth_header(env):
-    """The Authorization header value, or None with the reason printed by
-    the caller. BITBUCKET_TOKEN wins when both shapes are set, because a
-    dedicated access token is the narrower credential."""
+    """(header, secret). `header` is the Authorization value, or None with
+    the reason printed by the caller. `secret` is the one raw value that
+    must never reach a returned message (the bare token, or the app
+    password alone; never the username, which is not sensitive).
+    BITBUCKET_TOKEN wins when both shapes are set, because a dedicated
+    access token is the narrower credential."""
     token = env.get("BITBUCKET_TOKEN", "").strip()
     if token:
-        return "Bearer " + token
+        return "Bearer " + token, token
     user = env.get("BITBUCKET_USERNAME", "").strip()
     password = env.get("BITBUCKET_APP_PASSWORD", "").strip()
     if user and password:
         raw = ("%s:%s" % (user, password)).encode("utf-8")
-        return "Basic " + base64.b64encode(raw).decode("ascii")
-    return None
+        return "Basic " + base64.b64encode(raw).decode("ascii"), password
+    return None, None
+
+
+def _scrub(text, secret):
+    """The credential never reaches a caller's output, whatever the
+    transport echoed back. Last line of defense, not the design: nothing
+    above should ever put the secret into a message in the first place, but
+    an HTTPError body or a URLError reason is text this module did not
+    compose, so it is scrubbed here rather than trusted."""
+    if not secret or not text:
+        return text
+    return text.replace(secret, "<redacted>")
 
 
 def post_status(url, sha, state, description, context, link, env,
@@ -171,7 +189,7 @@ def post_status(url, sha, state, description, context, link, env,
     if pair is None:
         return False, ("not posted: could not read a workspace/repository "
                        "pair out of the origin URL %r" % (url or ""))
-    auth = _auth_header(env)
+    auth, secret = _auth_header(env)
     if auth is None:
         return False, ("not posted: no Bitbucket credential in the "
                        "environment. Set BITBUCKET_TOKEN, or "
@@ -195,14 +213,17 @@ def post_status(url, sha, state, description, context, link, env,
         response = opener(request, timeout=TIMEOUT_SECONDS)
         code = getattr(response, "status", None) or response.getcode()
     except urllib.error.HTTPError as exc:
-        return False, ("not posted: Bitbucket answered HTTP %s for %s"
-                       % (exc.code, endpoint))
+        return False, _scrub(
+            "not posted: Bitbucket answered HTTP %s for %s"
+            % (exc.code, endpoint), secret)
     except (urllib.error.URLError, OSError) as exc:
-        return False, ("not posted: could not reach Bitbucket (%s)"
-                       % getattr(exc, "reason", exc))
+        return False, _scrub(
+            "not posted: could not reach Bitbucket (%s)"
+            % getattr(exc, "reason", exc), secret)
     if code not in (200, 201):
-        return False, ("not posted: Bitbucket answered HTTP %s for %s"
-                       % (code, endpoint))
+        return False, _scrub(
+            "not posted: Bitbucket answered HTTP %s for %s"
+            % (code, endpoint), secret)
     return True, ("posted %s=%s against %s/%s@%s"
                   % (context, mapped, workspace, repo, sha[:12]))
 
