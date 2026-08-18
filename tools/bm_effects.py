@@ -328,6 +328,39 @@ REGISTRY = {
         "emit": PROJECT_WRITE,
     },
 
+    # -- bm_cursor.py ---------------------------------------------------
+    # The Cursor compatibility mode (2026-08-18), declared when the
+    # consolidation brought it onto main and TestCompleteness named all
+    # fourteen verbs at once. Two shapes decide most of this block. First,
+    # every verb except "status" calls _ensure_mailbox(), which CREATES
+    # the mailbox directories, so none of them can be pure_read: the
+    # purity test runs a pure_read command against a throwaway project and
+    # requires the directory to come out byte-identical, which a mkdir
+    # breaks. Second, the git helpers shell out, and external_write is the
+    # class for spawning a subprocess, per the bm_autosave.py "recover"
+    # precedent below.
+    "bm_cursor.py": {
+        "status": PURE_READ,        # reads the mailbox, creates nothing
+        "doctor": EXTERNAL_WRITE,   # runs the hook under test as a subprocess
+        "emit-rules": PROJECT_WRITE,
+        "emit-hooks": PROJECT_WRITE,
+        "dispatch": EXTERNAL_WRITE,     # _git_worktree_add, git subprocess
+        "claim": PROJECT_WRITE,
+        "claim-next": PROJECT_WRITE,    # same cmd_claim, second spelling
+        "record-result": PROJECT_WRITE,
+        "adopt": EXTERNAL_WRITE,        # subprocess.run on the adopted work
+        "poll": PROJECT_WRITE,          # _ensure_mailbox creates directories
+        "list": PROJECT_WRITE,          # same, so not pure_read despite reading
+        # cancel and worktree-remove both reach _git_worktree_remove, which
+        # runs `git worktree remove --force` (tools/bm_cursor.py:622). The
+        # force flag discards uncommitted work in that worktree, which is
+        # the destructive class exactly: irreversible by design, not by
+        # accident. worktree-create is merely external because it only adds.
+        "cancel": DESTRUCTIVE_EXTERNAL_ACTION,
+        "worktree-create": EXTERNAL_WRITE,
+        "worktree-remove": DESTRUCTIVE_EXTERNAL_ACTION,
+    },
+
     # -- bm_sentinel.py -------------------------------------------------
     "bm_sentinel.py": {
         "remember-knowledge": LEDGER_WRITE,
