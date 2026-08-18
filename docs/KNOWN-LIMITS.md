@@ -43,6 +43,35 @@ runs exactly as documented, because a command is not a hook. The gate, the
 suites and the queue checks are all unaffected. It is the AUTOMATIC half,
 everything that was supposed to fire without being remembered, that is inert.
 
+CORRECTED 2026-08-19, and the correction narrows this entry sharply. The
+PACKAGING IS NOT THE PROBLEM and this product is not broken. Compared against
+the sibling, whose hooks demonstrably fired on this machine tonight by
+refusing a write by name:
+
+    ours   .claude-plugin/plugin.json   declares NO hooks field, ships hooks/hooks.json
+    theirs .claude-plugin/plugin.json   declares NO hooks field, ships hooks/hooks.json
+
+Identical shape. `hooks/hooks.json` is discovered by convention, not declared
+in the manifest, so a proper plugin install of this product WOULD load its
+hooks exactly as the sibling's does. What differs is only how each arrived
+here: the sibling is a plugin install, this product is a skill-directory copy.
+
+So the honest statement is about THIS MACHINE'S INSTALL SHAPE, not about the
+product. The supported install is documented in docs/SETUP.md and README.md:
+
+    claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
+    claude plugin install brothermode@brothermode-marketplace
+
+ONE TRAP BEFORE ANYONE RUNS THAT, from docs/SETUP.md's own troubleshooting
+table, row 6: with BOTH a plugin install and a clone install wired, every hook
+fires TWICE, because both wire into the same settings.json. This machine
+currently has the clone. Remove one first (`python3 scripts/uninstall.py` for
+the clone, or `/plugin uninstall` for the plugin) rather than stacking them.
+
+And one thing to know about the pin: `@v3.3.1` installs the tagged release, so
+any fix landed after that tag is not in what gets installed until the tag
+moves.
+
 FILED as M1 in docs/plan/QUEUE.json. Not fixed here on purpose: registering
 the plugin changes machine configuration that other live sessions depend on,
 and a config change belongs to the founder and to a session that is not
