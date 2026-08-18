@@ -146,6 +146,18 @@ def resolve_project_root(explicit_root):
 # mtimes. No directory walk, no store, nothing else opened.
 # ---------------------------------------------------------------------------
 
+def _all_matches(root, patterns):
+    """Every existing file matching any pattern, deduplicated. Separate from
+    _newest_match because the verdict needs to NAME what it did not judge,
+    and a picker that only ever returns one path cannot say that."""
+    seen = set()
+    for pattern in patterns:
+        for path in glob.glob(os.path.join(root, pattern)):
+            if os.path.isfile(path):
+                seen.add(path)
+    return sorted(seen)
+
+
 def _newest_match(root, patterns):
     """The (path, mtime) of the most recently modified file across all
     `patterns` (each relative to `root`), or (None, None) if none match.
@@ -190,14 +202,30 @@ def check_status(root):
                 "stand." % plan_rel)
 
     page_rel = _rel(root, page_path)
+    # M9. Several files can match PAGE_GLOBS at once, and this check judged
+    # the newest silently. Measured 2026-08-19: three matched, it judged
+    # docs/GANTT.html and printed a clean CURRENT, while PROJECT.md names a
+    # DIFFERENT page as "the one current board" by founder decision. A pass
+    # computed from a file nobody considers canonical is worse than the
+    # OWED it replaced, because an OWED gets investigated and a pass does
+    # not. Which page is canonical is a founder decision this tool must not
+    # invent, so it does the one thing it can do honestly: name the others
+    # so the ambiguity is visible rather than silently resolved by mtime.
+    others = [_rel(root, p) for p in _all_matches(root, PAGE_GLOBS)
+              if p != page_path]
+    also = ""
+    if others:
+        also = (" %d other page(s) also match and were NOT the one judged: %s."
+                " If the canonical board is one of those, this verdict is"
+                " about the wrong file." % (len(others), ", ".join(sorted(others))))
     if page_mtime > plan_mtime:
-        return ("CURRENT", 0, "progress page: current at %s." % page_rel)
+        return ("CURRENT", 0, "progress page: current at %s.%s" % (page_rel, also))
 
     return ("OWED-STALE", 1,
             "progress page: OWED (stale). %s (%s) is older than the plan "
-            "%s (%s). Refresh the page." % (
+            "%s (%s). Refresh the page.%s" % (
                 page_rel, _fmt_mtime(page_mtime),
-                plan_rel, _fmt_mtime(plan_mtime)))
+                plan_rel, _fmt_mtime(plan_mtime), also))
 
 
 # ---------------------------------------------------------------------------

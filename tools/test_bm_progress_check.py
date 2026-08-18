@@ -117,6 +117,52 @@ class VerdictTests(unittest.TestCase):
         self.assertIn("docs/plan/RELEASE-GANTT.html", result.stdout)
         self.assertIn("docs/plan/RELEASE-PLAN.md", result.stdout)
 
+    def test_a_single_matching_page_says_nothing_about_others(self):
+        """M9 guard: the ambiguity clause must not appear when there is no
+        ambiguity, or it becomes noise every session learns to skip."""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = write_file(tmp, "docs/plan/RELEASE-PLAN.md")
+            stamp(plan, EARLIER)
+            page = write_file(tmp, "docs/plan/RELEASE-GANTT.html")
+            stamp(page, LATER)
+            result = run_cli("status", "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("also match", result.stdout)
+
+    def test_several_matching_pages_name_the_ones_not_judged(self):
+        """M9. Measured on the real repository 2026-08-19: four pages matched,
+        the newest was judged, a clean CURRENT was printed, and PROJECT.md
+        names a DIFFERENT page as the one current board. A pass computed from
+        a file nobody considers canonical is worse than the OWED it replaced,
+        because an OWED gets investigated and a pass does not."""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = write_file(tmp, "docs/plan/RELEASE-PLAN.md")
+            stamp(plan, EARLIER)
+            judged = write_file(tmp, "docs/plan/RELEASE-GANTT.html")
+            stamp(judged, LATER)
+            other = write_file(tmp, "docs/plan/NORTH-STAR-BOARD.html")
+            stamp(other, EARLIER)
+            result = run_cli("status", "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("current at docs/plan/RELEASE-GANTT.html", result.stdout)
+        self.assertIn("1 other page(s) also match", result.stdout)
+        self.assertIn("docs/plan/NORTH-STAR-BOARD.html", result.stdout)
+        self.assertIn("wrong file", result.stdout)
+
+    def test_the_stale_verdict_names_them_too(self):
+        """The same blindness applies when the verdict is OWED: a session
+        told to refresh a page needs to know which page it was told about."""
+        with tempfile.TemporaryDirectory() as tmp:
+            judged = write_file(tmp, "docs/plan/RELEASE-GANTT.html")
+            stamp(judged, EARLIER)
+            other = write_file(tmp, "docs/plan/NORTH-STAR-BOARD.html")
+            stamp(other, EARLIER)
+            plan = write_file(tmp, "docs/plan/RELEASE-PLAN.md")
+            stamp(plan, LATER)
+            result = run_cli("status", "--root", tmp)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("also match", result.stdout)
+
     def test_current_when_page_is_newer_than_the_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan = write_file(tmp, "docs/plan/RELEASE-PLAN.md")
