@@ -243,6 +243,28 @@ SUITES = (
     # PURPOSE (see the file-level note above).
     "test_bm_effects.py",
     "test_bm_stall.py",
+    # The hook contract (2026-08-17, the Windows lane). Every wired hook
+    # command must run python3, no command may wrap a shell, and the heavy
+    # PreCompact entry must declare a timeout. Registered in the SAME change
+    # as the suite file, because this gate refuses to run at all when a suite
+    # exists on disk and is not listed here, and a session that hits that
+    # refusal has to unpick somebody else half landing. Stdlib only, reads
+    # hooks/hooks.json and the chain table, writes nothing.
+    "test_bm_hooks.py",
+    # The two-host reporting arm (2026-08-17). tools/bm_bbstatus.py routes the
+    # gate verdict on the origin remote and posts a Bitbucket build status;
+    # this suite also reads scripts/local-gates.sh itself, because the routing
+    # contract (GitHub unchanged, a Bitbucket reporting failure never changing
+    # the exit status) lives in that script rather than in the tool. It makes
+    # no network call: the one POST path is driven through a recording opener.
+    "test_bm_bbstatus.py",
+    # The CI revision-identity capture (2026-08-18). A pull request build has
+    # three git identities, and a run that cannot name them has produced a
+    # verdict about an unknown tree, which is worse than no verdict because it
+    # looks like one. This suite drives the refusal in both directions and
+    # reads bitbucket-pipelines.yml to prove the capture runs BEFORE the gate.
+    # Stdlib only; it builds a throwaway two-commit repository per test.
+    "test_bm_ci_context.py",
     # The escalation surface (tools/bm_escalate.py), committed at 707d80c by
     # a concurrent session that landed the suite without registering it here.
     # The inventory check then did exactly its job: it REFUSED to run the

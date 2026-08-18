@@ -123,7 +123,7 @@ request has failed at its only job.
 
 ENFORCED: `tools/bm_progress_check.py` decides mechanically, per project,
 whether a plan exists and whether the page is missing or older than that plan.
-`tools/bm_sessionstart.sh` runs it at every session start, so the verdict
+`tools/bm_sessionstart.py` runs it at every session start, so the verdict
 arrives in context rather than depending on anyone remembering. Exit 1 means a
 page is owed, 0 means nothing is, 2 means it could not tell, because a check
 that cannot tell must never read as a pass. NOT ENFORCED, stated plainly: no

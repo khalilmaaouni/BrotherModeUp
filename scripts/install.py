@@ -90,7 +90,13 @@ BASH_AUDIT_POST_TIMEOUT = 15
 # is decided by (this installation's path) plus (one of these names), so a hook
 # of the user's own that happens to live near the install is not claimed by us.
 OWNED_TOOLS = (
-    "bm_sessionstart.sh",
+    "bm_sessionstart.py",
+    # The chain driver (2026-08-17, the Windows port). It MUST be here for the
+    # same reason bm_lead.py's own note below gives: the Stop and PreCompact
+    # commands name it, and command_is_ours is deliberately asymmetric, so a
+    # command naming a path this list does not own is never removed. Omitting
+    # it would break UNINSTALL silently rather than install.
+    "bm_hookchain.py",
     "bm_telemetry.py",
     "bm_autosave.py",
     "bm_fence_hook.py",
@@ -170,41 +176,32 @@ def hook_commands(target):
     argument to `sh -c`, so quoting survives one nesting level rather than being
     hand-escaped and hoped over."""
     tools = os.path.join(target, "tools")
-    autosave = os.path.join(tools, "bm_autosave.py")
     telemetry = os.path.join(tools, "bm_telemetry.py")
     bash_audit = os.path.join(tools, "bm_bash_audit.py")
-    lead = os.path.join(tools, "bm_lead.py")
-    view = os.path.join(tools, "bm_view.py")
-    inner = (
-        'p=$(cat); printf %s "$p" | python3 ' + _q(autosave) + ' precompact; '
-        'printf %s "$p" | python3 ' + _q(telemetry) + ' precompact-brief'
-    )
-    # L04: Stop runs TWO programs off one stdin payload, so it takes the same
-    # inner-script-then-sh-c shape PreCompact already uses rather than a second
-    # hand-escaped spelling. The second program is the watchdog due-check, which
-    # ships ON BY DEFAULT by founder decision and writes nothing before consent
-    # (it is a due-check, not a daemon).
-    # WHY THIS EDIT EXISTS AT ALL, recorded because the guard is the only reason
-    # it was caught: hooks/hooks.json and this function are two hand-maintained
-    # copies of one wiring, and L04 changed only the first. A user installing
-    # through this script would have got NO watchdog while the plugin manifest
-    # promised one, which would have made "on by default" false for exactly the
-    # people who never read the manifest.
-    # L05: two further programs on the same payload, the page rewrite (silent
-    # unless the fingerprint moved) and the alert tick (at most one NEEDS YOU
-    # object per tick). Same four-copy law as the L04 note above: hooks.json
-    # moved first and this function must move in the same change.
-    stop_inner = (
-        'p=$(cat); printf %s "$p" | python3 ' + _q(telemetry) + ' stop-warn; '
-        'printf %s "$p" | python3 ' + _q(lead) + ' watchdog --tick; '
-        'printf %s "$p" | python3 ' + _q(view) + ' render --if-stale; '
-        'printf %s "$p" | python3 ' + _q(view) + ' alert --tick'
-    )
+    hookchain = os.path.join(tools, "bm_hookchain.py")
+    # THE WINDOWS PORT, 2026-08-17. Stop and PreCompact each used to be an
+    # inner script quoted into `sh -c`, running four and two programs off one
+    # stdin payload. `sh` is not on the Windows PATH, so both were wired and
+    # silently dead on any Windows machine without Git Bash, and so was
+    # SessionStart, which ran a POSIX shell script. All three now run python3,
+    # the interpreter every other hook already requires. The chain CONTENTS
+    # moved into tools/bm_hookchain.py's CHAINS table, which is now their one
+    # copy: this function names the chain, never its members.
+    # WHAT THE four-copy law STILL MEANS, because the port narrows it rather
+    # than retiring it: hooks/hooks.json, this function, docs/QUICKSTART.md
+    # and docs/SETUP.md still each carry the command STRINGS and must move in
+    # the same change (tools/test_bm_docs.py's TestHandWiringBlocksMatchInstaller
+    # compares the last three, command text included). What they no longer
+    # each carry is the list of programs inside a chain, which is the half
+    # that actually drifted: L04 added the watchdog to hooks.json alone, and a
+    # user installing through this script got no watchdog while the plugin
+    # manifest promised one.
     return {
-        "SessionStart": "sh " + _q(os.path.join(tools, "bm_sessionstart.sh")),
+        "SessionStart": "python3 " + _q(os.path.join(tools,
+                                                     "bm_sessionstart.py")),
         "SessionEnd": "python3 " + _q(telemetry) + " outcomes-append",
-        "Stop": "sh -c " + _q(stop_inner),
-        "PreCompact": "sh -c " + _q(inner),
+        "Stop": "python3 " + _q(hookchain) + " stop",
+        "PreCompact": "python3 " + _q(hookchain) + " precompact",
         "PreToolUse": "python3 " + _q(os.path.join(tools, "bm_fence_hook.py")),
         "PreToolUse-bash-audit": "python3 " + _q(bash_audit) + " pre",
         "PostToolUse-bash-audit": "python3 " + _q(bash_audit) + " post",
@@ -694,18 +691,24 @@ def check_platform(argv_name):
     if os.name == "nt":
         _err(
             "%s: refusing to install on Windows.\n"
-            "This is a refusal, not a crash, and the reason is specific: the "
-            "hook commands this installer writes are POSIX shell. SessionStart "
-            "runs `sh <path>/tools/bm_sessionstart.sh`, and Stop and PreCompact "
-            "each run `sh -c` with a pipeline, and neither cmd.exe nor "
-            "PowerShell will run them. THREE of the six wired events "
-            "(SessionStart, Stop, PreCompact) would be wired and silently "
-            "dead.\n"
-            "Working paths on Windows: install inside WSL (a real POSIX shell, "
-            "and Claude Code runs there), or wire the python3-only hooks "
-            "(SessionEnd, the PreToolUse fence, and the Bash-audit "
-            "PreToolUse/PostToolUse pair) by hand per docs/HOOKS.md and accept "
-            "that SessionStart, Stop and PreCompact are off.\n"
+            "This is a refusal, not a crash, and the reason CHANGED on "
+            "2026-08-17, so read it rather than assuming the old one. Until "
+            "that day three of the six wired events ran POSIX shell "
+            "(SessionStart ran `sh <path>/tools/bm_sessionstart.sh`, and Stop "
+            "and PreCompact each ran `sh -c` with a pipeline), so they would "
+            "have been wired and silently dead here. That is fixed: every "
+            "hook command this installer writes now runs python3, and "
+            "tools/test_bm_hooks.py refuses any other interpreter.\n"
+            "What is NOT fixed, and is the whole of this refusal: no Windows "
+            "machine has ever executed them. Runnable in principle is not "
+            "verified, and this project does not claim a platform it has not "
+            "run on. docs/WINDOWS-CHECK.md is the written protocol for "
+            "closing that; when a real machine passes it, this refusal is the "
+            "line to revisit, with the run quoted.\n"
+            "Working paths today: install inside WSL (a real POSIX shell, and "
+            "Claude Code runs there), or wire the hooks by hand per "
+            "docs/HOOKS.md, which is now the same python3 command list on "
+            "every platform.\n"
             "Platform seen: %s." % (argv_name, platform.platform()))
         return EXIT_UNSUPPORTED
     if sys.version_info < (3, 9):

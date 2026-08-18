@@ -658,10 +658,13 @@ def check_windows_hooks(root):
     and PowerShell cannot run. This check is the thing that tells that
     user, since nothing else on that path will.
 
-    Windows: always FAILS, and names the affected events by reading
-    hooks/hooks.json directly rather than repeating a fixed list, so a
-    future hook that starts using `sh` is caught here without an edit to
-    this check.
+    Windows: FAILS whenever any event is wired through `sh`, naming the
+    affected events by reading hooks/hooks.json directly rather than
+    repeating a fixed list, so a future hook that starts using a shell is
+    caught here without an edit to this check. Since the 2026-08-17 port
+    every wired command is python3, so the healthy Windows answer is now a
+    PASS that states its own limit: the wiring can run, and no Windows
+    machine has yet run the battery, which is a different claim.
 
     Every other platform: SKIPs, never PASSes. A PASS would claim this
     machine was examined and found fine; it was not examined at all, so
@@ -690,17 +693,29 @@ def check_windows_hooks(root):
                        % (_mask_home(hooks_path), exc))
 
     if not broken:
-        return _result("windows_hooks", STATUS_FAIL,
-                       "FAIL: this is Windows. This project's own installer "
-                       "refuses to install here for exactly this reason "
-                       "(scripts/install.py), but the recommended install "
-                       "path (`claude plugin install`) never runs that "
-                       "installer, so nothing else on that path will warn "
-                       "you. This particular checkout's %s did not name a "
-                       "broken hook, which is worth re-checking, not trusting "
-                       "as a clean bill of health. Recommended: install "
-                       "inside WSL (Windows Subsystem for Linux) instead of "
-                       "directly on Windows."
+        # CHANGED 2026-08-17, when the three shell-wired events were ported
+        # to python3. Before that day this branch was unreachable in
+        # practice and said so; reaching it now means the manifest really
+        # is python3 only, which is a genuinely different situation from
+        # the one this check was written for.
+        #
+        # PASS, and the sentence is careful about what it claims: the
+        # wiring can RUN here, which is what this check can actually see by
+        # reading the manifest. Whether every hook then behaves correctly
+        # on Windows is not something a manifest read can answer, and no
+        # Windows machine has run this project's battery, so the message
+        # says that rather than implying a verified platform.
+        return _result("windows_hooks", STATUS_PASS,
+                       "PASS: this is Windows, and every automatic behavior "
+                       "in %s is wired through python3 rather than a POSIX "
+                       "shell, so none of them is dead on arrival here. "
+                       "Honest limit, worth reading before relying on it: "
+                       "that is what the WIRING says, and no Windows "
+                       "machine has yet run this project's test battery, so "
+                       "correct BEHAVIOR on Windows is unverified rather "
+                       "than proven. docs/WINDOWS-CHECK.md is the written "
+                       "protocol for closing that, and scripts/install.py "
+                       "still refuses to install here until somebody does."
                        % _mask_home(hooks_path))
 
     return _result("windows_hooks", STATUS_FAIL,

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/tools/bm_sessionstart.sh\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_sessionstart.py\"",
             "timeout": 30,
             "statusMessage": "Loading your project memory"
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" stop-warn; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_lead.py\" watchdog --tick; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" render --if-stale; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_view.py\" alert --tick'",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_hookchain.py\" stop",
             "timeout": 30,
             "statusMessage": "Checking for unfinished work"
           }
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'p=$(cat); printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_autosave.py\" precompact; printf %s \"$p\" | python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_telemetry.py\" precompact-brief'",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/tools/bm_hookchain.py\" precompact",
             "timeout": 60,
             "statusMessage": "Saving your work before the context is condensed"
           }

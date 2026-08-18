@@ -392,6 +392,128 @@ class TestNoTypedCurrentStateIdentity(unittest.TestCase):
             "went stale in real life")
 
 
+class TestBitbucketPipelinesRunsTheDocumentedGate(unittest.TestCase):
+    """The Bitbucket CI leg's drift check, added 2026-08-17.
+
+    THE ASYMMETRY THIS CLOSES. The GitHub workflow cannot drift from the
+    local gate without being caught: tools/test_all.py's CI inventory check
+    reads .github/workflows/tests.yml and REFUSES to run when a suite is in
+    one and not the other, and CI runs that same file, so both sides are
+    checked by one piece of code. bitbucket-pipelines.yml had nothing at
+    all. It could have named a different command, a different session cap,
+    or no gate whatsoever, and every test in this repository would have
+    stayed green while the adopter team's merge-time enforcement quietly
+    became something else.
+
+    So the pipelines file is pinned to the command PROJECT.md documents,
+    which is the same source of truth CLAUDE.md's key-commands section and
+    every session's own gate run read. Not a copy of the command typed here:
+    a comparison between two files this repository already keeps."""
+
+    PIPELINES = "bitbucket-pipelines.yml"
+    PROJECT = "PROJECT.md"
+    CAP = re.compile(r"BROTHERMODE_SESSION_CAP=(\d+)")
+
+    def _documented_gate(self):
+        """The full gate command, read out of PROJECT.md's key-commands
+        list. A missing line is a failure rather than a skip: this suite
+        cannot check drift against a fact that stopped existing, and
+        silently passing would be exactly the hole it was written for."""
+        text = read(self.PROJECT)
+        match = re.search(r"^- Full gate: `?(.+?)`?$", text, re.MULTILINE)
+        self.assertIsNotNone(
+            match,
+            "PROJECT.md no longer states a `- Full gate:` command, so the "
+            "Bitbucket pipeline has nothing to be checked against. Restore "
+            "the line rather than deleting this test.")
+        return match.group(1).strip()
+
+    def _gate_invocations(self, text):
+        """Every YAML sequence entry in the pipelines file that runs the
+        gate, with the leading dash removed. Deliberately narrow: this
+        parses the one construct the file uses (a list of shell strings)
+        rather than pretending to be a YAML parser, and anything it cannot
+        read simply does not count as an invocation, which fails closed."""
+        found = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("-"):
+                continue
+            if "tools/test_all.py" not in stripped:
+                continue
+            found.append(re.sub(r"^-\s*", "", stripped).strip())
+        return found
+
+    def test_the_pipeline_runs_the_documented_full_gate_command(self):
+        documented = self._documented_gate()
+        found = self._gate_invocations(read(self.PIPELINES))
+        self.assertTrue(
+            found,
+            "%s runs no command naming tools/test_all.py at all, so the "
+            "Bitbucket leg is not running this project's gate. The two-host "
+            "law says every host-facing feature ships both legs or names the "
+            "missing one." % self.PIPELINES)
+        for invocation in found:
+            self.assertEqual(
+                invocation, documented,
+                "%s runs %r but PROJECT.md documents the full gate as %r. "
+                "The adopter team's merge-time enforcement and this "
+                "project's own gate must be the same command, or one of "
+                "them is testing something nobody wrote down."
+                % (self.PIPELINES, invocation, documented))
+
+    def test_the_session_cap_value_matches_the_documented_one(self):
+        """Pinned separately from the command string, because the cap is
+        the half that can drift while still LOOKING right: 99 and 9 are one
+        keystroke apart, and a pipeline capped at 1 would refuse to run the
+        gate at all on a runner counting no transcripts."""
+        documented = self._documented_gate()
+        doc_cap = self.CAP.search(documented)
+        self.assertIsNotNone(
+            doc_cap, "PROJECT.md's full gate command no longer sets "
+            "BROTHERMODE_SESSION_CAP, so there is no value to compare")
+        for invocation in self._gate_invocations(read(self.PIPELINES)):
+            found = self.CAP.search(invocation)
+            self.assertIsNotNone(
+                found, "%s runs the gate without BROTHERMODE_SESSION_CAP, "
+                "which PROJECT.md's documented command sets" % self.PIPELINES)
+            self.assertEqual(
+                found.group(1), doc_cap.group(1),
+                "%s caps sessions at %s but PROJECT.md documents %s"
+                % (self.PIPELINES, found.group(1), doc_cap.group(1)))
+
+    def test_calibrated_a_drifted_pipeline_is_caught(self):
+        """The vacuous-pass guard. Both assertions above compare against a
+        file on disk, so they would pass just as happily if the parser
+        found nothing to compare. This drives the same two comparisons over
+        a MUTATED copy of the real file and requires them to fail."""
+        real = read(self.PIPELINES)
+        documented = self._documented_gate()
+        drifted = real.replace("BROTHERMODE_SESSION_CAP=99",
+                               "BROTHERMODE_SESSION_CAP=1")
+        self.assertNotEqual(drifted, real,
+                            "the fixture changed nothing, so it proves "
+                            "nothing about the checks above")
+        invocations = self._gate_invocations(drifted)
+        self.assertTrue(invocations)
+        self.assertNotIn(documented, invocations,
+                         "a pipeline whose session cap drifted still "
+                         "compared equal to the documented command")
+        for invocation in invocations:
+            found = self.CAP.search(invocation)
+            self.assertIsNotNone(found)
+            self.assertNotEqual(found.group(1),
+                                self.CAP.search(documented).group(1))
+
+    def test_calibrated_a_pipeline_that_runs_no_gate_is_caught(self):
+        """The other direction: a file that dropped the gate entirely must
+        read as zero invocations, never as agreement."""
+        gutted = "\n".join(
+            line for line in read(self.PIPELINES).splitlines()
+            if "tools/test_all.py" not in line)
+        self.assertEqual(self._gate_invocations(gutted), [])
+
+
 class TestHandWiringBlocksMatchInstaller(unittest.TestCase):
     """The copy-paste JSON blocks shipped five events for weeks while every
     prose check nearby stayed green, because no test ever parsed them: the

@@ -3,13 +3,13 @@
 
 WHY THIS EXISTS (Loop 3 design D-1/D-2, docs/superpowers/specs/
 2026-08-01-loop3-consent-install-design.md)
-  Before this file existed, tools/bm_sessionstart.sh wrote and read on every
+  Before this file existed, tools/bm_sessionstart.py wrote and read on every
   single session start with no consent gate at all: the external review's
   go/no-go row "No content write before setup consent" was the live NO-GO.
   This file is both halves of the fix. It is the SETUP FLOW (interactive and
   flag-driven) that creates ~/.brotherme/config.json only after a founder has
   actually said yes, and it is the SHARED READER every write-capable entry
-  point consults first: tools/bm_sessionstart.sh calls this file's
+  point consults first: tools/bm_sessionstart.py calls this file's
   --consent-state probe before it writes anything, and tools/bm_telemetry.py
   imports read_config/is_consented from this file by path (the same
   load-by-path technique it already uses for tools/bm_learning.py), so the
@@ -37,7 +37,7 @@ CONSENT ORDER (design D-1, review 13.3), enforced HERE and by every caller
   5. create the config file ONLY after an explicit yes;
   6. run doctor and print what it found;
   7. name the one next action.
-  A caller (bm_sessionstart.sh, bm_telemetry.py) that finds setup incomplete
+  A caller (bm_sessionstart.py, bm_telemetry.py) that finds setup incomplete
   prints one sentence naming this file and writes nothing else, ever: this
   file is the ONLY code path in the project allowed to create the config.
 
