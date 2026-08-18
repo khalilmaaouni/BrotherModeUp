@@ -5718,5 +5718,101 @@ class TestTheComparisonPageDoesNotRotSilently(unittest.TestCase):
             "docs/ECOSYSTEM.md claims it was last checked in the future")
 
 
+class TestThePublicSurfaceCarriesNoOperatorIdentity(unittest.TestCase):
+    """This repository is published. Twice now a tracked file has carried the
+    identity of the machine that wrote it: absolute home paths naming the
+    owner's account, and one operator's private memory vault named by name in
+    a sandbox deny rule. Both were found by hand, on the way to a public
+    release, which is the wrong way to find them.
+
+    WHAT IS SCANNED, and what deliberately is not. The LIVE SURFACE is every
+    tracked file except the dated material under docs/ and CHANGELOG.md. This
+    suite already treats those as historical and leaves them alone, for the
+    reason given at the top of this file, and the reason holds harder here:
+    they quote verbatim command output, so rewriting them to look clean would
+    falsify the evidence while removing nothing from a public clone, because
+    the same bytes are in git history either way. Live code, scripts, config
+    and root pages are different. They are read as instructions, they are
+    copied by installers, and nothing about them needs an operator's name.
+
+    THE VAULT RULE NAMES NO VAULT. Pinning the leaked name here would publish
+    it again from the very check meant to retire it, so the rule is the shape
+    instead: on the live surface a vault path is reached through
+    BROTHERMODE_VAULT or written as a placeholder, never spelled out.
+    """
+
+    HISTORICAL_PREFIXES = ("docs/",)
+    HISTORICAL_FILES = ("CHANGELOG.md",)
+
+    # Account names that are obviously nobody: fixtures, examples and doc
+    # placeholders. A path under one of these is a teaching aid. A path under
+    # any other account name is a real person's machine, which is the defect.
+    PLACEHOLDER_ACCOUNTS = frozenset({
+        "f", "j", "jane", "jane.doe", "janedoe", "k", "me", "mueller",
+        "someone", "user", "you",
+    })
+
+    HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z][A-Za-z0-9._-]*)/")
+    # A vault name may contain a space, and the one that leaked did: the first
+    # draft of this rule excluded whitespace and so missed the exact string it
+    # was written to catch. Bounded and non greedy, so it stays inside one
+    # path and does not swallow a sentence that happens to end in the word.
+    VAULT_PATH = re.compile(r"""Documents/[^"'`\n]{0,60}?[Vv]ault""")
+
+    def _live_files(self):
+        code, out, err = _git("ls-files")
+        self.assertEqual(code, 0, "git ls-files failed: %s" % err)
+        live = []
+        for rel in out.split("\n"):
+            rel = rel.strip()
+            if not rel or rel in self.HISTORICAL_FILES:
+                continue
+            if rel.startswith(self.HISTORICAL_PREFIXES):
+                continue
+            live.append(rel)
+        self.assertTrue(live, "git ls-files named no live files at all")
+        return live
+
+    def _lines(self, rel):
+        """Text lines of a tracked file, or nothing when it is not text. A
+        binary blob carries no account name a reader could act on, and
+        guessing an encoding for one would fail the suite on a PDF."""
+        try:
+            with io.open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+                return fh.read().split("\n")
+        except (UnicodeDecodeError, OSError):
+            return []
+
+    def test_no_real_account_name_sits_in_an_absolute_home_path(self):
+        offenders = []
+        for rel in self._live_files():
+            for i, line in enumerate(self._lines(rel), 1):
+                for account in self.HOME_PATH.findall(line):
+                    if account not in self.PLACEHOLDER_ACCOUNTS:
+                        offenders.append("%s:%d names account %r"
+                                         % (rel, i, account))
+        self.assertEqual(
+            offenders, [],
+            "an absolute home path on the live surface names a real account. "
+            "Write it $HOME-relative, or use a placeholder account if the "
+            "example needs an absolute path. Found: %s"
+            % "; ".join(offenders))
+
+    def test_a_vault_is_reached_through_its_variable_and_not_by_name(self):
+        offenders = []
+        for rel in self._live_files():
+            for i, line in enumerate(self._lines(rel), 1):
+                if not self.VAULT_PATH.search(line):
+                    continue
+                if "BROTHERMODE_VAULT" in line or "<" in line:
+                    continue
+                offenders.append("%s:%d" % (rel, i))
+        self.assertEqual(
+            offenders, [],
+            "a vault path is spelled out on the live surface. Reach it "
+            "through BROTHERMODE_VAULT, or write the name as a placeholder. "
+            "Found at %s" % ", ".join(offenders))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

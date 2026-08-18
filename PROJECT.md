@@ -5,7 +5,9 @@ Read this before hunting for any project resource. Never enumerate across
 projects to find something listed here. If a fact is missing, ask the founder,
 then record the answer here so it is never hunted again.
 
-- Canonical path: /Users/khalil.maaouni/Documents/BrotherModeUp
+- Canonical path: ~/Documents/BrotherModeUp (written $HOME-relative on purpose:
+  this file is tracked in a public repository, and the absolute form published
+  the owner's account name from the identity card itself, 2026-08-18)
 - Repo remote: origin https://github.com/khalilmaaouni/BrotherModeUp.git (verified with git remote -v, 2026-08-10)
 - Published artifact URL: https://claude.ai/code/artifact/a9ed7de2-aa6e-48bb-bfc7-15c8867491e1
   (the progress page stable link, founder decision 2026-08-15: the north star
@@ -17,9 +19,12 @@ then record the answer here so it is never hunted again.
   forcing it would have discarded that session's work. The old link is left
   intact rather than overwritten blind. Whoever holds the baton next may fetch
   it, merge, and consolidate if the founder still wants the original address.
-- Vault space: /Users/khalil.maaouni/Documents/Kay Vault/10-Projects/brothermode
+- Vault space: the memory vault's 10-Projects/brothermode folder. The vault's
+  own location is per-operator and is declared by BROTHERMODE_VAULT rather than
+  named here (founder decision D-B2, 2026-08-11: name the vault generically,
+  which is also what an outside installer of a public tool actually has).
 - Codex port spec (third-party, deliberately outside this public repo):
-  /Users/khalil.maaouni/Documents/ChatGPT/BrotherModeUp/CODEX_PORT_AND_HYBRID_HARNESS_IMPLEMENTATION_SPEC.md
+  ~/Documents/ChatGPT/BrotherModeUp/CODEX_PORT_AND_HYBRID_HARNESS_IMPLEMENTATION_SPEC.md
   The Lane CX documents in docs/program/codex-port/ cite it by filename only,
   which is why the path is recorded here (2026-08-11).
 
