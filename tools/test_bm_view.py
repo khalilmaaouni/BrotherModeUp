@@ -1472,20 +1472,47 @@ class TestAlertHookEmitsWellFormedJson(ViewCase):
         self.assertNotIn("terminalSequence", payload)
 
     def test_the_stop_hook_wires_render_then_alert_last(self):
+        """The Stop contract, unchanged in substance and re-pointed at where
+        the chain now lives (2026-08-17, the Windows port).
+
+        This used to read the programs out of the hook COMMAND STRING,
+        because Stop was an `sh -c` script that spelled all four out. `sh` is
+        not on the Windows PATH, so that line is now one python3 driver and
+        the chain contents live in tools/bm_hookchain.py's CHAINS table. A
+        test still reading the command string would find zero matches and
+        report the alert tick as unwired while it runs perfectly well, which
+        is a false alarm; a test that DELETED these assertions would lose a
+        real contract. So it reads the table, and every claim it made before
+        it makes now: the alert tick is wired exactly once, the page rewrite
+        runs before it, and the JSON emitting program is LAST so its output
+        is what the harness reads."""
         manifest = json.loads(_read(HOOKS_JSON))
         stop = manifest["hooks"]["Stop"]
         commands = [h["command"] for g in stop for h in g["hooks"]]
         joined = " ".join(commands)
-        self.assertEqual(1, joined.count("alert --tick"),
+        spec = importlib.util.spec_from_file_location(
+            "bm_hookchain_for_view", os.path.join(HERE, "bm_hookchain.py"))
+        hookchain = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hookchain)
+        self.assertIn("bm_hookchain.py", joined,
+                      "the Stop event no longer runs the chain driver, so "
+                      "this test is reading the wrong place")
+        self.assertIn(" stop", joined,
+                      "the Stop event runs the chain driver without naming "
+                      "the stop chain")
+        rows = ["%s %s" % (module, " ".join(args))
+                for module, args in hookchain.CHAINS["stop"]]
+        chain = " ".join(rows)
+        self.assertEqual(1, chain.count("alert --tick"),
                          "bm-view alert --tick must be wired exactly once "
                          "on Stop")
-        self.assertEqual(1, joined.count("render --if-stale"))
-        self.assertLess(joined.index("render --if-stale"),
-                        joined.index("alert --tick"),
+        self.assertEqual(1, chain.count("render --if-stale"))
+        self.assertLess(chain.index("render --if-stale"),
+                        chain.index("alert --tick"),
                         "the page rewrite runs before the alert tick")
-        self.assertTrue(joined.rstrip("'\" ").endswith("alert --tick"),
-                        "the JSON emitting program must be the LAST on "
-                        "the Stop line so its output is what the harness "
+        self.assertTrue(chain.rstrip().endswith("alert --tick"),
+                        "the JSON emitting program must be the LAST in "
+                        "the Stop chain so its output is what the harness "
                         "reads")
 
 
