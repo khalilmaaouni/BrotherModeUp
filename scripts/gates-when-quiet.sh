@@ -53,7 +53,12 @@ while :; do
 done
 say "settled at load $L after ${waited}m"
 
-for repo in /Users/khalil.maaouni/Documents/BrotherSBE /Users/khalil.maaouni/Documents/BrotherModeUp; do
+# The two repositories, as $HOME-relative defaults rather than one operator's
+# absolute paths: this file is tracked in a public repository, and an absolute
+# path here published the account name of whoever wrote it. Override either
+# one when your checkouts live somewhere else.
+for repo in "${GATES_QUIET_SBE_REPO:-$HOME/Documents/BrotherSBE}" \
+            "${GATES_QUIET_MODE_REPO:-$HOME/Documents/BrotherModeUp}"; do
   name="$(basename "$repo")"
   cd "$repo" || { say "$name: could not enter, SKIPPED"; continue; }
   if [ -n "$(git status --porcelain --untracked-files=no)" ]; then

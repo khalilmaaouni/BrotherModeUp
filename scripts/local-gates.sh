@@ -186,6 +186,21 @@ echo "env:  $DECLARED declared from $ENV_FILE, 4 inherited (PATH HOME TMPDIR LAN
 # missing sandbox-exec is SAID, and recorded in the receipt, so a run without
 # isolation is never mistaken for one with it.
 SANDBOX=()
+# THE VAULT DENY PATH IS DECLARED, NOT GUESSED. This used to default to one
+# operator's own Obsidian vault by name, which published that private name from
+# a tracked file in a public repository. A generic guess would be worse than no
+# default at all: it would deny a directory nobody owns while the real vault
+# stayed readable, and the receipt would still say "no vault". So an undeclared
+# vault is SAID here rather than papered over, the same way a missing
+# sandbox-exec is said below. Declare yours once and the deny is exact:
+#   export BROTHERMODE_VAULT="$HOME/Documents/<your vault>"
+if [ -n "${BROTHERMODE_VAULT:-}" ]; then
+  VAULT_DENY="$BROTHERMODE_VAULT"
+  VAULT_NOTE="no vault"
+else
+  VAULT_DENY="$HOME/.brothermode-no-vault-declared"
+  VAULT_NOTE="NO VAULT DECLARED, so no vault path was denied (set BROTHERMODE_VAULT)"
+fi
 SANDBOX_NOTE="NONE (battery ran with this user's full access)"
 if [ -f scripts/gates.sb ] && command -v sandbox-exec > /dev/null 2>&1; then
   SANDBOX=(sandbox-exec -f scripts/gates.sb
@@ -193,8 +208,8 @@ if [ -f scripts/gates.sb ] && command -v sandbox-exec > /dev/null 2>&1; then
            -D HOME_GH="$HOME/.config/gh"
            -D HOME_KEYCHAINS="$HOME/Library/Keychains"
            -D HOME_AWS="$HOME/.aws"
-           -D VAULT="${BROTHERMODE_VAULT:-$HOME/Documents/Kay Vault}")
-  SANDBOX_NOTE="scripts/gates.sb (no network, no ssh keys, no gh config, no keychain, no vault)"
+           -D VAULT="$VAULT_DENY")
+  SANDBOX_NOTE="scripts/gates.sb (no network, no ssh keys, no gh config, no keychain, $VAULT_NOTE)"
 else
   echo "WARNING: no sandbox. $SANDBOX_NOTE"
 fi
