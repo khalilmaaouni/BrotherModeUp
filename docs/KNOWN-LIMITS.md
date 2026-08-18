@@ -1909,3 +1909,35 @@ the same situation the Bash-audit hook was born into on 2026-08-01 and the same
 closure applies: a later loop updates both together, and this entry is deleted
 in that loop's commit. Until then, a clone user who wants the cap wires it
 themselves in their own settings, the exact shape docs/HOOKS.md shows.
+
+## The client name is in this machine's filesystem metadata, not only in files
+
+Found 2026-08-17 by reading an ordinary `ls -la` line, not by a scan:
+
+    -rwxr-xr-x@ 1 khalil.maaouni  <CLIENT>\Domain Users  3669  scripts/gates-when-quiet.sh
+
+This Mac is domain-joined, so the client name is the GROUP on every file in
+every repository here. Git stores no group ownership, which is why the
+working-tree scrub and the history rewrite both read clean and were both right:
+the name is not in any file and not in any commit.
+
+MEASURED, so this is a latent vector and not a live leak: `Domain Users` appears
+0 times in tracked files and 0 times in history in both repositories, no
+delivery path uses `tar`, and the raw bytes of the newest handover archive carry
+0 occurrences of either client token or of Domain Users. ZIP stores numeric
+ids and no
+POSIX group NAME, so `zipfile` cannot leak it.
+
+WHERE IT WOULD LEAK, and the four delivery scans do not look at any of these:
+- a `tar` archive, which unlike zip DOES record group names
+- terminal output pasted into a document, an issue or a commit message
+- a screenshot of a file listing
+- anything preserving extended attributes or ACLs
+
+The existing private-terms scan already catches the string in file CONTENTS,
+because a client token is a substring of the group name. It does not read binary
+archive metadata or images, and that is the actual gap.
+
+CHEAPEST MITIGATION if a tar is ever added to a delivery path: pass
+`--group=staff --owner=$(id -un)` (GNU tar) or pipe through a normalising step,
+so the archive records a neutral group rather than the domain one.
