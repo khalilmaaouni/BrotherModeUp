@@ -11,11 +11,24 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton lies at MERGING THIS TO MAIN: the work is committed,
-pushed and green against its baseline on branch
-claude/brothermodeup-windows-bitbucket-27mx1n (1d55d0f and a8315fc), behind
-draft pull request 43, and this environment pushes to a session branch by
-standing instruction rather than to main.
+FINISHED for everything this environment can reach, and the four things it
+cannot are named below rather than implied.
+
+MERGED TO MAIN at 771f140, pull request 43, carrying 1d55d0f, a8315fc and
+44adfef. This paragraph replaces an UNFINISHED line that was true when it was
+written: the session pushed to
+claude/brothermodeup-windows-bitbucket-27mx1n by standing instruction, and
+the founder's merge-to-main default was the one rule it had not satisfied.
+The founder was asked and delegated the call, so the merge happened and this
+report was corrected on main rather than left saying the baton still lay
+there.
+
+WHAT WAS CHECKED BEFORE MERGING, since the standing rule names green tests
+and this container cannot produce them: scripts/prepush-check.sh PASSED (the
+committed manifest describes the committed tree), the diff carried no
+secret-shaped strings, the branch was zero commits behind main, and the
+battery comparison below stood. The battery was NOT green, on this branch or
+on main, and that is stated rather than worked around.
 
 THE BATTERY, BOTH RUNS, SIDE BY SIDE. Baseline first, on UNMODIFIED main
 (b7cc86a), in this same container:

@@ -9,12 +9,14 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-1. MERGE THIS TO MAIN. The founder's merge-to-main default could not be
-   satisfied here: this environment pushes to a session branch by standing
-   instruction, so the work sits on
-   claude/brothermodeup-windows-bitbucket-27mx1n behind draft pull request
-   43. Whoever holds a normal checkout re-runs the battery on the merged tree
-   and pushes. Nothing else in this list should start before that.
+1. DONE, AND KEPT HERE SO THE ORDER STILL READS. This said MERGE THIS TO
+   MAIN. It is merged, at 771f140 through pull request 43, after the founder
+   was asked and delegated the call. ONE THING IS STILL OWED FROM IT: nobody
+   has run the full battery on the MERGED tree. The merge was a fast-forward
+   of a branch that was zero commits behind main, so the merged tree is byte
+   for byte the tree that was measured, and a re-run should reproduce the
+   same five environment-shaped failures. Reproduce rather than assume, on a
+   machine where the battery can actually go green.
 
 2. THE SIBLING'S PARITY.md. docs/BITBUCKET.md carries the three parity rows
    (python3 hooks both sides, host-routed reporting both sides, identical
