@@ -131,6 +131,15 @@ jobs:
         run: python3 tools/test_bm_e2e_pins.py
       - name: Run the cross-runtime adapter suite
         run: python3 tools/test_bm_runtimes.py
+      # The Cursor compatibility mode (2026-08-18), the sibling of the
+      # cross-runtime adapter suite above: an independent Cursor lifecycle,
+      # a Cursor-native hook adapter, and the local mailbox harness. Stdlib
+      # only and filesystem only, and every test drives its own temporary
+      # root, so it makes no network call and needs no platform constraint.
+      # It is here because test_all.py refuses any suite the local gate runs
+      # and CI does not, which is the check that caught this one.
+      - name: Run the Cursor compatibility suite
+        run: python3 tools/test_bm_cursor.py
       # The loop estimate ledger, landed 2026-07-31. Stdlib only and
       # filesystem only, so it has no platform constraint; it runs on the POSIX
       # legs alongside the other suites that arrived the same way.
