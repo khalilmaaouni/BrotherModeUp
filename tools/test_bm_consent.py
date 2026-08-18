@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Suite for the Loop 3 consent gate: scripts/setup.py, tools/bm_sessionstart.sh
+"""Suite for the Loop 3 consent gate: scripts/setup.py, tools/bm_sessionstart.py
 and tools/bm_telemetry.py's SessionEnd path (design D-1/D-2,
 docs/superpowers/specs/2026-08-01-loop3-consent-install-design.md); and, since
 WP-E on the same design, scripts/doctor.py's ten-check surface (D-3),
@@ -27,6 +27,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 """
 
 import hashlib
+import importlib.util
 import io
 import re
 import json
@@ -41,7 +42,7 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SESSIONSTART = os.path.join(HERE, "bm_sessionstart.sh")
+SESSIONSTART = os.path.join(HERE, "bm_sessionstart.py")
 TELEMETRY = os.path.join(HERE, "bm_telemetry.py")
 SETUP = os.path.join(ROOT, "scripts", "setup.py")
 DOCTOR = os.path.join(ROOT, "scripts", "doctor.py")
@@ -57,6 +58,30 @@ try:
     CHECK_KEYS = tuple(_doctor_module.CHECK_TITLES)
 finally:
     sys.path.pop(0)
+# The chain table, imported from the driver rather than retyped here. Before
+# the 2026-08-17 Windows port the Stop and PreCompact hook lines spelled their
+# programs out inside an `sh -c` string, and this suite read them out of that
+# string. The programs now live in ONE place, tools/bm_hookchain.py's CHAINS,
+# and this suite expands the driver back into them so every count and every
+# gate check below covers exactly what it covered before the port. A suite
+# that stopped at the driver would be a WEAKER control wearing the same name.
+_hcspec = importlib.util.spec_from_file_location(
+    "bm_hookchain_for_consent", os.path.join(HERE, "bm_hookchain.py"))
+_hookchain = importlib.util.module_from_spec(_hcspec)
+_hcspec.loader.exec_module(_hookchain)
+CHAINS = _hookchain.CHAINS
+
+
+def expand_chain(module, command):
+    """One wired (module, subcommand) pair as the list of (module,
+    subcommand) pairs it actually RUNS. Everything except the chain driver
+    is itself; the driver is its chain's rows."""
+    if module == "bm_hookchain.py" and command in CHAINS:
+        return [(mod, args[0] if args else "")
+                for mod, args in CHAINS[command]]
+    return [(module, command)]
+
+
 UNINSTALL = os.path.join(ROOT, "scripts", "uninstall.py")
 UPDATE_MD = os.path.join(ROOT, "commands", "brotherme-update.md")
 DIGEST = os.path.join(ROOT, "DIGEST.md")
@@ -153,7 +178,7 @@ class SessionStartPreConsentCase(unittest.TestCase):
 
     def run_sessionstart(self, payload="{}"):
         return subprocess.run(
-            ["sh", SESSIONSTART], cwd=self.project, env=self.env, input=payload,
+            [sys.executable, SESSIONSTART], cwd=self.project, env=self.env, input=payload,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, timeout=120)
 
@@ -216,7 +241,7 @@ class SessionStartPostConsentCase(unittest.TestCase):
     def test_consented_sessionstart_still_prints_the_digest(self):
         digest_first_line = _read_text(DIGEST).splitlines()[0]
         r = subprocess.run(
-            ["sh", SESSIONSTART], cwd=self.project, env=self.env, input="{}",
+            [sys.executable, SESSIONSTART], cwd=self.project, env=self.env, input="{}",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -230,7 +255,7 @@ class SessionStartPostConsentCase(unittest.TestCase):
         enforced by bm_handover.py verify-close since it shipped. The OPENING
         half, running detect before new work, was wired into nothing and
         depended entirely on somebody remembering, which CLAUDE.md stated
-        plainly as NOT ENFORCED. tools/bm_sessionstart.sh now runs it.
+        plainly as NOT ENFORCED. tools/bm_sessionstart.py now runs it.
 
         What this test pins is narrow on purpose: that the session-start path
         REACHES the detect call and reports SOMETHING about it. It cannot pin
@@ -241,7 +266,7 @@ class SessionStartPostConsentCase(unittest.TestCase):
         session start says nothing about the baton at all, which is exactly the
         regression that would silently un-wire the opening half again."""
         r = subprocess.run(
-            ["sh", SESSIONSTART], cwd=self.project, env=self.env, input="{}",
+            [sys.executable, SESSIONSTART], cwd=self.project, env=self.env, input="{}",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, timeout=120)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -276,7 +301,7 @@ class SessionStartPostConsentCase(unittest.TestCase):
         env = dict(self.env)
         env["BROTHERMODE_ROOT"] = broken
         r = subprocess.run(
-            ["sh", SESSIONSTART], cwd=broken, env=env, input="{}",
+            [sys.executable, SESSIONSTART], cwd=broken, env=env, input="{}",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             universal_newlines=True, timeout=120)
         self.assertEqual(
@@ -502,17 +527,60 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
     # floor is the only direction this number is ever allowed to move.
     # Raised 7 to 8 and 11 to 12 on 2026-08-09 when the PreToolUse Bash
     # entry gained bm_session_cap.py, the machine-wide session cap.
+    #
+    # BOTH NUMBERS SURVIVED THE 2026-08-17 WINDOWS PORT UNCHANGED, and that
+    # is the point rather than a coincidence. The port moved the Stop and
+    # PreCompact chains out of two `sh -c` strings and into
+    # tools/bm_hookchain.py's CHAINS table, so a naive count of the manifest
+    # would now find 8 programs rather than 12 and this floor would have had
+    # to be LOWERED, which is the one direction it may never move. Counting
+    # through the expansion instead keeps the floor honest: the same twelve
+    # programs still run on the same eight command strings, and a program
+    # dropped from the table fails here exactly as a program dropped from a
+    # command string used to.
     MIN_WIRED_COMMAND_STRINGS = 8
     MIN_WIRED_PROGRAMS = 12
     _PROGRAM_RE = re.compile(
         r"(?:python3|sh)\s+\S*?(?:tools|scripts)/\S+\.(?:py|sh)")
+
+    @classmethod
+    def count_wired_programs(cls, commands):
+        """Programs actually RUN by a list of (event, command) pairs, with
+        the chain driver expanded into its rows. Shared with
+        tools/test_bm_hookperf.py, which re-derives this repository's
+        consolidation blockers and must count the same way this floor
+        does."""
+        total = 0
+        for _event, cmd in commands:
+            for match in cls._PROGRAM_RE.finditer(cmd):
+                text = match.group(0)
+                if "bm_hookchain.py" not in text:
+                    total += 1
+                    continue
+                # The chain name is the argument AFTER the driver path, and
+                # the path in a hook command is QUOTED, so the character
+                # right after the match is a closing quote rather than a
+                # space. Stripping it is not cosmetic: without it this read
+                # the chain name as a bare quote mark and refused a manifest
+                # that was perfectly correct.
+                tail = cmd[match.end():].split(";")[0].split("|")[0]
+                tail = tail.strip().lstrip('"\'').strip()
+                name = tail.split()[0] if tail.split() else ""
+                rows = CHAINS.get(name)
+                if not rows:
+                    raise AssertionError(
+                        "a hook command runs the chain driver with chain "
+                        "name %r, which tools/bm_hookchain.py does not "
+                        "define; that chain dies at every firing" % name)
+                total += len(rows)
+        return total
 
     def _wired_commands(self):
         """Every command string in hooks/hooks.json, in file order.
 
         Contributed by the independent review session, 2026-08-02, and it is
         strictly better than the telemetry-scoped inventory below: it stands
-        in front of bm_autosave.py, bm_bash_audit.py and bm_sessionstart.sh
+        in front of bm_autosave.py, bm_bash_audit.py and bm_sessionstart.py
         too. Their argument, which is correct: the NEXT program to write
         before consent probably will not live in bm_telemetry.py, and a
         module-scoped check cannot see it."""
@@ -619,8 +687,7 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
             "expected to hold at least %d, and a manifest that parsed to "
             "fewer must not read as a pass"
             % (ran, self.MIN_WIRED_COMMAND_STRINGS))
-        programs = sum(len(self._PROGRAM_RE.findall(cmd))
-                       for _event, cmd in self._wired_commands())
+        programs = self.count_wired_programs(self._wired_commands())
         self.assertGreaterEqual(
             programs, self.MIN_WIRED_PROGRAMS,
             "the %d wired command string(s) name only %d program "
@@ -656,6 +723,17 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
     # stronger than the situation it replaced, where the exemption existed
     # only in prose.
     CONSENT_EXEMPT_MODULES = {
+        "bm_hookchain.py": (
+            "the chain driver (2026-08-17, the Windows port). It gates "
+            "nothing and must not: it is the `sh -c` wrapper it replaced, "
+            "written in Python, and that wrapper gated nothing either. It "
+            "opens no file, reads no config and writes nothing; it reads "
+            "stdin once and hands the same bytes to each program in its "
+            "chain. Every one of those programs is itself expanded by "
+            "expand_chain() above and checked for its OWN gate by the "
+            "inventory test below, which is where the protection lives. "
+            "Gating the driver as well would be a second door in front of "
+            "doors that already lock."),
         "bm_fence_hook.py": (
             "the single-writer proof itself. It reads and refuses; a gate "
             "in front of it would mean no file claim exists until setup "
@@ -689,6 +767,16 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
     #       subscripts its dispatch table. That ordering is the whole of
     #       the gate, so it is asserted rather than assumed.
     CONSENT_GATE_BY_MODULE = {
+        # The session-start script, Python since the 2026-08-17 Windows
+        # port. Its shape is neither of the two below: it has no
+        # subcommands at all, so there is no cmd_ function to look inside,
+        # and its gate is the FIRST thing its main() does. That is checked
+        # as an ORDER, the same way the one-door shape is: the probe must
+        # be named before any sibling tool is invoked. While it was
+        # bm_sessionstart.sh this suite checked it by grepping for the
+        # string setup_complete, which is weaker in exactly the way that
+        # matters, since a mention is not a call and prose satisfies it.
+        "bm_sessionstart.py": ("script-gate", "--consent-state"),
         "bm_telemetry.py": ("per-command", "_consented()"),
         "bm_autosave.py": ("per-command", "_consented()"),
         "bm_bash_audit.py": ("per-command", "_consented()"),
@@ -738,7 +826,13 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
                 for entry in group.get("hooks", []):
                     for module, sub in pattern.findall(
                             entry.get("command", "")):
-                        wired.add((module, sub or ""))
+                        # EXPANDED, never taken at face value: a hook line
+                        # naming the chain driver runs four programs, and a
+                        # check that stopped at the driver would be blind to
+                        # all four. That blindness is the exact defect this
+                        # class was written for, when the PreCompact line's
+                        # SECOND program shipped ungated.
+                        wired.update(expand_chain(module, sub or ""))
         self.assertTrue(wired, "no hook-wired program found in hooks.json")
         modules = sorted({m for m, _s in wired})
         self.assertIn(
@@ -759,11 +853,6 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
                 ungated.append("%s: not in tools/" % module)
                 continue
             source = _read_text(path)
-            if module.endswith(".sh"):
-                # tools/bm_sessionstart.sh gates in shell, not in Python.
-                if "setup_complete" not in source:
-                    ungated.append("%s: never reads setup_complete" % module)
-                continue
             declared = self.CONSENT_GATE_BY_MODULE.get(module)
             if declared is None:
                 ungated.append(
@@ -772,6 +861,25 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
                     "anyone deciding how it is gated" % module)
                 continue
             shape, call = declared
+            if shape == "script-gate":
+                # No subcommands, so the gate is an ORDER inside main():
+                # the consent probe must be named before any sibling tool
+                # is invoked. An index comparison is enough for the same
+                # reason it is enough in the one-door branch below.
+                gate_at = source.find(call)
+                first_tool = source.find("bm_telemetry.py")
+                if gate_at == -1:
+                    ungated.append("%s: never names %s" % (module, call))
+                elif first_tool == -1:
+                    ungated.append(
+                        "%s: invokes no sibling tool at all, so its gate "
+                        "cannot be placed relative to one" % module)
+                elif gate_at > first_tool:
+                    ungated.append(
+                        "%s: names %s AFTER it invokes a sibling tool, so "
+                        "the gate is not in front of the writes"
+                        % (module, call))
+                continue
             if not command:
                 ungated.append("%s: wired with no subcommand" % module)
                 continue
@@ -849,17 +957,24 @@ class TelemetryEveryHookProgramPreConsentCase(unittest.TestCase):
         whoever wired it to decide, rather than in someone's home
         directory."""
         wiring = json.loads(_read_text(HOOKS_JSON))
-        pattern = re.compile(r"(?:tools|scripts)/(\w+\.(?:py|sh))")
+        pattern = re.compile(
+            r"(?:tools|scripts)/(\w+\.(?:py|sh))[\"\']?(?:\s+([a-z][a-z0-9-]*))?")
         modules = set()
         for groups in wiring.get("hooks", {}).values():
             for group in groups:
                 for entry in group.get("hooks", []):
-                    modules.update(pattern.findall(entry.get("command", "")))
+                    for module, sub in pattern.findall(
+                            entry.get("command", "")):
+                        for mod, _cmd in expand_chain(module, sub or ""):
+                            modules.add(mod)
+        # The `.sh` exclusion this list used to carry is GONE, and its
+        # absence is the point: no hook command is a shell script any more
+        # (tools/test_bm_hooks.py refuses one), so an exclusion for the
+        # class would only ever excuse a regression.
         unclassified = sorted(
             m for m in modules
             if m not in self.CONSENT_EXEMPT_MODULES
-            and m not in self.CONSENT_GATE_BY_MODULE
-            and not m.endswith(".sh"))
+            and m not in self.CONSENT_GATE_BY_MODULE)
         self.assertEqual(
             [], unclassified,
             "module(s) wired into hooks/hooks.json that are neither "
@@ -1272,26 +1387,70 @@ class DoctorCheckInventoryCase(unittest.TestCase):
         """scripts/install.py already refuses to install on Windows, but the
         recommended install path (docs/QUICKSTART.md Path 1, `claude plugin
         install`) never runs that installer, so the refusal never fires.
-        This check is what tells a Windows user instead. hooks/hooks.json
-        wires SessionStart, Stop and PreCompact through `sh`, which cmd.exe
-        and PowerShell cannot run, so all three must be named by event.
+        This check is what tells a Windows user instead.
+
+        REWRITTEN 2026-08-17, and the rewrite is the interesting part. This
+        test used to read the REAL hooks/hooks.json and assert that
+        SessionStart, Stop and PreCompact were named as broken, because all
+        three were wired through `sh`. They are python3 now, so that
+        assertion would have passed only while the defect existed and would
+        have had to be deleted the day it was fixed, taking the FAIL path's
+        only coverage with it. Instead the FAIL path is driven against a
+        FIXTURE manifest that wires a shell, so the refusal stays proven
+        forever, whatever the real manifest happens to hold.
 
         os.name is faked on the already-imported doctor module rather than
         via subprocess (this file's usual technique for the other checks,
         stated in its module docstring), the same way tools/test_bm_store.py
-        fakes sys.platform on the already-imported bm_store module
-        (mock.patch.object(bs.sys, "platform", "win32")): the windows_hooks
-        check does no subprocess work and no filesystem writes, only a read
-        of the real hooks/hooks.json under ROOT, so faking os.name in
-        process is the narrowest fake that exercises it, and a real Windows
-        machine is not available to this test."""
+        fakes sys.platform on the already-imported bm_store module: the
+        windows_hooks check does no subprocess work and no filesystem
+        writes, only a read of a hooks.json under the root it is given, so
+        faking os.name in process is the narrowest fake that exercises it,
+        and a real Windows machine is not available to this test."""
+        root = os.path.join(self.tmp, "shell-wired")
+        os.makedirs(os.path.join(root, "hooks"))
+        with io.open(os.path.join(root, "hooks", "hooks.json"), "w",
+                     encoding="utf-8") as fh:
+            json.dump({"hooks": {
+                "SessionStart": [{"hooks": [{
+                    "type": "command", "command": "sh /x/tools/start.sh",
+                    "statusMessage": "Loading your project memory"}]}],
+                "Stop": [{"hooks": [{
+                    "type": "command", "command": "sh -c 'echo hi'",
+                    "statusMessage": "Checking for unfinished work"}]}],
+                "PreCompact": [{"hooks": [{
+                    "type": "command", "command": "sh -c 'echo bye'",
+                    "statusMessage": "Saving your work"}]}],
+            }}, fh)
         with mock.patch.object(_doctor_module.os, "name", "nt"):
-            result = _doctor_module.check_windows_hooks(ROOT)
+            result = _doctor_module.check_windows_hooks(root)
         self.assertEqual(result.status, "FAIL", result.message)
         for event in ("SessionStart", "Stop", "PreCompact"):
             self.assertIn(event, result.message,
-                         "windows_hooks FAIL did not name %s" % event)
+                          "windows_hooks FAIL did not name %s" % event)
         self.assertIn("WSL", result.message)
+
+    def test_windows_hooks_passes_on_the_real_python3_only_manifest(self):
+        """The other half of the same check, and the one that would have
+        caught the port being half done: with the REAL manifest, which is
+        python3 only since 2026-08-17, a Windows machine gets a PASS. If a
+        future hook reaches for a shell again, this goes red beside the
+        hook-contract suite rather than only being noticed by a Windows
+        user.
+
+        What the PASS is required to SAY matters as much as its status: it
+        must still name the unverified half, because a manifest read proves
+        the hooks can run, never that they behave correctly on a platform
+        nobody has run the battery on."""
+        with mock.patch.object(_doctor_module.os, "name", "nt"):
+            result = _doctor_module.check_windows_hooks(ROOT)
+        self.assertEqual(result.status, "PASS", result.message)
+        self.assertIn("python3", result.message)
+        self.assertIn("unverified", result.message.lower(),
+                      "the Windows PASS no longer states that behavior on "
+                      "Windows is unverified, so it now reads as a platform "
+                      "this project has tested. It has not.")
+        self.assertIn("WINDOWS-CHECK.md", result.message)
 
     def test_windows_hooks_skips_rather_than_passes_off_windows(self):
         """A PASS here would claim this machine's platform was examined and

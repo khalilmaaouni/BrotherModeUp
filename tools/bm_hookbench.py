@@ -82,6 +82,7 @@ import sys
 #: measured 8.8 ms, and with this one it measures about three times that.
 _PRISTINE_MODULES = set(sys.modules)
 
+import importlib.util
 import io
 import json
 import os
@@ -135,10 +136,16 @@ NOT_MEASURED = (
      "the missing piece on your own machine, time an empty interpreter and add "
      "it once per program in the chain."),
     ("The SessionStart hook",
-     "hooks/hooks.json runs it as a shell script (tools/bm_sessionstart.sh), "
-     "not as a Python program, and this tool executes Python in process. A "
-     "shell script cannot be run without spawning a process, so its cost is "
-     "not on this page at all."),
+     "It is a Python program now rather than a shell script (the 2026-08-17 "
+     "Windows port), and it is still not on this page, for a reason that "
+     "changed with it. It DRIVES its sibling tools as real processes, one per "
+     "check, exactly as the shell version did. This tool executes hook "
+     "programs in process and spawns nothing, which is the constraint that "
+     "shaped its whole design, so running the session-start program here "
+     "would quietly break the promise every other number on this page "
+     "depends on. Its cost is measured instead by "
+     "tools/test_bm_hookperf.py, which is a test file and may spawn real "
+     "processes."),
     ("Store lock contention frequency in real use",
      "This benchmark is one process making one call at a time, so the "
      "contention it observes is zero by construction and that zero says "
@@ -196,6 +203,21 @@ _PY_PROGRAM_RE = re.compile(
 #: path has to follow the interpreter word.
 _SH_PROGRAM_RE = re.compile(
     r"sh\s+\"?\$\{CLAUDE_PLUGIN_ROOT\}/tools/([A-Za-z0-9_]+\.sh)\"?")
+#: The chain driver, and the table it runs. Imported by path rather than
+#: retyped (2026-08-17, the Windows port): hooks/hooks.json used to spell the
+#: Stop and PreCompact programs out inside an `sh -c` string, and this parser
+#: read them out of that string. They live in ONE place now, and a parser that
+#: stopped at the driver would report a one-program chain where four run,
+#: which is precisely the understatement this file's own docstring calls the
+#: defect it exists to fix. The import costs nothing at measurement time: the
+#: module is read once, holds a literal table, and spawns nothing on import.
+_HOOKCHAIN = "bm_hookchain.py"
+_hcspec = importlib.util.spec_from_file_location(
+    "bm_hookchain_for_bench", os.path.join(HERE, _HOOKCHAIN))
+_hookchain = importlib.util.module_from_spec(_hcspec)
+_hcspec.loader.exec_module(_hookchain)
+CHAINS = _hookchain.CHAINS
+
 #: Every tools/ program named anywhere in a command, used only to prove the two
 #: patterns above did not miss one. A parser that silently reports three
 #: programs where four run would understate the cost of the chain, which is the
@@ -211,9 +233,48 @@ def parse_command(command):
     captured, rather than quietly reporting a shorter chain."""
     found = []
     for match in _PY_PROGRAM_RE.finditer(command):
+        name = match.group(1)
+        args = match.group(2).split()
+        if name == _HOOKCHAIN:
+            chain = args[0] if args else ""
+            rows = CHAINS.get(chain)
+            if rows is None:
+                raise BenchError(
+                    "hooks/hooks.json runs the chain driver with chain name "
+                    "%r, which tools/bm_hookchain.py does not define. That "
+                    "chain dies at every firing; fix the wiring rather than "
+                    "publishing a page for a chain that runs nothing."
+                    % chain)
+            for offset, (module, module_args) in enumerate(rows):
+                found.append((match.start() + offset, {
+                    "program": module,
+                    "args": list(module_args),
+                    "runnable": True,
+                    "reason": "",
+                }))
+            continue
+        if name == "bm_sessionstart.py":
+            # RUNNABLE IN THE RUNTIME, NOT MEASURABLE HERE, and the reason
+            # changed with the port rather than disappearing. It used to be
+            # unmeasurable because it was a shell script and this tool
+            # executes Python in process. It is Python now, and still
+            # unmeasurable here, because it DRIVES its sibling tools as real
+            # processes: running it in process would spawn them, and this
+            # file's whole account of itself (and
+            # tools/test_bm_hookbench.py's TestTheSubprocessBanIsRespected)
+            # rests on it spawning nothing.
+            found.append((match.start(), {
+                "program": name,
+                "args": args,
+                "runnable": False,
+                "reason": ("it drives its sibling tools as real processes, "
+                           "and this tool spawns none, so its cost is not on "
+                           "this page"),
+            }))
+            continue
         found.append((match.start(), {
-            "program": match.group(1),
-            "args": match.group(2).split(),
+            "program": name,
+            "args": args,
             "runnable": True,
             "reason": "",
         }))
@@ -228,7 +289,10 @@ def parse_command(command):
     programs = [entry for _pos, entry in found]
     named = set(_ANY_PROGRAM_RE.findall(command))
     captured = set(entry["program"] for entry in programs)
-    missed = sorted(named - captured)
+    # The driver itself is named by the command and deliberately NOT in the
+    # captured set: it was replaced by the programs it runs, which is the
+    # expansion above. Everything else the command names must be captured.
+    missed = sorted(named - captured - {_HOOKCHAIN})
     if missed:
         raise BenchError(
             "hooks/hooks.json runs %s in a shape this parser does not read: "

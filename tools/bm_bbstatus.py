@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Host-aware gate reporting for scripts/local-gates.sh.
+
+WHY THIS EXISTS (two-host law, founder order 2026-08-16). The local gate
+runner posts its verdict as a commit status, and until this tool existed the
+posting arm was `gh api` with a hardcoded GitHub repository: correct on the
+canonical checkout, and a guaranteed reporting failure, exit 2, for anyone
+whose origin lives on Bitbucket Cloud or anywhere else, even though their
+battery had just passed. The engine never talks to a host API; the gate
+RUNNER may, because reporting a verdict is the runner's work, not the code
+under test's. This file is that reporting arm for the non-GitHub half.
+
+WHAT IT PROMISES, and scripts/local-gates.sh holds the other half:
+
+  1. `classify` reads a git remote URL and answers github, bitbucket, or
+     unknown, so the runner can route. Classification is pure string
+     parsing: no git, no network, exit 0 always.
+  2. `post` sends one Bitbucket Cloud build status for a commit. A failure
+     to post prints WHY and exits nonzero, and the runner's Bitbucket arm
+     deliberately does not let that change the gate's own exit status: a
+     verdict that could not be REPORTED is still the verdict. The GitHub
+     arm keeps its historical behavior byte for byte, including exit 2 on
+     a failed POST, because sessions on the canonical checkout already
+     treat that exit as load-bearing.
+  3. On an unknown host nothing is posted and the runner says so. NO-DATA
+     is never silent.
+
+CREDENTIALS, from the environment only, never from a file in this
+repository (CLAUDE.md credential rules). Two shapes, tried in this order:
+
+  BITBUCKET_TOKEN                          sent as a Bearer token (a
+                                           workspace, project or repository
+                                           access token).
+  BITBUCKET_USERNAME and
+  BITBUCKET_APP_PASSWORD                   sent as HTTP Basic. Atlassian
+                                           retired classic app passwords on
+                                           2026-07-28 (docs/BITBUCKET.md);
+                                           the SAME variable now carries a
+                                           scoped API token, and the name is
+                                           kept because both siblings in
+                                           this estate use these exact
+                                           names, which is the parity the
+                                           founder asked for.
+
+The urllib import below is a NAMED exception in tools/test_bm.py's
+zero-network suite, per file and per module, the same way bm_autosave.py's
+subprocess import is: this tool is invoked by scripts/local-gates.sh after
+a battery completes, never by a hook, and the one request it makes is the
+status POST it exists for. SECURITY.md documents it beside the other named
+exceptions.
+
+Python 3.9, standard library only. No em or en dashes anywhere in this
+file, its comments, or its output.
+"""
+
+import base64
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+
+API_BASE = "https://api.bitbucket.org/2.0/repositories"
+TIMEOUT_SECONDS = 30
+
+#: Gate result to Bitbucket build-status state. Bitbucket's own vocabulary
+#: (SUCCESSFUL, FAILED, INPROGRESS, STOPPED); the runner only ever reports a
+#: finished battery, so only the first two are reachable from the CLI.
+STATE_MAP = {"success": "SUCCESSFUL", "failure": "FAILED"}
+
+
+def _out(text):
+    sys.stdout.write(text)
+
+
+def _err(text):
+    sys.stderr.write(text)
+
+
+def _host_of(url):
+    """The lowercased host part of a git remote URL, or an empty string.
+
+    Handles the two transports Bitbucket Cloud and GitHub both accept
+    (https://host/path and the scp-like git@host:path), plus explicit
+    ssh:// forms. Anything unreadable is simply no host, which classifies
+    as unknown: a guess about where a verdict should be posted is worse
+    than not posting."""
+    if not url:
+        return ""
+    text = url.strip()
+    m = re.match(r"^[a-z][a-z0-9+.-]*://([^/]+)", text, re.IGNORECASE)
+    if m:
+        hostport = m.group(1)
+    else:
+        m = re.match(r"^([^/@]+@)?([^:/]+):", text)
+        if not m:
+            return ""
+        hostport = m.group(2)
+    host = hostport.rsplit("@", 1)[-1]
+    host = host.split(":", 1)[0]
+    return host.lower()
+
+
+def classify(url):
+    """github, bitbucket, or unknown, from the remote URL alone."""
+    host = _host_of(url)
+    if host == "github.com" or host.endswith(".github.com"):
+        return "github"
+    if host == "bitbucket.org" or host.endswith(".bitbucket.org"):
+        return "bitbucket"
+    return "unknown"
+
+
+def workspace_repo(url):
+    """(workspace, repo) from a Bitbucket remote URL, or None.
+
+    The path's first two segments, with a trailing .git dropped. A URL
+    whose path has fewer than two segments has no repository to post to,
+    and that is a stated refusal in post(), never a guessed path."""
+    if not url:
+        return None
+    text = url.strip()
+    m = re.match(r"^[a-z][a-z0-9+.-]*://[^/]+/(.+)$", text, re.IGNORECASE)
+    if m:
+        path = m.group(1)
+    else:
+        m = re.match(r"^(?:[^/@]+@)?[^:/]+:(.+)$", text)
+        if not m:
+            return None
+        path = m.group(1)
+    parts = [p for p in path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return None
+    workspace, repo = parts[0], parts[1]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    if not workspace or not repo:
+        return None
+    return workspace, repo
+
+
+def _auth_header(env):
+    """The Authorization header value, or None with the reason printed by
+    the caller. BITBUCKET_TOKEN wins when both shapes are set, because a
+    dedicated access token is the narrower credential."""
+    token = env.get("BITBUCKET_TOKEN", "").strip()
+    if token:
+        return "Bearer " + token
+    user = env.get("BITBUCKET_USERNAME", "").strip()
+    password = env.get("BITBUCKET_APP_PASSWORD", "").strip()
+    if user and password:
+        raw = ("%s:%s" % (user, password)).encode("utf-8")
+        return "Basic " + base64.b64encode(raw).decode("ascii")
+    return None
+
+
+def post_status(url, sha, state, description, context, link, env,
+                opener=None):
+    """POST one build status. Returns (ok, message); never raises for the
+    failures a runner can meet (no credential, bad URL, HTTP refusal,
+    network down), because the caller's contract is to REPORT the failure
+    and leave the gate's exit alone."""
+    if opener is None:
+        opener = urllib.request.urlopen
+    mapped = STATE_MAP.get(state)
+    if mapped is None:
+        return False, ("not posted: state %r is not one of %s"
+                       % (state, "/".join(sorted(STATE_MAP))))
+    pair = workspace_repo(url)
+    if pair is None:
+        return False, ("not posted: could not read a workspace/repository "
+                       "pair out of the origin URL %r" % (url or ""))
+    auth = _auth_header(env)
+    if auth is None:
+        return False, ("not posted: no Bitbucket credential in the "
+                       "environment. Set BITBUCKET_TOKEN, or "
+                       "BITBUCKET_USERNAME plus BITBUCKET_APP_PASSWORD. "
+                       "The gate verdict above still stands.")
+    workspace, repo = pair
+    endpoint = "%s/%s/%s/commit/%s/statuses/build" % (
+        API_BASE, workspace, repo, sha)
+    payload = {
+        "key": context,
+        "state": mapped,
+        "description": description[:255],
+        "url": link or ("https://bitbucket.org/%s/%s" % (workspace, repo)),
+    }
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint, data=body,
+        headers={"Content-Type": "application/json", "Authorization": auth},
+        method="POST")
+    try:
+        response = opener(request, timeout=TIMEOUT_SECONDS)
+        code = getattr(response, "status", None) or response.getcode()
+    except urllib.error.HTTPError as exc:
+        return False, ("not posted: Bitbucket answered HTTP %s for %s"
+                       % (exc.code, endpoint))
+    except (urllib.error.URLError, OSError) as exc:
+        return False, ("not posted: could not reach Bitbucket (%s)"
+                       % getattr(exc, "reason", exc))
+    if code not in (200, 201):
+        return False, ("not posted: Bitbucket answered HTTP %s for %s"
+                       % (code, endpoint))
+    return True, ("posted %s=%s against %s/%s@%s"
+                  % (context, mapped, workspace, repo, sha[:12]))
+
+
+def _flag(argv, name):
+    if name in argv:
+        idx = argv.index(name)
+        if idx + 1 >= len(argv):
+            return None, "%s needs a value" % name
+        value = argv[idx + 1]
+        del argv[idx:idx + 2]
+        return value, None
+    return "", None
+
+
+def cmd_classify(argv):
+    if len(argv) != 1:
+        _err("bm_bbstatus classify: exactly one argument, the remote URL "
+             "(an empty string is allowed and reads as unknown)\n")
+        return 2
+    _out(classify(argv[0]) + "\n")
+    return 0
+
+
+def cmd_post(argv):
+    rest = list(argv)
+    values = {}
+    for name in ("--url", "--sha", "--state", "--description", "--context",
+                 "--link"):
+        value, problem = _flag(rest, name)
+        if problem:
+            _err("bm_bbstatus post: %s\n" % problem)
+            return 2
+        values[name] = value
+    if rest:
+        _err("bm_bbstatus post: unrecognized argument(s): %s\n"
+             % " ".join(rest))
+        return 2
+    for required in ("--url", "--sha", "--state", "--description"):
+        if not values[required]:
+            _err("bm_bbstatus post: %s is required\n" % required)
+            return 2
+    ok, message = post_status(
+        values["--url"], values["--sha"], values["--state"],
+        values["--description"], values["--context"] or "local-gates",
+        values["--link"], os.environ)
+    if ok:
+        _out(message + "\n")
+        return 0
+    _err(message + "\n")
+    return 3
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in ("-h", "--help"):
+        _out(__doc__)
+        return 0
+    command = argv.pop(0)
+    if command == "classify":
+        return cmd_classify(argv)
+    if command == "post":
+        return cmd_post(argv)
+    _err("bm_bbstatus: unknown command %r; expected classify or post\n"
+         % command)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

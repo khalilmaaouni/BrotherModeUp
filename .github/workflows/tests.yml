@@ -193,7 +193,7 @@ jobs:
         run: python3 tools/bm_lint_walltime.py tools/ scripts/
       # The progress-page check, added 2026-08-10 on a founder directive. It
       # decides mechanically whether a project has a plan whose progress page
-      # is missing or stale, and tools/bm_sessionstart.sh runs it at every
+      # is missing or stale, and tools/bm_sessionstart.py runs it at every
       # session start. This step runs its calibration suite, which includes the
       # assertion that the tool changes zero bytes: it executes on every
       # session start on this machine, so a tool that wrote anything there
@@ -235,6 +235,40 @@ jobs:
         run: python3 tools/test_bm_effects.py
       - name: Stall detector suite
         run: python3 tools/test_bm_stall.py
+      # The hook contract, landed 2026-08-17 with the Windows lane. Three
+      # of the six wired events ran POSIX shell until that day, so on
+      # Windows they were wired and silently dead while the install
+      # reported success. scripts/doctor.py told the USER about it; nothing
+      # told the AUTHOR. This suite is that half: every wired command must
+      # run python3, no command may wrap a shell, and the heavy PreCompact
+      # entry must declare a timeout. Stdlib only, reads two files, writes
+      # nothing. Windows BEHAVIOR stays unverified until a real machine
+      # runs the battery (docs/WINDOWS-CHECK.md); this covers the wiring.
+      - name: Run the hook contract suite
+        run: python3 tools/test_bm_hooks.py
+      # The two-host reporting arm, landed the same day. The local gate
+      # runner used to post its verdict through `gh api` against a
+      # hardcoded GitHub repository, so an adopter on Bitbucket Cloud got a
+      # reporting refusal on top of a battery that had just passed. This
+      # suite covers the routing tool AND the routing contract inside
+      # scripts/local-gates.sh: GitHub behavior unchanged including its
+      # refusal, and a Bitbucket reporting failure never changing the
+      # gate's own exit status. It makes no network call of its own; the
+      # POST path is driven through a recording opener.
+      - name: Run the host-routing reporting suite
+        run: python3 tools/test_bm_bbstatus.py
+      # The CI revision-identity capture, landed 2026-08-18 after an audit
+      # found bitbucket-pipelines.yml defined `default` alone: Bitbucket
+      # Cloud runs a pull request pipeline only when a `pull-requests:`
+      # section matches, so the adopter team's merge-time enforcement did
+      # not run at the moment it existed for. The capture step refuses a
+      # pull request run that cannot name its source, destination and
+      # tested identities, before the gate runs, so a build with no usable
+      # context stops rather than publishing a verdict about an unknown
+      # tree. This suite drives that refusal both ways and reads the
+      # pipeline file to prove the capture is ordered ahead of the gate.
+      - name: Run the CI revision-identity suite
+        run: python3 tools/test_bm_ci_context.py
       # The escalation surface, landed at 707d80c by a concurrent session
       # without either half of its registration. The local gate refused for
       # the missing SUITES entry, and the moment that was added it refused

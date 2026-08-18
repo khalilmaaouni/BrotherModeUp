@@ -755,7 +755,10 @@ each remaining HTML file in this repository is still here.
 | `STATE.template.md` | The running state file format: fences, decisions, the never-forget list |
 | `tools/bm_telemetry.py` | The mechanical half of the learning loop: session telemetry, corrections capture, scorecard, nags |
 | `tools/bm_score.py` | Code-graded weekly checks, so an LLM judge only scores what code cannot decide |
-| `tools/bm_sessionstart.sh` | Session-start hook: injects the digest, overdue-review nags, and a recovery pointer after a compaction |
+| `tools/bm_sessionstart.py` | Session-start hook: injects the digest, overdue-review nags, and a recovery pointer after a compaction. Python since 2026-08-17, so it runs on a machine with no POSIX shell |
+| `tools/bm_hookchain.py` | The hook chain driver: reads the payload once and hands it to each program in a named chain (Stop, PreCompact). Replaces the `sh -c` pipelines those two events used to run, which no Windows machine without Git Bash could execute |
+| `tools/bm_bbstatus.py` | The gate runner's reporting arm: routes a local gate verdict on the origin remote and posts a Bitbucket build status. The only module that makes a network write, never wired into a hook, documented in `SECURITY.md` |
+| `scripts/bm_ci_context.py` | Captures which revision a CI run is actually testing (source, destination, tested tree) and refuses a pull request run that cannot say, before the gate runs |
 | `tools/bm_autosave.py` | On the PreCompact hook, snapshots your whole working tree (untracked files included) to a private local git reference. Never pushes. `recover` restores it |
 | `tools/bm_threads.py` | Thread mode (opt-in): one persistent thread per key feature, plus a dashboard. Reversible mid-project |
 | `tools/bm_fence_hook.py` | The PreToolUse fence: the one hook that can REFUSE a write to a file another live session owns. Explained in `docs/HOOKS.md` |

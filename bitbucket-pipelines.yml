@@ -33,8 +33,44 @@ definitions:
       - git config --global user.email ci@example.com
       - git config --global user.name ci
       - BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
+    # The pull request leg captures WHAT IT IS ABOUT TO TEST before it tests
+    # anything, and refuses when it cannot say. A pull request build has three
+    # git identities (the source commit, the destination commit, and whatever
+    # the runner actually checked out), and a run that cannot name them has
+    # produced a verdict about an unknown tree, which is worse than no verdict
+    # because it looks like one. scripts/bm_ci_context.py exits nonzero in that
+    # case, and because it runs FIRST the step stops there rather than
+    # publishing vacuous assurance.
+    - &pr-gate-script
+      - git config --global user.email ci@example.com
+      - git config --global user.name ci
+      - python3 scripts/bm_ci_context.py bitbucket capture
+      - BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
 
 pipelines:
+  # PULL REQUESTS, added 2026-08-18. Until then this file defined `default`
+  # alone, which fires on branch pushes and NEVER on a pull request: Bitbucket
+  # Cloud runs a pull request pipeline only when a `pull-requests:` section
+  # matches. So the adopter team's merge-time enforcement, the entire reason
+  # this file exists, did not run at the moment it was supposed to. Found by
+  # reading Bitbucket's own start-condition documentation against this file
+  # rather than by a failing run, because there has never been a run: no
+  # mirror with Pipelines enabled exists yet (docs/BITBUCKET.md).
+  #
+  # UNVERIFIED, and stated here rather than only in the documentation: no
+  # pull request pipeline has ever executed for this repository. What is
+  # verified is that this file parses, that the gate command matches the one
+  # PROJECT.md documents (tools/test_bm_docs.py compares them), and that the
+  # context step refuses a run with missing pull request context (its own
+  # suite drives both directions). Whether Bitbucket triggers it is closed by
+  # the first real run and nothing else.
+  pull-requests:
+    "**":
+      - step:
+          name: Full gate on the pull request
+          image: python:3
+          max-time: 60
+          script: *pr-gate-script
   default:
     - parallel:
         # Both ends of the supported range, mirroring the GitHub matrix: the
