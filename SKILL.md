@@ -177,6 +177,19 @@ memory of it:
   the refusal is inert. docs/KNOWN-LIMITS.md states what it misses.
 - Fence THEN dispatch. Write the fence line before an agent launches, never after.
 - Never claim done without a verifying command run AFTER the last edit, quoted.
+- NO SELF-FIRING CI (founder law 2026-08-16, absolute). Never author, commit,
+  restore or copy in a workflow file that fires by itself: `on: push`,
+  `on: pull_request`, `on: pull_request_target`, `on: schedule`. Never a macOS
+  or Windows runner, on any trigger: providers bill Linux 1x, Windows 2x,
+  macOS 10x, so a free account's 2,000 monthly minutes is roughly 200 macOS
+  minutes, and one estate spent its whole month in two weeks that way, across
+  886 runs, without anyone deciding to. Verification runs LOCALLY through the
+  repository's own scripts. A workflow genuinely needed is `workflow_dispatch`
+  only, on `ubuntu-latest`, on an explicit founder decision. ENFORCEMENT is
+  estate-specific: on the author's machine a PreToolUse cost wall refuses
+  these shapes before they land; where no such wall exists this law is
+  UNENFORCED and stated so, which changes the discipline required, never the
+  rule.
 
 ## Load on demand: the routing table
 
