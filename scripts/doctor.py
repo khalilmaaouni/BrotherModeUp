@@ -58,9 +58,12 @@ WHAT NO CHECK HERE CAN TELL YOU
   mid-session is not live until the next session. Doctor checks the file and
   the code, which is everything except the client's memory.
 
-Python 3.9, standard library only, no network. Runs subprocesses only to
-execute the wired fence hook command, this project's own store CLI (check 7),
-and (never) anything else.
+Python 3.9, standard library only. Runs subprocesses only to execute the
+wired fence hook command, this project's own store CLI (check 7), local git
+(check install_identity), and the stranded_install check, whose second half
+(git ls-remote against the public origin) is the one network call this file
+makes; offline or unreachable, that check reports NO-DATA rather than a
+silent PASS.
 
 No em or en dashes anywhere in this file, its comments, or its output.
 """
@@ -68,6 +71,7 @@ No em or en dashes anywhere in this file, its comments, or its output.
 import argparse
 import collections
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -508,6 +512,7 @@ CHECK_TITLES = collections.OrderedDict((
     ("checksums", "CHECKSUMS.sha256 self-check"),
     ("settings_json", "settings.json is valid JSON"),
     ("install_identity", "this tree matches the commit it was installed from"),
+    ("stranded_install", "the installed public tag matches the public origin"),
     ("data_locations", "where your data lives, in plain language"),
 ))
 
@@ -1103,6 +1108,101 @@ def check_install_identity(root):
            _mask_home(root)))
 
 
+def check_stranded_install(root):
+    """C5: check_install_identity above proves this tree is at the commit it
+    was installed from; it says nothing about whether the PUBLIC tag every
+    onboarding page pins (PUBLIC_INSTALL_TAG in tools/bm_project_facts.py)
+    has since been moved on the public origin, for example by a re-tag after
+    a bad cut. A tree can pass install_identity and still be a STRANDED
+    install: correctly matching a commit that the public tag no longer
+    names. This check compares what refs/tags/<tag> resolves to LOCALLY
+    against what git ls-remote reports for the same ref on the public
+    origin.
+
+    Needs a local git, the tag existing locally, and the public origin
+    reachable: any one of those missing is NO-DATA, never a silent PASS,
+    because a check that cannot tell must never read as proof nothing is
+    wrong."""
+    facts_path = os.path.join(root, "tools", "bm_project_facts.py")
+    if not os.path.isfile(facts_path):
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: %s is not there, so the public install tag could not "
+            "be read." % _mask_home(facts_path))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "bm_project_facts_for_doctor", facts_path)
+        bpf = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bpf)
+        tag = bpf.PUBLIC_INSTALL_TAG
+        repo_url = bpf.REPO_URL
+    except Exception as exc:
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: %s could not be read (%s: %s), so the public install "
+            "tag could not be read."
+            % (_mask_home(facts_path), type(exc).__name__, exc))
+
+    if shutil.which("git") is None:
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: git is not on PATH, so neither the local tag nor the "
+            "public origin can be resolved.")
+    # Same GIT_* stripping as _git_head_commit above, same reason: an
+    # inherited GIT_DIR or GIT_WORK_TREE would resolve another repository's
+    # tag instead of this tree's own.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    ref = "refs/tags/%s" % tag
+    try:
+        local = subprocess.run(
+            ["git", "-C", root, "rev-parse", ref],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: could not run git to resolve local tag %s (%s: %s)."
+            % (tag, type(exc).__name__, exc))
+    if local.returncode != 0:
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: tag %s does not exist in this local tree (%s), so "
+            "there is nothing to compare against the public origin."
+            % (tag, local.stderr.strip() or "git rev-parse failed"))
+    local_sha = local.stdout.strip()
+
+    try:
+        remote = subprocess.run(
+            ["git", "ls-remote", repo_url, ref],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: could not reach the public origin to resolve %s (%s: "
+            "%s). No network, or the remote is unreachable." % (
+                tag, type(exc).__name__, exc))
+    if remote.returncode != 0 or not remote.stdout.strip():
+        return _result(
+            "stranded_install", STATUS_SKIP,
+            "NO-DATA: git ls-remote %s %s returned nothing (%s), so the "
+            "public origin's commit for this tag could not be read. No "
+            "network, or the remote is unreachable."
+            % (repo_url, ref, remote.stderr.strip() or "no output"))
+    remote_sha = remote.stdout.split()[0].strip()
+    if remote_sha == local_sha:
+        return _result(
+            "stranded_install", STATUS_PASS,
+            "PASS: the public install tag %s resolves to %s here, the same "
+            "commit the public origin resolves it to." % (tag, local_sha[:12]))
+    return _result(
+        "stranded_install", STATUS_FAIL,
+        "FAIL: the public install tag %s resolves to %s in this tree but "
+        "%s on the public origin: this install is STRANDED behind a moved "
+        "tag. Recovery: docs/PUBLIC-RELEASE-CHECK-2026-08-18.md."
+        % (tag, local_sha[:12], remote_sha[:12]))
+
+
 def check_checksums(root):
     manifest_path = os.path.join(root, "CHECKSUMS.sha256")
     if not os.path.isfile(manifest_path):
@@ -1200,6 +1300,7 @@ def run_all_checks(settings_path):
         _run_check("checksums", check_checksums, root),
         _run_check("settings_json", check_settings_json, settings_path),
         _run_check("install_identity", check_install_identity, root),
+        _run_check("stranded_install", check_stranded_install, root),
         _run_check("data_locations", check_data_locations),
     ]
 

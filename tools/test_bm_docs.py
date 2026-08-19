@@ -717,6 +717,27 @@ class TestOneInstall(unittest.TestCase):
                                  FACTS["install_target_tag"],
                                  "; ".join(offenders)))
 
+    def test_release_md_states_the_live_install_target_tag(self):
+        """C4: docs/RELEASE.md's opening 'Loop 0' paragraph once named a
+        hardcoded snapshot of install_target_tag (v2.0.0-rc.9, dated
+        2026-08-01) as if it were still current, and nothing caught it as
+        PUBLIC_INSTALL_TAG moved on to v3.3.1. This pins the sentence that
+        states the LIVE value to bm_project_facts.py's install_target_tag
+        directly, so the line can never drift again."""
+        text = read(os.path.join("docs", "RELEASE.md"))
+        m = re.search(
+            r"PUBLIC_INSTALL_TAG`? in `?tools/bm_project_facts\.py`?,?\s*"
+            r"currently `([^`]+)`", text)
+        self.assertIsNotNone(
+            m,
+            "docs/RELEASE.md no longer states the live PUBLIC_INSTALL_TAG "
+            "value in the expected sentence shape")
+        self.assertEqual(
+            m.group(1), FACTS["install_target_tag"],
+            "docs/RELEASE.md's live install-target sentence names %s, but "
+            "bm_project_facts.py's PUBLIC_INSTALL_TAG is %s"
+            % (m.group(1), FACTS["install_target_tag"]))
+
 
 class TestPluginMarketplacePin(unittest.TestCase):
     """DEFECT A from the 2026-08-07 external review: the easiest install path

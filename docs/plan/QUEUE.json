@@ -1208,7 +1208,7 @@
     "docs/KNOWN-LIMITS.md",
     "tools/bm_fence_hook.py"
    ],
-   "done_check": "either the hook ships a supported query verb that answers for a path without a synthetic payload, or the limits page states by name that hand-built probes of it are not authoritative and the only authoritative answer is attempting the write"
+   "done_check": "python3 tools/test_bm_fence_hook.py QueryVerb green: tools/bm_fence_hook.py ships a `query PATH [--session-id ID]` verb that calls decide(), the same function cmd_hook() calls, and QueryVerb pins its verdict equal to decide()'s own verdict on four cases (unclaimed path allow, foreign claim deny, own claim allow, unreadable store fail-open with reason printed)"
   }
  ]
 }

@@ -480,7 +480,9 @@ git clone --branch main https://github.com/khalilmaaouni/BrotherModeUp.git ~/.cl
 **Preflight.** Then follow `docs/QUICKSTART.md` (or the longer reference,
 `docs/SETUP.md`) to run the gate, wire the hooks (one installer command does
 it), and point a vault folder somewhere on your disk. `python3
-scripts/doctor.py` runs ten environment checks with plain-language remediation.
+scripts/doctor.py` runs ten environment checks with plain-language remediation,
+including whether this install's pinned public tag has since been moved on
+the public origin: [`docs/PUBLIC-RELEASE-CHECK-2026-08-18.md`](docs/PUBLIC-RELEASE-CHECK-2026-08-18.md).
 Invoke with `/brothermode` at the start of a sizable task.
 
 Which release this is, and how many hooks get wired, are not typed by hand on

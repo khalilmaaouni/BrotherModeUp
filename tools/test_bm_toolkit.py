@@ -719,6 +719,73 @@ class RouteDisabledPrintsReasonTests(unittest.TestCase):
             out)
 
 
+class ShippedDegradeMessagesNameOnlyWhatExistsTests(unittest.TestCase):
+    """M7: two of the SHIPPED tools/toolkit_routes.json degrade sentences
+    overclaimed what the machine actually delivers. The tdd route's
+    degrade_path named a "test-first law" that exists nowhere in this
+    project (docs/NORTH-STAR-CHAIN.md's own PARTLY-REAL audit finding for
+    tdd), and the security-check route's reason and degrade_path both
+    claimed secret scanning was "already in the gate" when no suite in
+    tools/test_all.py scans the tree for secrets (the same audit's
+    PARTLY-REAL finding for security-check).
+
+    These tests run the REAL CLI against the SHIPPED default routing table
+    (no --routes override), so they read exactly what an installed copy of
+    this project would print, and they pin two things: the false phrases
+    are gone, and what remains is still true (dash scan and write-site
+    inventory really are exercised by tools/test_all.py)."""
+
+    def test_tdd_degrade_path_names_no_test_first_law(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            result = run_cli("route", "tdd", "--home", tmp, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("[DEGRADE]", out)
+        self.assertNotIn("test-first law", out,
+                         "the tdd degrade path still claims a test-first "
+                         "law that exists nowhere in this project")
+        self.assertIn("gate battery (tools/test_all.py)", out)
+        self.assertIn("that discipline is on the operator, not the machine", out)
+
+    def test_security_check_messages_name_no_secret_scan_already_in_the_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            minimal_home(tmp)
+            result = run_cli("route", "security-check", "--home", tmp,
+                              "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn("[DEGRADE]", out)
+        self.assertNotIn("secret scan", out.lower(),
+                         "a security-check message still claims secret "
+                         "scanning is part of the native floor, but no "
+                         "suite in tools/test_all.py scans the tree for "
+                         "secrets")
+        # What remains true stays asserted, not just the false part removed:
+        # dash scan and write-site inventory really are in the gate.
+        self.assertIn("dash scan, write-site inventory and effect classes, "
+                      "all already in the gate", out)
+        self.assertIn("no suite in this project scans the tree for leaked "
+                      "credentials", out)
+
+    def test_neither_source_file_carries_the_false_phrases(self):
+        """Belt beside the CLI-output assertions above: the false phrases
+        must be gone from BOTH copies of the routing table (the shipped
+        tools/toolkit_routes.json and its embedded copy in
+        tools/bm_toolkit.py), not merely absent from one code path's
+        output."""
+        routes_json_path = os.path.join(HERE, "toolkit_routes.json")
+        toolkit_py_path = TOOL_PATH
+        for path in (routes_json_path, toolkit_py_path):
+            text = io.open(path, encoding="utf-8").read()
+            self.assertNotIn("test-first law", text,
+                             "%s still names a test-first law that exists "
+                             "nowhere in this project" % path)
+            self.assertNotIn("secret scan", text.lower(),
+                             "%s still claims secret scanning is already "
+                             "in the gate" % path)
+
+
 class RouteUnknownClassRefusedTests(unittest.TestCase):
     """Test 23 (TK4, load-bearing behavior 4): a task class the routing
     table does not carry is refused BY NAME, listing every known class,

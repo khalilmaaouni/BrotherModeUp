@@ -51,9 +51,11 @@ RECONCILED 2026-08-01, opening the release-closure program (Loop 0): the tree
 now reads `2.0.0-rc.12.dev1`, a DEVELOPMENT identity, not a release candidate.
 `release_tag` is `None` for it on purpose: a development identity claims no
 tag at all. The public install target stays pinned at the last tag actually
-known to resolve, `install_target_tag`, currently `v2.0.0-rc.9`, independent
-of whatever VERSION says. See "The version law" below for the rule this
-follows.
+known to resolve, `install_target_tag`. That was `v2.0.0-rc.9` when this
+paragraph was written 2026-08-01; it has moved since. The live value is
+`PUBLIC_INSTALL_TAG` in `tools/bm_project_facts.py`, currently `v3.3.1`,
+independent of whatever VERSION says. See "The version law" below for the
+rule this follows.
 
 `2.0.0-rc.11` and `2.0.0-rc.10` are both **SUPERSEDED, NEVER TAGGED**. Both
 were cut the same day, 2026-08-01: rc.11's release-cut commit is `54cb898`,

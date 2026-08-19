@@ -1290,10 +1290,75 @@ def cmd_whoami(argv):
     return rc
 
 
+def cmd_query(argv):
+    """Would the fence allow writing PATH right now? C3 (the real M11): a
+    query verb callable from the command line, for anyone who wants the
+    hook's answer without staging an actual edit for Claude Code to catch.
+
+    Answers by building the same PreToolUse-shaped payload the real hook
+    would receive for an Edit of PATH, under the given session, and handing
+    it to decide() -- the exact function cmd_hook() calls. This is a thin
+    wrapper around that one decision, never a second implementation of the
+    fence rule: any drift between what this prints and what the real hook
+    does would mean the two calls ran different code, which they cannot.
+
+    Usage: bm_fence_hook.py query PATH [--session-id ID]
+    Session id lookup order matches session-label: --session-id, then
+    BM_FENCE_SESSION_ID.
+
+    Prints ALLOW or DENY (with the reason) on stdout; exits 0 for ALLOW
+    (including a fail-open, which is an allow with the reason on stderr,
+    same as the real hook), 1 for DENY, 2 for a usage error."""
+    path = None
+    session_id = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--session-id" and i + 1 < len(argv):
+            session_id = argv[i + 1]
+            i += 2
+            continue
+        if a.startswith("--session-id="):
+            session_id = a.split("=", 1)[1]
+            i += 1
+            continue
+        if path is None:
+            path = a
+        i += 1
+    if not path:
+        _warn("bm_fence_hook: query needs a PATH: bm_fence_hook.py query "
+              "PATH [--session-id ID]")
+        return 2
+    if not session_id:
+        session_id = os.environ.get("BM_FENCE_SESSION_ID", "")
+    session_id = (session_id or "").strip()
+    if not session_id:
+        _warn("bm_fence_hook: no session id. Pass --session-id X or set "
+              "BM_FENCE_SESSION_ID.")
+        return 2
+    p = {
+        "session_id": session_id,
+        "cwd": os.getcwd(),
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {"file_path": path},
+    }
+    decision, notes = decide(p)
+    for n in notes:
+        _warn(n)
+    if decision is None:
+        _out("ALLOW %s\n" % path)
+        return 0
+    reason = decision["hookSpecificOutput"]["permissionDecisionReason"]
+    _out("DENY %s: %s\n" % (path, reason))
+    return 1
+
+
 _COMMANDS = {
     "hook": cmd_hook,
     "session-label": cmd_session_label,
     "whoami": cmd_whoami,
+    "query": cmd_query,
 }
 
 

@@ -1443,6 +1443,83 @@ class WireProtocol(FenceHookBase):
 
 
 # ---------------------------------------------------------------------------
+# Query verb (C3, the real M11): a command-line answer to "would the fence
+# allow this write", pinned to run the SAME decide() the PreToolUse hook
+# runs. All four claims below are built with bs.Store / self.claim (the
+# store's own API), never by hand-writing store files.
+# ---------------------------------------------------------------------------
+
+class QueryVerb(FenceHookBase):
+
+    def run_query(self, path, session_id, env=None):
+        return subprocess.run(
+            [sys.executable, HOOK_PATH, "query", path,
+             "--session-id", session_id],
+            capture_output=True, text=True, cwd=self.root,
+            env=_clean_env(env))
+
+    def test_a_unclaimed_path_default_mode_is_allowed(self):
+        """No claim covers the path at all: the real hook allows it (the
+        default-mode common case), and so must the query verb."""
+        real_decision, _n = self.decide(
+            payload(self.OTHER, self.root,
+                    tool_input={"file_path": "src/other.py"}))
+        self.assertIsNone(real_decision, "pre-check: the real hook must "
+                          "allow this too, or the fixture is wrong")
+        r = self.run_query("src/other.py", self.OTHER)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("ALLOW"), r.stdout)
+
+    def test_b_path_claimed_by_another_session_is_refused(self):
+        """VICTIM claims src/app.py; OTHER asks whether OTHER may write it.
+        The real hook denies (CalibratedOwnership.test_calibrated_2 above);
+        the query verb must report the same DENY, not a different verdict
+        reached by its own logic."""
+        mine = self.label(self.VICTIM)
+        self.claim("api", ["src/app.py"], mine)
+        real_decision, _n = self.decide(payload(self.OTHER, self.root))
+        self.assertIsNotNone(real_decision, "pre-check: the real hook must "
+                             "deny this too, or the fixture is wrong")
+        r = self.run_query("src/app.py", self.OTHER)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertTrue(r.stdout.startswith("DENY"), r.stdout)
+        self.assertIn(mine, r.stdout)
+
+    def test_c_path_claimed_by_the_asking_session_is_allowed(self):
+        """VICTIM claims src/app.py under its OWN label, then VICTIM asks
+        whether VICTIM may write it. Ownership, not mere absence of a
+        claim, is what must allow this one."""
+        mine = self.label(self.VICTIM)
+        self.claim("api", ["src/app.py"], mine)
+        real_decision, _n = self.decide(payload(self.VICTIM, self.root))
+        self.assertIsNone(real_decision, "pre-check: the real hook must "
+                          "allow the owner too, or the fixture is wrong")
+        r = self.run_query("src/app.py", self.VICTIM)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("ALLOW"), r.stdout)
+
+    def test_d_unreadable_fence_state_fails_open_with_reason_printed(self):
+        """The store is deleted mid-session (same fixture as
+        CalibratedFailOpen.test_calibrated_4): default mode fails OPEN, and
+        the reason must be printed, not swallowed, same as the real hook's
+        stderr contract."""
+        self.claim("api", ["src/app.py"], self.label(self.VICTIM))
+        for suffix in ("", "-wal", "-shm"):
+            p = bs.store_path(self.root) + suffix
+            if os.path.exists(p):
+                os.remove(p)
+        real_decision, real_notes = self.decide(payload(self.OTHER, self.root))
+        self.assertIsNone(real_decision, "pre-check: the real hook must "
+                          "fail open too, or the fixture is wrong")
+        self.assertIn("FAILING OPEN", " ".join(real_notes))
+        r = self.run_query("src/app.py", self.OTHER)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("ALLOW"), r.stdout)
+        self.assertIn("FAILING OPEN", r.stderr)
+        self.assertIn("no store at", r.stderr)
+
+
+# ---------------------------------------------------------------------------
 # Cost: this runs before EVERY edit.
 # ---------------------------------------------------------------------------
 
