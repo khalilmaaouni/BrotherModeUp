@@ -1458,6 +1458,97 @@
     "tools/test_bm_handover.py"
    ],
    "done_check": "zip refreshes the board copy from the live board, or verify-close FAILS naming the drift: edit docs/plan/GANTT.html after skeleton, run zip, and confirm the archived copy's sha256 equals the live board's; a regression test fails on the pre-fix capture-once behaviour"
+  },
+  {
+   "id": "M20",
+   "title": "doctor does not run the wired hook command with SHELL semantics, so a configured command carrying a redirection is judged on output the real harness would have thrown away: reproduced 2026-08-21, shlex.split keeps the redirection as a literal token, doctor's non-shell run captures the full deny JSON and reports 0 problems, while the same command under a real shell returns exit 0 with empty stdout for BOTH the deny and the allow case, making them indistinguishable. PRE-EXISTING, not introduced by M17; found by the cross-family debate of 2026-08-21 (finding 6, BLOCKER) and reproduced by command",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "scripts/doctor.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "a wired command carrying a redirection is judged the way the harness would actually run it, or doctor reports that it cannot tell; a regression test wires such a command and fails on the pre-fix argument-list execution"
+  },
+  {
+   "id": "M21",
+   "title": "zip reconciles a board that APPEARED or DISAPPEARED since skeleton, not only one that changed: if skeleton copied the older COMMAND-CENTER.html candidate and GANTT.html appears before zip, the pack ends up carrying both while the generated read-me still points at the stale one; if the board disappears entirely, board_abs is None and the old copy is archived unchanged. Cross-family debate 2026-08-21 (finding 9, MAJOR)",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_handover.py",
+    "tools/test_bm_handover.py"
+   ],
+   "done_check": "a pack whose board candidate changed name, or whose board vanished, is reported rather than silently archived; regression tests cover both directions and fail on the pre-fix behaviour"
+  },
+  {
+   "id": "M22",
+   "title": "reading SCHEMA_VERSION out of a source file as text can certify a runtime version that is not real: the constant may be shadowed, computed, or overridden at import, so the text parser answers about the literal rather than about what the module would actually use. Cross-family debate 2026-08-21 (finding 10, MAJOR). The text read was a deliberate choice, because importing a stale or foreign copy runs its module level code, so the fix is a better question rather than an import",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "scripts/migrate_install.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "the reported version is one the wired copy would actually use, or is reported as NO-DATA; a regression test plants a source file whose literal and effective values differ and fails on the pre-fix text read"
+  },
+  {
+   "id": "M23",
+   "title": "the doctor's real-store verify turns ANY nonzero exit into the definitive claim that the wired hook cannot read the store: another process committing a park between the store write and the STATE.md regeneration makes verify report view drift, and doctor then names a false cause and a false remedy (upgrade your hook) for a hook that is healthy. Fails toward FAIL, which is the safer direction, but the diagnosis and the instruction are both wrong. Cross-family debate 2026-08-21 (finding 11, MAJOR)",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "scripts/doctor.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "a nonzero verify is distinguished by its reason before a cause is named, or the message says which reasons it could not distinguish; a regression test drives a view-drift verify and fails on the pre-fix blanket message"
+  },
+  {
+   "id": "M24",
+   "title": "subprocess output is decoded with the machine locale in the doctor and installer paths that do not pass an explicit encoding: under a non UTF-8 locale a child emitting a path with an accented character raises UnicodeDecodeError, and in migrate_install --apply that happens AFTER the install directory has been removed, leaving it deleted. M18's two install subprocesses do specify UTF-8; M17's init, session-label, claim, hook-query and real-store verify calls do not. Cross-family debate 2026-08-21 (finding 12, MAJOR); this estate has been burned by this exact class on another platform before",
+   "state": "queued",
+   "stage": "method",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "scripts/doctor.py",
+    "scripts/migrate_install.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "every subprocess reading text in these two scripts names its encoding and handles a decode failure without losing state; a regression test drives a child emitting non-ASCII under a forced locale and fails on the pre-fix calls"
+  },
+  {
+   "id": "M25",
+   "title": "the doctor's simulation claims nothing outside its temporary directory is written, but its subprocesses can create or refresh a bytecode cache beside the installed hook when PYTHONDONTWRITEBYTECODE is unset and that directory is writable. Small in effect, listed because the docstring makes an explicit promise the code does not keep. Cross-family debate 2026-08-21 (finding 13, MINOR)",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 30,
+   "files": [
+    "scripts/doctor.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "the simulation either writes nothing outside its temporary directory or its docstring stops promising that; a regression test asserts no new bytecode cache appears beside a fixture install"
+  },
+  {
+   "id": "M26",
+   "title": "the M17 and M18 regression suites are green without covering the property they claim: neither M18 test creates a real store at a schema the wired copy cannot open, so both pass on a SOURCE version comparison rather than on the wired copy being able to reach a verdict, and both wire only the same skill directory the code already assumes. Cross-family debate 2026-08-21 (finding 14, MAJOR)",
+   "state": "queued",
+   "stage": "required-proof",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/test_bm.py"
+   ],
+   "done_check": "each test drives a real store the wired copy genuinely cannot open, and fails when the code is changed to compare source constants only"
   }
  ]
 }
