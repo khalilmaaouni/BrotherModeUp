@@ -1283,6 +1283,19 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "store claims render an agent-bearing fence line the INSTALLED sbe reconcile parses; regression test drives the installed read_declarations and fails on the pre-fix render; peer break-glass record deleted in the same change"
+  },
+  {
+   "id": "M13",
+   "title": "the same two registries still cannot recognise each other's OWNER, which is the half M12 did not close: the installed sbe_fence_hook.same_session prefix-matches the raw harness session id against the derived bm1- label bm_store.py writes, and neither is a prefix of the other, so the hook refuses the rightful owner out of their own fence (measured 2026-08-20 by the day-run closing session, which was refused its own claimed write of docs/plan/GANTT.html and continued under the hook's documented BROTHERSBE_FENCE_SESSION identity override, never its off switch)",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a fence line written by bm_store.py claim carries an identity the INSTALLED sbe_fence_hook.same_session matches for the harness session that made the claim, proven by a regression test that fails on the current single-label render, plus one real edit the hook refused before the fix and allows after it, both verdicts quoted"
   }
  ]
 }
