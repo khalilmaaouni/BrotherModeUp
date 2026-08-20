@@ -2521,6 +2521,11 @@ REFUSAL_HELP = {
         "the path points outside your project, and nothing outside it is "
         "touched",
         "Name a file inside the project folder."),
+    "bad-reality-kind": (
+        "recording what happened after a release",
+        "the kind of entry is not one this record understands: it takes an "
+        "acceptance, a reopen, a rollback, an incident or a defect",
+        "Say which of those five this is, and I will record it."),
     "bad-relation": (
         "linking two rules together",
         "the link you asked for is not one of the ones this understands",
@@ -2583,6 +2588,11 @@ REFUSAL_HELP = {
         "reading or updating your project records",
         "something else is writing to them at this exact moment",
         "Wait a moment and ask again."),
+    "defect-without-intent": (
+        "entering a defect found after a release",
+        "a defect has to turn into a new piece of work, and this one opened "
+        "none, so it would be noticed once and then lost",
+        "Ask me to enter it again so it opens a piece of work you can pick up."),
     "dependency-cycle": (
         "planning the order of the work",
         "two steps each wait on the other, so neither could ever start",
@@ -2696,6 +2706,12 @@ REFUSAL_HELP = {
         "starting a piece of work under that name",
         "an open piece of work already has that name",
         "Pick another name, or ask for the status of the open one."),
+    "no-accepted-release": (
+        "recording something that happened after a release, like a rollback "
+        "or an incident",
+        "it points back at a release nobody recorded accepting, so there is "
+        "nothing for it to hang from",
+        "Record who accepted that release first, then enter this against it."),
     "no-alternative": (
         "recording a decision that needs you",
         "it names nothing that was weighed against it, and the road not "
@@ -2962,6 +2978,12 @@ REFUSAL_HELP = {
         "the replacements loop back to where they started, so no rule "
         "would be the current one",
         "Name a rule that is not already in that chain."),
+    "unaccountable-acceptance": (
+        "recording that you accepted a release",
+        "the record carries no name, and nobody accepts a release "
+        "anonymously: months later the only question anyone asks is who "
+        "said yes",
+        "Ask me to record it again and say who accepted it."),
     "unacknowledged-quarantine": (
         "opening your project records",
         "a damaged copy was set aside earlier and nobody has said what to "
