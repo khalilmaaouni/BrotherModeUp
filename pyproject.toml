@@ -99,6 +99,7 @@ package-dir = { "" = "tools", "brotherme" = "brotherme" }
 py-modules = [
     "bm_bench",
     "bm_passport",
+    "bm_passport_validator",
     "brothermode_cli",
     "bm_continue",
     "bm_store",
