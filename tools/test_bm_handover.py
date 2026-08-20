@@ -322,6 +322,48 @@ class TestVerifyClose(HandoverCase):
         self.assertIn("NO-DATA", out)
         self.assertNotIn("PASS", out)
 
+    def test_m10_zero_claimed_records_with_a_full_pack_gets_a_real_verdict(self):
+        """M10 (docs/plan/QUEUE.json). Check 4's own comment used to close
+        with "the one legitimate case, a brand new session that never
+        claimed anything, is exactly the case with no pack to close
+        either" -- disproven 2026-08-15 by a session that did real,
+        closeable work (a full, clean, zipped pack) while claiming zero
+        fence records.
+
+        REPRODUCED pre-fix: BM_FENCE_SESSION_ID set to a session id that
+        owns no record anywhere in this store (never once called
+        self.claim), every other check satisfied (filled, zipped, status
+        line present), and verify-close returned NO-DATA instead of PASS,
+        because "session not in known" was read as an unanswerable
+        question even for an id nobody could have mistyped: it came
+        straight from the harness's own env var, not a human's --session
+        flag."""
+        os.environ["BM_FENCE_SESSION_ID"] = "never-claimed-anything"
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+        self.assertNotIn("NO-DATA", out)
+
+    def test_m10_explicit_session_flag_still_refuses_an_unknown_id(self):
+        """The other half: the typo guard M10 must NOT weaken. A
+        human-typed --session naming an id the store has never seen is
+        exactly what a typo produces, and stays NO-DATA, never PASS,
+        even though every other check on this same pack is clean."""
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session",
+            "audit-fake-session")
+        self.assertNotEqual(0, code, out)
+        self.assertIn("NO-DATA", out)
+        self.assertNotIn("PASS", out)
+
     def test_f6_adopted_state_is_also_unparked_and_owned(self):
         """A2b: with --session given, the old check filtered state=="active"
         only. An "adopted" record is equally unparked and equally owned

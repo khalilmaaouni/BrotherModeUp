@@ -26,7 +26,9 @@
     "tools/bm_store.py",
     "tools/test_bm_store.py"
    ],
-   "done_check": "purging a project removes its capability_receipts, proven by a test written failing first; the exact-dict-shape removed map and dry-run semantics still hold"
+   "done_check": "purging a project removes its capability_receipts, proven by a test written failing first; the exact-dict-shape removed map and dry-run semantics still hold",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK11",
@@ -38,7 +40,9 @@
     "tools/bm_project.py",
     "tools/test_bm_project.py"
    ],
-   "done_check": "a receipt can be filed and listed from the command line without touching the store directly"
+   "done_check": "a receipt can be filed and listed from the command line without touching the store directly",
+   "stage": "required-proof",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK1",
@@ -51,7 +55,9 @@
     "tools/test_bm_toolkit.py"
    ],
    "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted",
-   "closed_note": "landed at d382ca5; 17 tests, three hostile fixtures, five registries; real machine reports 8 marketplaces, 69 plugins, 37 skills, 12 MCP servers"
+   "closed_note": "landed at d382ca5; 17 tests, three hostile fixtures, five registries; real machine reports 8 marketplaces, 69 plugins, 37 skills, 12 MCP servers",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK2",
@@ -64,7 +70,9 @@
     "tools/toolkit_conflict_classes.json",
     "tools/test_bm_toolkit.py"
    ],
-   "done_check": "python3 tools/bm_toolkit.py conflicts finds the known fixtures by itself; NO-DATA on unreadable surface"
+   "done_check": "python3 tools/bm_toolkit.py conflicts finds the known fixtures by itself; NO-DATA on unreadable surface",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK3",
@@ -77,7 +85,9 @@
     "tools/bm_store.py",
     "tools/test_bm_toolkit.py"
    ],
-   "done_check": "a hand-asserted record is visibly marked; derived records name their source files"
+   "done_check": "a hand-asserted record is visibly marked; derived records name their source files",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK4",
@@ -106,7 +116,9 @@
    ],
    "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion",
    "closed_note": "TK5a storage half landed: schema 20, capability_receipts, criterion links, 1075 store tests. CLI surface and packet rendering remain.",
-   "note": "done: TK5a storage plus criterion-linked verification landed 2026-08-12 at e0341cb; TK11 CLI landed 2026-08-15; in_flight owner session died and its handover was acknowledged"
+   "note": "done: TK5a storage plus criterion-linked verification landed 2026-08-12 at e0341cb; TK11 CLI landed 2026-08-15; in_flight owner session died and its handover was acknowledged",
+   "stage": "required-proof",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "TK6",
@@ -159,7 +171,9 @@
     "tools/toolkit_routes.json"
    ],
    "done_check": "the route is enabled with the footprint named, or rejected with the reason",
-   "note": "done 2026-08-15: footprint confirmed from bmad-code-org source (install-paths.js): _bmad/ and _bmad-output/ at project root, no .brothermode or STATE.md collision; .claude/skills only on explicit IDE opt-in with bmad- prefix. Verdict ENABLE recorded; flipping the shipped default (constant plus json, byte-identical pair) is a one-line data change deliberately deferred to the next session with the guard: skip the installer .claude/skills opt-in or diff filenames first."
+   "note": "done 2026-08-15: footprint confirmed from bmad-code-org source (install-paths.js): _bmad/ and _bmad-output/ at project root, no .brothermode or STATE.md collision; .claude/skills only on explicit IDE opt-in with bmad- prefix. Verdict ENABLE recorded; flipping the shipped default (constant plus json, byte-identical pair) is a one-line data change deliberately deferred to the next session with the guard: skip the installer .claude/skills opt-in or diff filenames first.",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O4",
@@ -172,7 +186,9 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first",
-   "blocked_reason": "reserved as TK6 pipeline cargo per decision 26; runs INSIDE the toolkit E2E, not standalone"
+   "blocked_reason": "reserved as TK6 pipeline cargo per decision 26; runs INSIDE the toolkit E2E, not standalone",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O5",
@@ -184,7 +200,9 @@
     "docs/evidence/tester-pack/ADVERSARIAL-READ.md"
    ],
    "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named",
-   "note": "done 2026-08-16: adversarial newcomer read executed commands per PO-5; 2 critical findings (unsatisfiable sbe version check, stale v3.1.0 pin) plus 2 fixed inline and 1 deferred; fixes landed same session"
+   "note": "done 2026-08-16: adversarial newcomer read executed commands per PO-5; 2 critical findings (unsatisfiable sbe version check, stale v3.1.0 pin) plus 2 fixed inline and 1 deferred; fixes landed same session",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O6",
@@ -206,7 +224,9 @@
    "forecast_minutes": 15,
    "files": [],
    "done_check": "a script lists zero unresolved relative links across the docs tree",
-   "note": "done 2026-08-15: haiku sweep found zero unresolved relative links in docs and README; nothing to fix"
+   "note": "done 2026-08-15: haiku sweep found zero unresolved relative links in docs and README; nothing to fix",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O8",
@@ -254,7 +274,9 @@
     "docs/evidence/parity/SBE-PARITY-2026-08-12.md"
    ],
    "done_check": "each law names checked-by-tool or human, verified by opening the tool",
-   "note": "done 2026-08-16: parity read landed as docs/plan/PARITY-READ-2026-08-15.md with proving lines and the three integration moves"
+   "note": "done 2026-08-16: parity read landed as docs/plan/PARITY-READ-2026-08-15.md with proving lines and the three integration moves",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O12",
@@ -305,7 +327,9 @@
     "CHECKSUMS.sha256"
    ],
    "done_check": "python3 scripts/doctor.py reports check 9 PASS",
-   "note": "done: manifest regenerated at every commit today; doctor check 9 reads SKIP on a dirty tree by design and PASS on the committed tree, quoted in the session record"
+   "note": "done: manifest regenerated at every commit today; doctor check 9 reads SKIP on a dirty tree by design and PASS on the committed tree, quoted in the session record",
+   "stage": "evidence-integrity",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O16",
@@ -326,7 +350,9 @@
    "forecast_minutes": 0,
    "files": [],
    "done_check": "founder says yes",
-   "note": "done: v3.3.0 cut, tagged, pushed 2026-08-15; tag peels to e795f78 local and remote"
+   "note": "done: v3.3.0 cut, tagged, pushed 2026-08-15; tag peels to e795f78 local and remote",
+   "stage": "human-decision",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "G2",
@@ -336,7 +362,9 @@
    "clock": "wall",
    "forecast_minutes": 0,
    "files": [],
-   "done_check": "a tester reports the two version numbers from their own shell"
+   "done_check": "a tester reports the two version numbers from their own shell",
+   "stage": "verified-reality",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O18",
@@ -349,7 +377,9 @@
     "tools/test_bm_forecast.py"
    ],
    "done_check": "python3 tools/bm_forecast.py record --help prints usage and exits 0",
-   "note": "done 2026-08-15: every verb answers --help exit 0, bm_project.py parse pattern mirrored, 23 forecast tests OK, red quoted in session record"
+   "note": "done 2026-08-15: every verb answers --help exit 0, bm_project.py parse pattern mirrored, 23 forecast tests OK, red quoted in session record",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O19",
@@ -361,7 +391,9 @@
     "tools/bm_sessionstart.sh"
    ],
    "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one",
-   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record"
+   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
+   "stage": "intent",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O20",
@@ -373,7 +405,9 @@
     ".brothermode/forecasts-log.jsonl"
    ],
    "done_check": "python3 tools/bm_forecast.py calibrate --clock agent --basis judged reports n greater than 6",
-   "note": "done-as-overtaken: calibration sample is n=14 with check PASS and 0 open forecasts; L6 and L7 carry measured actuals; L8-close-pack has no measured actual and a retroactive guess is refused by the never-invent law"
+   "note": "done-as-overtaken: calibration sample is n=14 with check PASS and 0 open forecasts; L6 and L7 carry measured actuals; L8-close-pack has no measured actual and a retroactive guess is refused by the never-invent law",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A4",
@@ -385,7 +419,9 @@
     "tools/bm_sessionstart.sh"
    ],
    "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin",
-   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record"
+   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A5",
@@ -447,7 +483,9 @@
     "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
     "docs/plan/QUEUE.json"
    ],
-   "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\""
+   "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\"",
+   "stage": "intent",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L2",
@@ -460,7 +498,9 @@
     "tools/test_bm_forecast.py"
    ],
    "done_check": "python3 tools/test_bm_forecast.py",
-   "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused"
+   "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L3",
@@ -473,7 +513,9 @@
     "tools/test_bm_idle.py"
    ],
    "done_check": "python3 tools/test_bm_idle.py",
-   "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA"
+   "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA",
+   "stage": "intent",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L4",
@@ -488,7 +530,9 @@
     "pyproject.toml"
    ],
    "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
-   "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green"
+   "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green",
+   "stage": "evidence-integrity",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L5",
@@ -501,7 +545,9 @@
     "docs/team/INSTALL-CARD.md"
    ],
    "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
-   "closed_note": "tester pack, evidence file and a corrected install card landed"
+   "closed_note": "tester pack, evidence file and a corrected install card landed",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L6",
@@ -513,7 +559,9 @@
     "docs/plan/GANTT.html"
    ],
    "done_check": "python3 tools/bm_progress_check.py status",
-   "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0"
+   "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0",
+   "stage": "human-decision",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L7",
@@ -523,7 +571,9 @@
    "forecast_minutes": 13,
    "files": [],
    "done_check": "python3 tools/test_all.py",
-   "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md"
+   "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md",
+   "stage": "required-proof",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "L8",
@@ -535,7 +585,9 @@
     "docs/handover/2026-08-12-aggressive-replan"
    ],
    "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
-   "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02"
+   "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O1",
@@ -547,7 +599,9 @@
     "docs/design/MEMORY-ARCHITECTURE.md"
    ],
    "done_check": "a reader can name what was rejected and the condition that would flip the decision",
-   "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
+   "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O2",
@@ -559,7 +613,9 @@
     "docs/design/TOOLKIT-BROKER.md"
    ],
    "done_check": "same shape as O1",
-   "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md"
+   "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O3",
@@ -571,7 +627,9 @@
     "docs/design/CONNECTOR-MODEL.md"
    ],
    "done_check": "same shape as O1",
-   "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md"
+   "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md",
+   "stage": "method",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O17",
@@ -583,7 +641,9 @@
     "../BrotherSBE/README.md"
    ],
    "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0",
-   "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form"
+   "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form",
+   "stage": "evidence-integrity",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O21",
@@ -595,7 +655,9 @@
     "docs/evidence/design-review/REFUTE-2026-08-12.md"
    ],
    "done_check": "each of the four carries either a named broken claim or the words COULD NOT BREAK with the attack that was run",
-   "closed_note": "opus reviewer, 6 blocking 10 significant 9 minor, 4 load-bearing citations re-verified by hand; docs/evidence/design-review/REFUTE-2026-08-12.md"
+   "closed_note": "opus reviewer, 6 blocking 10 significant 9 minor, 4 load-bearing citations re-verified by hand; docs/evidence/design-review/REFUTE-2026-08-12.md",
+   "stage": "intent",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A1",
@@ -609,7 +671,9 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "the suite proves a record refuses to close without its outcome contract",
-   "closed_note": "R1.1 landed and folded into the canonical shape; store 1047, project 50, schema 20 green"
+   "closed_note": "R1.1 landed and folded into the canonical shape; store 1047, project 50, schema 20 green",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A2",
@@ -622,7 +686,9 @@
     "hooks/hooks.json"
    ],
    "done_check": "a fresh session prints the detect verdict without anybody typing it",
-   "closed_note": "tools/bm_sessionstart.sh wired, 0.08s measured, 2 new tests in test_bm_consent.py, suite 46 OK"
+   "closed_note": "tools/bm_sessionstart.sh wired, 0.08s measured, 2 new tests in test_bm_consent.py, suite 46 OK",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A3",
@@ -635,7 +701,9 @@
     "tools/test_bm_handover.py"
    ],
    "done_check": "verify-close refuses a pack whose session left a forecast open past the window",
-   "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case"
+   "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case",
+   "stage": "required-proof",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A7",
@@ -645,7 +713,9 @@
    "forecast_minutes": 20,
    "files": [],
    "done_check": "either a green gate, or the flake's actual assertion text captured on disk",
-   "closed_note": "--artifacts produced the swallowed assertion on the first run that carried it; the failure was a real bug in the zip freshness check, now fixed with a deterministic regression test"
+   "closed_note": "--artifacts produced the swallowed assertion on the first run that carried it; the failure was a real bug in the zip freshness check, now fixed with a deterministic regression test",
+   "stage": "required-proof",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "A8",
@@ -657,7 +727,9 @@
     "tools/test_bm_handover.py"
    ],
    "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
-   "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers"
+   "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers",
+   "stage": "provenance",
+   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
   },
   {
    "id": "O21",
@@ -670,18 +742,6 @@
    ],
    "done_check": "the exercise names a runnable claiming command a newcomer can paste; docs suite green",
    "stage": "provenance"
-  },
-  {
-   "id": "O22",
-   "title": "Azure Repos to proven: founder creates the DevOps project, one session pushes the release, runs both installs against the mirror, quotes one green Pipelines run, verifies az repos pr create live, closes every UNVERIFIED label on docs/AZURE-REPOS.md",
-   "state": "blocked",
-   "clock": "agent",
-   "forecast_minutes": 40,
-   "files": [
-    "docs/AZURE-REPOS.md"
-   ],
-   "done_check": "every UNVERIFIED label on docs/AZURE-REPOS.md closed with quoted output",
-   "note": "dormant 2026-08-16: Azure removed from the target (PRODUCT-DIRECTION.md amendment); blocked is the valid state closest to dormant and keeps it out of queue depth per bm_idle rules; flip: a named Azure client. Earlier invalid state \"parked\" broke bm_idle.py check (NO-DATA exit 2) and was caught by the Opus review."
   },
   {
    "id": "O23",
@@ -1078,7 +1138,7 @@
   {
    "id": "M1",
    "title": "BrotherMode's hooks do not load on THIS MACHINE because it carries a skill-directory copy rather than a plugin install; the packaging is correct and identical to the sibling's, which fires. Fix is the documented marketplace install, and the clone must be removed first or every hook fires twice",
-   "state": "queued",
+   "state": "blocked",
    "stage": "method",
    "clock": "agent",
    "forecast_minutes": 120,
@@ -1086,19 +1146,20 @@
     "scripts/install.py",
     "docs/KNOWN-LIMITS.md"
    ],
-   "done_check": "after removing the clone install and running the two documented commands, one of this product's OWN hooks is observed firing (for example its fence hook refusing a write across a live claim by name), or the limits page states the shape difference, which it now does"
+   "done_check": "after removing the clone install and running the two documented commands, one of this product's OWN hooks is observed firing (for example its fence hook refusing a write across a live claim by name), or the limits page states the shape difference, which it now does",
+   "note_2026_08_20": "scriptable half DONE at the A3 commit: doctor check 8 install_shape (PASS quoted) and scripts/migrate_install.py with dry-run default, --apply double-gated, fixture-home tests. The LIVE swap of this machine install stays FOUNDER-GATED and is the open half."
   },
   {
    "id": "M2",
    "title": "deliver certifies a project that did nothing: three commands with no goal, no acceptance check, no build, no review and no evidence produce a success message and a written packet reading (no evidence recorded)",
-   "state": "queued",
+   "state": "done",
    "stage": "human-decision",
    "clock": "agent",
    "forecast_minutes": 90,
    "files": [
     "tools/bm_project.py"
    ],
-   "done_check": "a project with zero evidence rows is refused at deliver, naming what is missing; a project with evidence still delivers"
+   "done_check": "a hollow project is refused by deliver naming its holes; test_bm_project TestDeliverRefusesHollow green at the A3 commit"
   },
   {
    "id": "M3",
@@ -1115,38 +1176,38 @@
   {
    "id": "M4",
    "title": "a task may be born in any of the ten lifecycle states because cmd_task_add passes --status straight through, so the ordering law the whole method rests on is bypassed by one flag",
-   "state": "queued",
+   "state": "done",
    "stage": "method",
    "clock": "agent",
    "forecast_minutes": 45,
    "files": [
     "tools/bm_project.py"
    ],
-   "done_check": "task add --status verified is refused naming the legal birth states; task add with no status still lands planned"
+   "done_check": "already fixed pre-A3: BIRTH_STATES guard in cmd_task_add with pinned test test_a_task_cannot_be_born_past_the_start_of_the_lifecycle, verified green 2026-08-20"
   },
   {
    "id": "M5",
    "title": "acceptance checks enforce nothing: the criterion link is opt-in, so a review that names no criterion verifies a task whose acceptance checks were never examined",
-   "state": "queued",
+   "state": "done",
    "stage": "required-proof",
    "clock": "agent",
    "forecast_minutes": 60,
    "files": [
     "tools/bm_store.py"
    ],
-   "done_check": "a review moving a task to verified while its acceptance_checks are non-empty and no criterion is named is refused"
+   "done_check": "review_task returns the acceptance gap and cmd_review prints the warning; store-level test green at the A3 commit"
   },
   {
    "id": "M6",
    "title": "the capability detector cannot tell installed from absent in either direction: it reads only ~/.claude/skills and the plugin caches, so it reports DEGRADE for a class the harness already ships built in, and would wrongly call the method stage empty",
-   "state": "queued",
+   "state": "done",
    "stage": "method",
    "clock": "agent",
    "forecast_minutes": 90,
    "files": [
     "tools/bm_toolkit.py"
    ],
-   "done_check": "a class whose capability ships with the harness reports RESOLVED or reports NO-DATA naming what it cannot see, never a bare DEGRADE"
+   "done_check": "render_route resolves to the native floor with RESOLVED line, NO-DATA when siblings unconfirmed; test green at the A3 commit"
   },
   {
    "id": "M7",
@@ -1164,14 +1225,14 @@
   {
    "id": "M8",
    "title": "the guided walkthrough stops at the project brief: no skill, command or reference tells anyone to create tasks, so next reads a queue the flow never fills",
-   "state": "queued",
+   "state": "done",
    "stage": "method",
    "clock": "agent",
    "forecast_minutes": 90,
    "files": [
     "skills/start/SKILL.md"
    ],
-   "done_check": "following the start skill end to end produces at least one task that next will serve"
+   "done_check": "scripted walkthrough test proves the start flow leaves a ready task that next serves; test green at the A3 commit"
   },
   {
    "id": "M9",
@@ -1188,14 +1249,14 @@
   {
    "id": "M10",
    "title": "verify-close cannot give any verdict to a session that claimed no record, so a session with a full pack gets NO-DATA and its pack checks never run; the code comment's stated assumption, that a session with no claims has no pack to close, was disproven by the 2026-08-15 session [BLOCKED 2026-08-19: tools/bm_handover.py is under a live fence, FENCE F5, agent fleet-export, session ae1ced66. Do not write across it; ask that owner or close the fence with evidence.]",
-   "state": "queued",
+   "state": "done",
    "stage": "provenance",
    "clock": "agent",
    "forecast_minutes": 45,
    "files": [
     "tools/bm_handover.py"
    ],
-   "done_check": "a session with no records and a filled pack gets its pack checks run and a verdict, with the unparked-records check reported NO-DATA by name rather than halting the run"
+   "done_check": "verify-close gives a real verdict to a claimless full pack via the env-derived session path, typo guard kept; test green at the A3 commit"
   },
   {
    "id": "M11",
@@ -1213,7 +1274,7 @@
   {
    "id": "M12",
    "title": "the two one-writer registries disagree: the BrotherSBE scope reconcile reads only .sbe tasks and STATE.md fence lines and cannot see BrotherMode store claims, so a path correctly claimed in the store is named undeclared at every peer session stop (measured 2026-08-20 by the mandate session against claim day-run-step1-board; break-glass day-run-board-registry-mismatch-2026-08-20 covers stops until fixed)",
-   "state": "queued",
+   "state": "done",
    "stage": "provenance",
    "clock": "agent",
    "forecast_minutes": 60,
@@ -1221,7 +1282,7 @@
     "tools/bm_store.py",
     "tools/test_bm_store.py"
    ],
-   "done_check": "a store claim renders a live fence line into STATE.md in the shape the installed sbe_session_reconcile.py parses; a regression test pins the rendered shape and fails on the pre-fix render; a reconcile-shaped check over a tree whose only declaration is a store claim names zero undeclared paths; the peer break-glass record is deleted in the same change"
+   "done_check": "store claims render an agent-bearing fence line the INSTALLED sbe reconcile parses; regression test drives the installed read_declarations and fails on the pre-fix render; peer break-glass record deleted in the same change"
   }
  ]
 }

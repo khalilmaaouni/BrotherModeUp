@@ -5412,6 +5412,282 @@ class TestRf1CommitMsgHookRefusesForbiddenMessages(unittest.TestCase):
             commit_hook.check_message("a bad \u2014 dash\n"))
 
 
+class TestM1InstallShapeDoctorCheck(unittest.TestCase):
+    """M1(a) (docs/plan/QUEUE.json): scripts/doctor.py's install_shape
+    check. Measured failure this check exists to catch
+    (docs/NORTH-STAR-CHAIN.md finding 1): a skill-directory clone at
+    ~/.claude/skills/brothermode with no fence hook wired anywhere (its
+    own hooks.json missing the reference, settings.json carrying no
+    PreToolUse entry either) is a STRANDED install that nothing existing
+    catches: check_duplicate_install's own question is "is more than one
+    method wired", and it answers a bare PASS for "neither is wired" too.
+
+    NO NEW SUITES ENTRY, same reasoning as
+    TestRf1CommitMsgHookRefusesForbiddenMessages above: scripts/*.py
+    checks are tested inline in tools/test_bm_consent.py, not a
+    dedicated test_doctor.py, and this class follows the identical
+    placement for the same registry reason (a new SUITES entry needs a
+    matching CI step, or test_all.py's own inventory gate refuses the
+    run)."""
+
+    DOCTOR = os.path.join(HERE, "..", "scripts", "doctor.py")
+
+    def _env(self, home):
+        env = dict(os.environ)
+        env["HOME"] = home
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for k in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT", "BROTHERME_CONFIG",
+                  "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+            env.pop(k, None)
+        return env
+
+    def _run_doctor(self, home, project, settings):
+        return subprocess.run(
+            [sys.executable, self.DOCTOR, "--settings", settings, "--json"],
+            cwd=project, env=self._env(home),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def _checks(self, stdout):
+        payload = json.loads(stdout)
+        return {c["key"]: c for c in payload["checks"]}
+
+    def test_stranded_skill_dir_clone_with_no_wired_hook_fails_named(self):
+        """REPRODUCED pre-fix: no install_shape key existed at all, so
+        this exact scenario (a skill-directory clone sitting on disk with
+        nothing loading it) produced no failing check anywhere in
+        doctor's output; check_duplicate_install read "neither method is
+        wired" as a PASS. Looking up checks["install_shape"] against a
+        pre-fix doctor.py raises KeyError outright."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            # A skill-directory clone whose own hooks.json exists but
+            # names no fence hook: the exact stranded shape measured.
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            os.makedirs(os.path.join(skill_dir, "hooks"))
+            with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                         "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {}}, fh)
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({}, fh)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertIn("install_shape", checks,
+                          "install_shape check is missing from doctor's "
+                          "own registry")
+            self.assertEqual(checks["install_shape"]["status"], "FAIL",
+                             checks["install_shape"]["message"])
+            self.assertIn("STRANDED", checks["install_shape"]["message"])
+            self.assertIn(os.path.join(".claude", "skills", "brothermode"),
+                          checks["install_shape"]["message"])
+
+    def test_no_install_evidence_at_all_is_no_data_never_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({}, fh)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertEqual(checks["install_shape"]["status"], "SKIP")
+            self.assertIn("NO-DATA", checks["install_shape"]["message"])
+
+    def test_working_clone_with_a_real_fence_hook_wired_is_a_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            fence = os.path.join(tmp, "clone_tools", "bm_fence_hook.py")
+            os.makedirs(os.path.dirname(fence))
+            with io.open(fence, "w", encoding="utf-8") as fh:
+                fh.write("# stub, never executed by this test\n")
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                    "hooks": [{"type": "command",
+                               "command": "python3 " + fence,
+                               "timeout": 10}]}]}}, fh)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertEqual(checks["install_shape"]["status"], "PASS",
+                             checks["install_shape"]["message"])
+
+
+_migrate_install_spec = importlib.util.spec_from_file_location(
+    "migrate_install", os.path.join(HERE, "..", "scripts", "migrate_install.py"))
+migrate_install = importlib.util.module_from_spec(_migrate_install_spec)
+_migrate_install_spec.loader.exec_module(migrate_install)
+
+
+class TestM1MigrateInstallScript(unittest.TestCase):
+    """M1(b) (docs/plan/QUEUE.json): scripts/migrate_install.py, the
+    scriptable repair for the stranded-clone shape scripts/doctor.py's
+    install_shape check (above) now detects. NEVER runs against the real
+    machine here: every scenario below builds its own throwaway home
+    under tempfile.TemporaryDirectory() and passes it through --home
+    (CLI tests) or straight to detect() (in-process detector tests), the
+    same discipline TestM1InstallShapeDoctorCheck above uses for
+    doctor.py.
+
+    NO NEW SUITES ENTRY, same reasoning as the two classes above:
+    scripts/*.py gets tested inline in an already-registered
+    tools/test_*.py file, never its own test_migrate_install.py (a new
+    SUITES entry needs a matching CI step or test_all.py's own inventory
+    gate refuses the run)."""
+
+    SCRIPT = os.path.join(HERE, "..", "scripts", "migrate_install.py")
+
+    def _env(self):
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for k in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT", "BROTHERME_CONFIG",
+                  "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+            env.pop(k, None)
+        return env
+
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, self.SCRIPT] + list(args),
+            env=self._env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            encoding="utf-8", timeout=300)
+
+    def _stranded_home(self, tmp):
+        home = os.path.join(tmp, "home")
+        skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+        os.makedirs(os.path.join(skill_dir, "hooks"))
+        with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                     "w", encoding="utf-8") as fh:
+            json.dump({"hooks": {}}, fh)
+        with io.open(os.path.join(skill_dir, "marker.txt"), "w",
+                     encoding="utf-8") as fh:
+            fh.write("stray file from the stranded copy\n")
+        return home, skill_dir
+
+    # -- detect(): in-process, no subprocess needed ----------------------
+
+    def test_detect_stranded_clone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, skill_dir = self._stranded_home(tmp)
+            info = migrate_install.detect(home)
+            self.assertTrue(info["has_skill_dir"])
+            self.assertIsNone(info["settings_error"])
+            self.assertTrue(info["stranded"], info)
+            self.assertEqual(info["skill_dir"], skill_dir)
+
+    def test_detect_clean_home_has_nothing_to_migrate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(home)
+            info = migrate_install.detect(home)
+            self.assertFalse(info["has_skill_dir"])
+            self.assertFalse(info["stranded"])
+
+    def test_detect_working_clone_via_loader_hooks_json_is_not_stranded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            os.makedirs(os.path.join(skill_dir, "hooks"))
+            with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                         "w", encoding="utf-8") as fh:
+                fh.write('{"hooks": {"PreToolUse": [{"hooks": [{'
+                        '"command": "python3 %s/tools/bm_fence_hook.py"'
+                        '}]}]}}' % skill_dir)
+            info = migrate_install.detect(home)
+            self.assertTrue(info["has_skill_dir"])
+            self.assertFalse(info["stranded"], info)
+
+    def test_detect_unreadable_settings_is_no_data_never_a_guess(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home, _skill_dir = self._stranded_home(tmp)
+            settings_path = os.path.join(home, ".claude", "settings.json")
+            with io.open(settings_path, "w", encoding="utf-8") as fh:
+                fh.write("{ not valid json")
+            info = migrate_install.detect(home)
+            self.assertIsNotNone(info["settings_error"])
+            self.assertIsNone(
+                info["stranded"],
+                "an unreadable settings.json must never be guessed past "
+                "as stranded=True or stranded=False")
+
+    # -- the dry-run plan, driven as the real CLI -------------------------
+
+    def test_dry_run_plan_names_remove_install_and_settings_lines(self):
+        """REPRODUCED pre-fix: this file did not exist at all, so there
+        was no scriptable path from "doctor says install_shape FAILED"
+        to a repair; the only remedy doctor could name was prose
+        ("Run: python3 scripts/install.py --upgrade"), which still left
+        the stranded copy's own stray files in place. Default (no
+        --apply): prints REMOVE, INSTALL and the settings-line preview,
+        and changes nothing on disk."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home, skill_dir = self._stranded_home(tmp)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("REMOVE:", r.stdout)
+            self.assertIn("INSTALL:", r.stdout)
+            self.assertIn("SETTINGS LINES", r.stdout)
+            self.assertIn("[dry-run] Nothing was changed", r.stdout)
+            # A dry run is a dry run: the stranded copy is untouched.
+            self.assertTrue(os.path.isfile(
+                os.path.join(skill_dir, "marker.txt")))
+
+    def test_dry_run_on_a_clean_home_says_nothing_to_do(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(home)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("NOTHING TO DO", r.stdout)
+            self.assertNotIn("REMOVE:", r.stdout)
+
+    def test_apply_without_the_confirmation_flag_is_refused(self):
+        """The founder gate: --apply alone must never be enough, because
+        this rewires the hook wiring every future session under --home
+        loads. Refused, with the reason stated, and nothing changed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home, skill_dir = self._stranded_home(tmp)
+            r = self._run("--home", home, "--apply")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("REFUSED", r.stdout + r.stderr)
+            self.assertIn("--i-understand-this-changes-every-session",
+                          r.stdout + r.stderr)
+            self.assertTrue(os.path.isfile(
+                os.path.join(skill_dir, "marker.txt")),
+                "a refused apply must change nothing on disk")
+
+    def test_apply_with_confirmation_repairs_the_fixture_home(self):
+        """The other half: both flags together actually perform the
+        swap, against the fixture ONLY. Proves the live-swap path works
+        without ever touching a real machine: the stranded marker file
+        is gone afterward and a fresh, correctly wired install stands in
+        its place."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home, skill_dir = self._stranded_home(tmp)
+            r = self._run("--home", home, "--apply",
+                          "--i-understand-this-changes-every-session")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("DONE", r.stdout)
+            self.assertFalse(
+                os.path.isfile(os.path.join(skill_dir, "marker.txt")),
+                "the stranded copy's own stray file must be gone after "
+                "a real apply")
+            self.assertTrue(
+                os.path.isfile(os.path.join(skill_dir, "tools",
+                                            "bm_fence_hook.py")),
+                "a real install must have landed the fence hook")
+            info = migrate_install.detect(home)
+            self.assertFalse(info["stranded"], info)
+
+
 class TestLoop11McpCopyFirstIsAutomated(unittest.TestCase):
     """LOOP 11 workstream C. The MCP server's copy-first design (snapshot the
     project, read the COPY, delete the copy) was argued in a long docstring
@@ -6545,13 +6821,29 @@ class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
         self.assertNotIn("donerec", out)
         self.assertIn("no live fences found", out)
 
-    def test_calibrated_pre_fix_fence_lint_misses_a_live_store_rendered_claim(self):
+    def test_calibrated_pre_fix_fence_lint_misses_a_pre_m12_store_rendered_claim(self):
         """CALIBRATION: reinject the exact pre-fix cmd_fence_lint body
         (matching ONLY the V1 "- ... agent ..." shape) onto the real
         bm_telemetry module object, in-process, and confirm the SAME live
-        claim the first test above sees is now invisible to it -- proving
-        the section-header + regex recognition the real fix adds is what
-        makes the difference, not something about this test's setup."""
+        claim the first test above sees is invisible to it when the
+        registry carries the line shape render_state_md wrote BEFORE M12
+        -- proving the section-header + regex recognition D3's real fix
+        added is what finds it, not something about this test's setup.
+
+        UPDATED FOR M12 (docs/plan/QUEUE.json): render_state_md now adds
+        the literal word "agent" to an active/parked bullet's own first
+        line (the fix for a DIFFERENT bug: the INSTALLED BrotherSBE
+        reconcile required that word and could not see a store claim
+        without it). That is a deliberate, wanted side effect: even the
+        naive V1-only matcher below now ALSO recognizes a
+        currently-rendered claim, because the word really is there now.
+        This test therefore builds its OWN registry text, byte for byte
+        the shape render_state_md wrote before M12 (no "agent" field;
+        see this file's own git history, or bm_telemetry.py's comment
+        directly above _STORE_RECORD_LINE_RE, which still documents that
+        shape), so the calibration keeps proving what it always proved
+        about that shape, independent of what the live renderer emits
+        today."""
         def _pre_fix_cmd_fence_lint(argv):
             cwd = argv[0] if argv else ""
             if not cwd and not sys.stdin.isatty():
@@ -6584,12 +6876,20 @@ class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as d:
                 bs.init_project(d).close()
-                store = bs.Store(d, create=False)
-                try:
-                    store.claim("myrec", "ephemeral", "test D3", ["foo.py"], tier="T2")
-                finally:
-                    store.close()
-                bs.write_state_view(d)
+                # The PRE-M12 shape, hand-written rather than rendered:
+                # "- name (uuid, version N, lifetime) [tier] owner-session:
+                # id", no "agent" field. This is exactly the text
+                # render_state_md produced for an active record before
+                # M12 added the agent field for BrotherSBE's sake.
+                state_path = os.path.join(d, "STATE.md")
+                with io.open(state_path, "w", encoding="utf-8") as fh:
+                    fh.write(
+                        "## active\n"
+                        "- myrec (1f7ee86a84024b5fa16ce01a88bb4489, "
+                        "version 1, ephemeral) [T2] owner-session: no "
+                        "session\n"
+                        "  objective: test D3\n"
+                        "  files: foo.py\n")
                 bm.cmd_fence_lint = _pre_fix_cmd_fence_lint
                 code, out = _call_thread_cmd_in_process(d, bm.cmd_fence_lint, [d])
         finally:
@@ -6597,9 +6897,36 @@ class TestFenceLintRecognizesStoreRenderedFences(unittest.TestCase):
         self.assertIn(
             "no live fences found", out,
             "REINJECTION CHECK: the pre-fix V1-only matcher must miss the "
-            "store-rendered claim, proving the section/regex recognition "
-            "added by the real fix is what finds it")
+            "pre-M12 store-rendered claim shape, proving the section/"
+            "regex recognition added by the real D3 fix is what finds it")
         self.assertNotIn("myrec", out)
+
+    def test_m12_naive_matcher_also_now_sees_the_current_render(self):
+        """M12's own regression pin, the mirror of the calibration above:
+        the CURRENT render_state_md output for an active claim contains
+        the word "agent" on its own first line, so even the naive,
+        pre-D3 V1-only matcher recognizes it now (a deliberate, wanted
+        side effect, since it means the INSTALLED BrotherSBE reconcile,
+        which uses the same "agent" substring rule, sees it too).
+        REPRODUCED pre-fix: this exact assertion failed, because
+        render_state_md's own line carried no "agent" substring at all
+        (bm_telemetry.py's own comment right above _STORE_RECORD_LINE_RE
+        says so in as many words)."""
+        with tempfile.TemporaryDirectory() as d:
+            bs.init_project(d).close()
+            store = bs.Store(d, create=False)
+            try:
+                store.claim("myrec", "ephemeral", "test M12", ["foo.py"],
+                            tier="T2")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            state_path = os.path.join(d, "STATE.md")
+            with io.open(state_path, encoding="utf-8") as fh:
+                text = fh.read()
+        first_bullet = next(
+            line for line in text.splitlines() if line.startswith("- myrec"))
+        self.assertIn("agent", first_bullet.lower())
 
 
 class TestGitignoreCoversGeneratedProjectViews(unittest.TestCase):

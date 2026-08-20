@@ -1319,6 +1319,35 @@ def _capability_present(inventory_data, match):
     return False
 
 
+# M6 (docs/plan/QUEUE.json): "the capability detector cannot tell
+# installed from absent in either direction: it reads only
+# ~/.claude/skills and the plugin caches, so it reports DEGRADE for a
+# class the harness already ships built in". Every route's own
+# degrade_path names a fallback in prose ("Fall back to the native
+# floor: ..."), and docs/NORTH-STAR-CHAIN.md settles what that means:
+# "The floor is what that degrade path resolves to." The floor is not a
+# plugin or a skill this machine may or may not have installed under
+# ~/.claude -- it is THIS toolkit's OWN code (bm_project.py's tasks and
+# acceptance checks, test_all.py's gate battery), which ships wherever
+# bm_toolkit.py does. _capability_present's plugin/skill/mcp_server scan
+# was never going to find it, because it was never installed anywhere;
+# it is simply here. Checked against the real sibling files, never
+# assumed, so a stripped or partial install (the files genuinely
+# missing) still reports honestly, per the class's own done_check: "a
+# class whose capability ships with the harness reports RESOLVED or
+# reports NO-DATA naming what it cannot see, never a bare DEGRADE."
+_NATIVE_FLOOR_FILES = ("bm_project.py", "test_all.py")
+
+
+def _native_floor_present():
+    """True when this toolkit's own native-floor files are on disk next
+    to bm_toolkit.py itself (HERE, not `home` or `root`: the floor ships
+    WITH the toolkit, regardless of which machine or which project it is
+    pointed at)."""
+    return all(os.path.isfile(os.path.join(HERE, f))
+               for f in _NATIVE_FLOOR_FILES)
+
+
 def render_route(task_class, class_entry, inventory_data):
     """Human readable report for one resolved task class: every route in
     declared order with its status (RESOLVED, DEGRADE or DISABLED), then a
@@ -1356,8 +1385,23 @@ def render_route(task_class, class_entry, inventory_data):
         lines.append("SELECTED: %s (%s)" % (
             resolved["capability"], resolved.get("reason")))
     elif first_degrade is not None:
-        lines.append("SELECTED: none present on this machine; degrade "
-                      "path: %s" % first_degrade.get("degrade_path"))
+        # M6: no declared route resolved, but every one of their
+        # degrade_path sentences names the SAME fallback -- this
+        # toolkit's own native floor -- so a bare "nothing present"
+        # verdict would be false the moment that floor is confirmed on
+        # disk. RESOLVED to the floor when confirmed; NO-DATA, never a
+        # bare DEGRADE, when it cannot be.
+        if _native_floor_present():
+            lines.append("  [RESOLVED] native floor: %s" %
+                         first_degrade.get("degrade_path"))
+            lines.append("")
+            lines.append("SELECTED: native floor (%s)" %
+                         first_degrade.get("degrade_path"))
+        else:
+            lines.append("NO-DATA: no declared route resolved, and this "
+                         "toolkit's own native floor files (%s) could not "
+                         "be confirmed next to bm_toolkit.py either"
+                         % ", ".join(_NATIVE_FLOOR_FILES))
     else:
         lines.append("SELECTED: none; every route for this task class is "
                       "disabled")

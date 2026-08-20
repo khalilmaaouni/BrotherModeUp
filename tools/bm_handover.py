@@ -1241,19 +1241,37 @@ def cmd_verify_close(argv):
     # records, therefore passes. The check the founder relies on was defeated
     # by a typo. A session that appears nowhere in the store is not a clean
     # session, it is an unanswerable question, so it is NO-DATA rather than
-    # PASS. The one legitimate case, a brand new session that never claimed
-    # anything, is exactly the case with no pack to close either.
+    # PASS, WHEN the id came from a human's own --session flag: that is
+    # exactly what a typo produces, and cannot be told apart here from a
+    # session that genuinely never claimed anything.
+    #
+    # M10 (disproven 2026-08-15): the comment used to close here with "the
+    # one legitimate case, a brand new session that never claimed anything,
+    # is exactly the case with no pack to close either" -- treating an
+    # unknown session as always suspicious. A real session did real,
+    # closeable work (a full pack, every other check above already passed)
+    # while claiming zero fence records, so that assumption was false, and
+    # this check returned NO-DATA on a perfectly good close. The fix keeps
+    # the typo guard where a typo can actually happen (a human-typed
+    # --session) and drops it where it cannot: `session` came from
+    # _current_session_id() (BM_FENCE_SESSION_ID or CLAUDE_SESSION_ID, the
+    # harness's own env vars, never hand-typed on this command line), owning
+    # zero records anywhere is then a plain fact, not an unanswerable
+    # question, and zero records trivially means zero UNPARKED ones.
     known = {r["session_id"] for r in data["records"] if r.get("session_id")}
     if session not in known:
-        _out_scrubbed(
-            "NO-DATA: session %r owns no record in this store, so the "
-            "unparked-records check cannot say anything about it. Either the "
-            "id is mistyped or this session never claimed anything. Pass the "
-            "id the session actually claimed under; `%s detect` prints the "
-            "live ones." % (session, _inv()))
-        return NODATA
-    owned = [r for r in data["records"]
-            if r["state"] in UNPARKED_STATES and r["session_id"] == session]
+        if kv.get("session"):
+            _out_scrubbed(
+                "NO-DATA: session %r owns no record in this store, so the "
+                "unparked-records check cannot say anything about it. Either "
+                "the id is mistyped or this session never claimed anything. "
+                "Pass the id the session actually claimed under; `%s "
+                "detect` prints the live ones." % (session, _inv()))
+            return NODATA
+        owned = []
+    else:
+        owned = [r for r in data["records"]
+                if r["state"] in UNPARKED_STATES and r["session_id"] == session]
     if owned:
         names = ", ".join(
             "%s (%s)" % (r["name"], r["lifecycle_uuid"][:8])

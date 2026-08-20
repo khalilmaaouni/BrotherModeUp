@@ -10,6 +10,7 @@ Standard library only. Run: python3 tools/test_bm_toolkit.py
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -652,10 +653,22 @@ class RouteKnownResolvesTests(unittest.TestCase):
 
 class RouteAbsentCapabilityDegradesTests(unittest.TestCase):
     """Test 21 (TK4, load-bearing behavior 2): a known task class whose
-    route's capability is ABSENT from the inventory prints DEGRADE with the
-    route's own degrade path, never a guessed substitute."""
+    route's capability is ABSENT from the inventory still prints [DEGRADE]
+    for that route, with the route's own degrade path, never a guessed
+    substitute.
 
-    def test_absent_capability_prints_degrade_path(self):
+    M6 (docs/plan/QUEUE.json): the OVERALL verdict below the per-route
+    lines used to read "SELECTED: none present on this machine", a bare
+    claim of absence, even though the degrade path it just printed names
+    this toolkit's own native floor (bm_project.py, test_all.py), which
+    ships wherever bm_toolkit.py runs and was never something the
+    ~/.claude/skills or plugin-cache scan could ever have found. Run from
+    a real checkout (run_cli's cwd is this project's own root, so those
+    sibling files genuinely exist), the verdict is now RESOLVED to that
+    floor, never a bare DEGRADE for a capability the harness ships built
+    in."""
+
+    def test_absent_capability_resolves_to_the_native_floor(self):
         with tempfile.TemporaryDirectory() as tmp:
             minimal_home(tmp)
             routes_path = write_json(os.path.join(tmp, "routes.json"), {
@@ -679,9 +692,59 @@ class RouteAbsentCapabilityDegradesTests(unittest.TestCase):
         self.assertIn(
             "[DEGRADE] Anthropic Code Review: absent from this machine's "
             "inventory; degrade path: DEGRADE PATH MARKER", out)
-        self.assertIn("SELECTED: none present on this machine; degrade "
-                       "path: DEGRADE PATH MARKER", out)
+        # REPRODUCED pre-fix: this exact scenario (a lone route, absent,
+        # on an empty temp HOME) printed "SELECTED: none present on this
+        # machine; degrade path: DEGRADE PATH MARKER" and no [RESOLVED]
+        # line anywhere, a bare DEGRADE for a class whose degrade path
+        # names a capability that was actually sitting right there.
+        self.assertIn("[RESOLVED] native floor: DEGRADE PATH MARKER", out)
+        self.assertIn("SELECTED: native floor (DEGRADE PATH MARKER)", out)
+        self.assertNotIn("none present on this machine", out)
+
+    def test_native_floor_confirmed_absent_reports_no_data_not_a_guess(self):
+        """The other half of M6: _native_floor_present() is a REAL check
+        against real sibling files, never an assumed True. Staged in an
+        isolated directory holding a copy of bm_toolkit.py ALONE (no
+        bm_project.py, no test_all.py beside it, since the module is
+        standard-library only and needs no sibling to run), the exact
+        same absent-route scenario above reports NO-DATA rather than
+        guessing the floor is there anyway."""
+        with tempfile.TemporaryDirectory() as tmp:
+            isolated = os.path.join(tmp, "isolated-tools")
+            os.makedirs(isolated)
+            shutil.copy(TOOL_PATH, os.path.join(isolated, "bm_toolkit.py"))
+            home = os.path.join(tmp, "home")
+            os.makedirs(home)
+            minimal_home(home)
+            routes_path = write_json(os.path.join(tmp, "routes.json"), {
+                "classes": [{
+                    "id": "pr-review",
+                    "title": "Pull request or diff review",
+                    "routes": [{
+                        "capability": "Anthropic Code Review",
+                        "match": {"kind": "skill", "name": "code-review"},
+                        "reason": "founder's own example",
+                        "flip_condition": "never",
+                        "degrade_path": "DEGRADE PATH MARKER",
+                        "enabled": True,
+                    }],
+                }],
+            })
+            env = dict(os.environ)
+            env.pop("BROTHERMODE_ROOT", None)
+            result = subprocess.run(
+                [sys.executable, os.path.join(isolated, "bm_toolkit.py"),
+                 "route", "pr-review", "--home", home, "--root", home,
+                 "--routes", routes_path],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, cwd=isolated, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        out = result.stdout
+        self.assertIn(
+            "NO-DATA: no declared route resolved, and this toolkit's own "
+            "native floor files", out)
         self.assertNotIn("RESOLVED", out)
+        self.assertNotIn("none present on this machine", out)
 
 
 class RouteDisabledPrintsReasonTests(unittest.TestCase):

@@ -13221,6 +13221,31 @@ class Store(object):
         with self._transaction():
             return self._insert_evidence_row(evidence_dict, project_id, actor)
 
+    def _acceptance_gap(self, task):
+        """M5: acceptance_checks enforce nothing on their own -- a task can
+        carry a list of them and still be moved to 'verified' with no
+        evidence row ever naming one, because criterion_id is optional on
+        add_evidence (see _verify_criterion_id's own docstring: empty is
+        always allowed). That is honest for a task with no checks, but for
+        a task that HAS checks it means the review recorded nothing that
+        shows a criterion was actually examined. Returns a message naming
+        the gap, or '' when there is none: no acceptance_checks at all, or
+        at least one evidence row for this task links a real criterion_id.
+        Called from inside review_task's own transaction, so it sees the
+        evidence row that same call just inserted."""
+        if not task.acceptance_checks:
+            return ""
+        row = _exec(self, "SELECT COUNT(*) AS n FROM evidence WHERE "
+                    "subject_type='task' AND subject_id=? AND "
+                    "criterion_id != ''", (task.task_id,)).fetchone()
+        if row and row["n"]:
+            return ""
+        return ("task %r moved to 'verified' with %d acceptance check(s) "
+                "on record, but no evidence links a criterion_id to any "
+                "of them: the review recorded nothing that shows a "
+                "criterion was actually examined"
+                % (task.task_id, len(task.acceptance_checks)))
+
     def review_task(self, task_id, project_id, evidence_dict, new_status,
                      reason, actor):
         """Composite: file ONE evidence row for `task_id` and transition it
@@ -13235,13 +13260,17 @@ class Store(object):
         here writes NOTHING: an illegal transition raises before the
         tasks.status UPDATE, and that same exception unwinds the evidence
         INSERT with it, exactly like every other multi-row mutation in
-        this file. Returns (evidence_id, new_status)."""
+        this file. Returns (evidence_id, new_status, acceptance_gap): the
+        third element is '' unless new_status is 'verified' and
+        _acceptance_gap found the review linked no criterion (M5), so a
+        caller can surface the gap without a second read."""
         with self._transaction():
             evidence_id = self._insert_evidence_row(
                 evidence_dict, project_id, actor)
             task = self._transition_task_row(
                 task_id, new_status, reason, actor)
-        return evidence_id, task.status
+            gap = self._acceptance_gap(task) if new_status == "verified" else ""
+        return evidence_id, task.status, gap
 
     def record_runtime_run(self, run_dict, project_id, actor, task_id=None):
         """Insert ONE runtime_runs row with its attribution event
@@ -17912,15 +17941,47 @@ def render_state_md(root):
                     " [PROVISIONAL, created %s]"
                     % provisional_by_uuid[r["lifecycle_uuid"]]["created_at"]
                     if r["lifecycle_uuid"] in provisional_by_uuid else "")
-                lines.append("- %s (%s, version %s, %s) [%s] owner-session: %s%s"
+                # M12 (docs/plan/QUEUE.json): the two one-writer registries
+                # could not see each other. This store's own fence-lint
+                # (bm_telemetry.py cmd_fence_lint, see its own comment right
+                # above _STORE_RECORD_LINE_RE) already had to special-case
+                # this exact line shape, because it names no "agent" at all;
+                # the INSTALLED BrotherSBE reconcile (sbe_fence_hook.py
+                # is_live_fence, "sbe_score.py:449") holds no such
+                # special case and requires the literal substring "agent"
+                # (case-insensitive) somewhere in the bullet, or the line
+                # is not a fence at all to it: a real store claim covering
+                # a real file was invisible to BrotherSBE's own write
+                # boundary. `agent:` is added ONLY for "active" and
+                # "parked" (the same two sections bm_telemetry.py's own
+                # _STORE_SECTION_RE-driven fence-lint already treats as
+                # live; "complete"/"adopted" stay exactly as before, which
+                # keeps both readers agreeing on what live even means).
+                agent_text = (_redacted_view_text(r["owner"])
+                              if r["owner"] else "(no owner)")
+                agent_field = (", agent: %s" % agent_text
+                              if state in ("active", "parked") else "")
+                lines.append("- %s (%s, version %s, %s) [%s] owner-session: %s%s%s"
                              % (_redacted_view_text(r["name"]), r["lifecycle_uuid"],
                                 r["version"], r["lifetime"], tier_text, session_text,
-                                provisional_tag))
+                                agent_field, provisional_tag))
                 lines.append("  objective: %s"
                              % (_redacted_view_text(r["objective"]) if r["objective"] else "(none)"))
                 files_text = (", ".join(_redacted_view_text(f) for f in files)
                               if files else "(none)")
-                lines.append("  files: %s" % files_text)
+                # The trailing " |" closes BrotherSBE's own `files:` field
+                # (sbe_fence_hook.py:354, _FILES_FIELD: "files\s*:\s*(.*?)
+                # (?:\||$)"). Without it the field has no closing pipe and
+                # nothing to stop at but the end of the WHOLE merged bullet
+                # (BrotherSBE reads a fence as one item across every
+                # indented continuation line, sbe_fence_hook.py:301
+                # bullet_items), so it would swallow every line rendered
+                # after this one, "next intent" included, as part of the
+                # file scope. Harmless to every reader inside this project:
+                # nothing here parses the files line by regex, only by the
+                # "  files: " prefix this loop itself writes and reads back
+                # nowhere.
+                lines.append("  files: %s |" % files_text)
                 digest_row = _exec(store,
                     "SELECT next_intent FROM digests WHERE lifecycle_uuid=? "
                     "ORDER BY seq DESC LIMIT 1", (r["lifecycle_uuid"],)).fetchone()

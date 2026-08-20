@@ -4135,6 +4135,99 @@ class TestRedactionUnavailable(unittest.TestCase):
                           "the claim must have committed even though printing its "
                           "confirmation could not be redacted")
 
+class TestM12StateMdFenceMatchesInstalledBrotherSbeParser(unittest.TestCase):
+    """M12 (docs/plan/QUEUE.json): "the two one-writer registries cannot
+    see each other". bm_store.py's own render_state_md is one half of
+    BrotherMode's write boundary; the INSTALLED BrotherSBE reconcile
+    (its Stop hook and CI backstop, sbe_session_reconcile.py) is the
+    other, authoritative half, and the installed copy is what actually
+    runs, per the install-boundary lesson (this repo's own vendored or
+    documented copy, if any, may differ). Its scope decision
+    (Declarations.covering_rule, sbe_session_reconcile.py) walks live
+    fences read by sbe_fence_hook.read_fences, which requires
+    is_live_fence (sbe_score.py:449: a "- " or "* " bullet containing
+    the literal substring "agent", case-insensitive, and neither
+    "LANDED" nor "ADOPTED") before it will even look at a bullet's
+    `files:` scope.
+
+    This test drives the INSTALLED parser DIRECTLY, never a second copy
+    of its rules (the 2026-08-10 lesson recorded in this project's own
+    memory: "a fence-closing grep said zero and the hook saw four" --
+    verify a control with the control, not with a re-derived guess)."""
+
+    # The installed copy is what Claude Code actually loads and runs;
+    # scripts/doctor.py's own install-boundary discipline (check_
+    # install_identity's docstring) is the same reasoning applied here.
+    INSTALLED_TOOLS_DIR = os.path.expanduser(
+        "~/.claude/plugins/cache/brothersbe/brothersbe/3.2.0/tools")
+
+    def _load_installed(self, name):
+        path = os.path.join(self.INSTALLED_TOOLS_DIR, name + ".py")
+        if not os.path.isfile(path):
+            self.skipTest(
+                "the installed BrotherSBE copy at %s is not on this "
+                "machine, so the real parser cannot be driven here; "
+                "this is NOT a pass, only a machine this test cannot "
+                "run on" % path)
+        spec = importlib.util.spec_from_file_location(
+            "bm_store_test_installed_" + name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_an_active_store_claim_is_declared_not_undeclared(self):
+        """REPRODUCED pre-fix: render_state_md's own active-record line
+        carried no "agent" substring at all (bm_telemetry.py's own
+        comment directly above its _STORE_RECORD_LINE_RE documents this
+        exact gap in the same words: "This line never contains the word
+        'agent' at all"), so sbe_score._is_live_fence never recognized
+        it as a fence, sbe_fence_hook.read_fences returned zero fences,
+        and Declarations.covering_rule for the claimed path returned ""
+        (undeclared) even though the store held a real, active, sole-
+        writer claim over it. Asserting covering_rule is non-empty fails
+        outright against that pre-fix shape."""
+        reconcile = self._load_installed("sbe_session_reconcile")
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe",
+                           ["api/pay.py"], session_id="closing-session")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            # The reconcile's OWN scope logic, unmodified: read_declarations
+            # (task registry + fence registry + break-glass) then
+            # covering_rule for the one path this test claimed.
+            declarations = reconcile.read_declarations(d, "closing-session")
+            rule = declarations.covering_rule("api/pay.py")
+        self.assertNotEqual(
+            rule, "",
+            "the installed BrotherSBE reconcile reports 'api/pay.py' as "
+            "UNDECLARED even though the store holds a real active claim "
+            "over it: the two one-writer registries cannot see each "
+            "other (M12)")
+        self.assertIn("live fence", rule)
+        self.assertIn("api/pay.py", rule)
+
+    def test_a_path_the_store_never_claimed_stays_undeclared(self):
+        """CONTROL: the fix must not make covering_rule say yes to
+        everything. A path this store never claimed stays genuinely
+        undeclared, proving the assertion above is a real read of scope
+        and not a fixture that always reports covered."""
+        reconcile = self._load_installed("sbe_session_reconcile")
+        with tempfile.TemporaryDirectory() as d:
+            store = bs.Store(d)
+            try:
+                store.claim("payments", "persistent", "ship stripe",
+                           ["api/pay.py"], session_id="closing-session")
+            finally:
+                store.close()
+            bs.write_state_view(d)
+            declarations = reconcile.read_declarations(d, "closing-session")
+            rule = declarations.covering_rule("api/unrelated.py")
+        self.assertEqual(rule, "")
+
+
 class TestStateView(unittest.TestCase):
     def test_write_state_view_creates_markers_and_content(self):
         with tempfile.TemporaryDirectory() as d:
@@ -23479,6 +23572,66 @@ class TestSchema20CapabilityReceipts(unittest.TestCase):
         self.assertIn(("evidence", "criterion_id"), bs._DUMP_SAFE_COLUMNS)
         self.assertNotIn(("evidence", "criterion_id"),
                          bs._DUMP_SCRUB_ONLY_COLUMNS)
+
+
+class TestReviewTaskAcceptanceGap(unittest.TestCase):
+    """M5: acceptance_checks enforced nothing. A task could carry a list
+    of them and still be reviewed to 'verified' with no evidence row ever
+    naming one (criterion_id is optional on add_evidence), and the
+    verdict said nothing about it. review_task's own gap check
+    (_acceptance_gap) closes that: the third element of its return is a
+    named message whenever a review lands a task on 'verified' with
+    non-empty acceptance_checks but no linked criterion on record."""
+
+    def _task_awaiting_review(self, store, checks):
+        store.upsert_project(_project(), _actor())
+        store.create_task(
+            _task("task1", acceptance_checks=checks), _actor())
+        store.transition_task("task1", "ready", "begin work", _actor())
+        store.transition_task("task1", "active", "begin work", _actor())
+        store.transition_task("task1", "awaiting review", "sent for review",
+                              _actor())
+
+    def test_review_to_verified_with_no_criterion_examined_names_the_gap(self):
+        """REPRODUCED pre-fix: review_task returned a bare (evidence_id,
+        status) 2-tuple with no way for a caller to learn the task's two
+        acceptance checks were never linked to any evidence; a review with
+        no --criterion-id printed the same success line as one that
+        actually examined a check. Unpacking three values off the old
+        signature raises ValueError, so this assertion fails outright
+        against the pre-fix shape."""
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._task_awaiting_review(store, ["check a", "check b"])
+                evidence_id, status, gap = store.review_task(
+                    "task1", "proj1",
+                    _evidence("ev1", subject_id="task1"),
+                    "verified", "reviewer signed off", _actor())
+                self.assertEqual(status, "verified")
+                self.assertIn("task1", gap)
+                self.assertIn("2 acceptance check", gap)
+
+    def test_review_to_verified_with_a_criterion_linked_has_no_gap(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._task_awaiting_review(store, ["check a"])
+                S = bs._schema()
+                cid = S.criterion_id_for_check("check a")
+                evidence_id, status, gap = store.review_task(
+                    "task1", "proj1",
+                    _evidence("ev1", subject_id="task1", criterion_id=cid),
+                    "verified", "reviewer ran check a", _actor())
+                self.assertEqual(status, "verified")
+                self.assertEqual(gap, "")
+
+    def test_review_task_with_no_acceptance_checks_has_no_gap(self):
+        with tempfile.TemporaryDirectory() as d:
+            with bs.Store(d) as store:
+                self._task_awaiting_review(store, [])
+                evidence_id, status, gap = store.review_task(
+                    "task1", "proj1", _evidence("ev1", subject_id="task1"),
+                    "verified", "no checks to examine", _actor())
+                self.assertEqual(gap, "")
 
 
 class TestSystemProjectsAreNotFounderWork(unittest.TestCase):

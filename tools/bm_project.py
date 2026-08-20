@@ -1442,16 +1442,22 @@ def cmd_review(argv):
         # two separate calls (add_evidence, then transition_task), each
         # its own transaction, so a refused transition still left the
         # evidence from the first call sitting on disk.
-        evidence_id, status = store.review_task(
+        evidence_id, status, acceptance_gap = store.review_task(
             task_id, project_id, evidence, new_status, reason, actor)
     finally:
         store.close()
     if kv.get("out-json"):
         _print_json({"task_id": task_id, "evidence_id": evidence_id,
-                     "status": status})
+                     "status": status, "acceptance_gap": acceptance_gap})
         return 0
     _out("reviewed task %s: evidence %s recorded, task -> %s"
          % (task_id, evidence_id, status))
+    # M5: acceptance_checks enforce nothing unless the verdict actually
+    # says so when nothing examined one. Printed, never silently folded
+    # into the ordinary line above, so a review that met no acceptance
+    # check still reads unmistakably differently from one that did.
+    if acceptance_gap:
+        _out("WARNING: %s" % acceptance_gap)
     return 0
 
 
@@ -1701,6 +1707,48 @@ def cmd_alert(argv):
 # deliver
 # ---------------------------------------------------------------------------
 
+# M2: deliver's own two checks above (nonzero tasks, every task at the
+# terminal state) both pass for a project that never had a goal, never had
+# a single piece of evidence filed, and never had a task actually pass
+# review. A task reaches 'closed' by walking LEGAL_TRANSITIONS one legal
+# move at a time, and the bare `task transition` command performs those
+# moves with no evidence required at all: only `review` files evidence
+# (bm_project.py's ONE writer of the evidence table), and nothing forces a
+# caller to use it rather than `task transition --to verified` directly.
+# REPRODUCED in a throwaway root, after M4 closed the birth-state hole:
+# start a project with no --goal, `task add` (born 'planned', legal),
+# then `task transition` it straight through ready, active, 'awaiting
+# review', verified, accepted, delivered, monitored, closed, six
+# transitions, zero evidence rows, zero review. `deliver --project-id px`
+# still printed "delivered px: all 1 task(s) closed" and exited 0. A
+# status-based check ("has any task ever reached 'verified' or later")
+# does NOT catch this: `task transition --to verified` leaves the task
+# sitting in that very state, so by the time deliver looks the status
+# lies exactly like the missing evidence does. Evidence, not status, is
+# the only trustworthy signal here, because only `review` ever writes it.
+
+
+def _delivery_holes(store, project, tasks):
+    """Every reason `project` is not a real delivery, named rather than
+    merely refused. Returns a list of hole descriptions, empty when there
+    are none. Checked together, not one refusal at a time (loops2's own
+    C4 fix nearby is the same shape: report the whole gap in one call)."""
+    holes = []
+    if not (project.get("goal") or "").strip():
+        holes.append("no goal is set on the project")
+    has_evidence = bool(store.list_evidence("project", project["project_id"]))
+    if not has_evidence:
+        for task in tasks:
+            if store.list_evidence("task", task.get("task_id")):
+                has_evidence = True
+                break
+    if not has_evidence:
+        holes.append("no build evidence and no review are on record: "
+                     "only `review` files evidence, and nothing ever "
+                     "called it for this project or any of its tasks")
+    return holes
+
+
 def cmd_deliver(argv):
     _pos, kv = _parse(argv, ("project-id", "partial", "out-json"),
                        wants_value=("project-id",))
@@ -1712,7 +1760,8 @@ def cmd_deliver(argv):
         if project is None:
             _err("bm_project: no project %r" % project_id)
             return 1
-        total = len(store.list_tasks(project_id))
+        tasks = store.list_tasks(project_id)
+        total = len(tasks)
         if total == 0:
             # C4 (release-closure loop2 refuter fixes): --partial means
             # "some tasks are not yet closed", not "there is nothing to
@@ -1722,13 +1771,17 @@ def cmd_deliver(argv):
             _err("cannot deliver %s: the project has zero tasks; add at "
                  "least one task before delivering." % project_id)
             return 1
-        closed = len(store.list_tasks(project_id, status=TERMINAL_STATE))
+        closed = len([t for t in tasks if t.get("status") == TERMINAL_STATE])
         non_terminal = total - closed
         if non_terminal > 0 and not kv.get("partial"):
             _err("cannot deliver: %d of %d task(s) have not reached the "
                  "terminal state (%r); pass --partial to deliver anyway, "
                  "or finish those tasks first."
                  % (non_terminal, total, TERMINAL_STATE))
+            return 1
+        holes = _delivery_holes(store, project, tasks)
+        if holes:
+            _err("cannot deliver %s: %s" % (project_id, "; ".join(holes)))
             return 1
         text = render_delivery_packet(store, project_id)
         _write_generated(_root(), _packet_filename(store, project_id), text,

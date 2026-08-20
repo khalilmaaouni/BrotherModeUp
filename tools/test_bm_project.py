@@ -604,6 +604,67 @@ class TestScriptedFirstProject(unittest.TestCase):
                           packet)
 
 
+class TestGuidedStartWalkthroughLeavesAReadyTask(unittest.TestCase):
+    """M8 (docs/plan/QUEUE.json): "the guided walkthrough stops at the
+    project brief: no skill, command or reference tells anyone to create
+    tasks, so next reads a queue the flow never fills". skills/start/
+    SKILL.md's own section "The task that keeps the walkthrough from
+    dead-ending" now names the fix in prose (a `task add ... --status
+    ready` right after the brief); this test is the missing other half:
+    proof that driving the SAME commands the skill names actually leaves
+    `next` something to serve, and a pin on the doc so the load-bearing
+    `--status ready` flag cannot silently drift out of it again."""
+
+    def test_skill_doc_still_names_status_ready_on_the_task_add_command(self):
+        """Regression pin on the prose itself: M8 was closed by adding
+        `--status ready` to the task-add command SKILL.md names (task
+        born 'planned' is invisible to `next`, per M3/M4's own lesson).
+        A future edit that drops that one flag reopens the dead end
+        silently, so the doc text is asserted, not just the behavior."""
+        skill_path = os.path.join(
+            os.path.dirname(HERE), "skills", "start", "SKILL.md")
+        with io.open(skill_path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("task add", text)
+        self.assertIn("--status ready", text)
+
+    def test_scripted_walkthrough_leaves_next_something_to_serve(self):
+        """REPRODUCED pre-fix (docs/NORTH-STAR-CHAIN.md's own M3 finding):
+        a project brief alone (`start`, no task) leaves a task born
+        'planned' the moment one IS added without `--status ready`, and
+        `next` reads only 'ready', so the walkthrough dead-ends with
+        nothing to hand back. This scripts the same commands SKILL.md's
+        own "mechanical command that records the brief" and "task that
+        keeps the walkthrough from dead-ending" sections name, in order,
+        and asserts `next` picks the task at the end."""
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "px", "--name", "First Run",
+                      "--goal", "Ship the thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # `next` right after the brief: no task exists yet, the one
+            # real dead end the skill's own text names.
+            r = _run(["next", "--project-id", "px", "--json"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            before = json.loads(r.stdout)
+            self.assertEqual(before["candidate_count"], 0)
+            self.assertIsNone(before["picked"])
+            # The exact mechanical command skills/start/SKILL.md names,
+            # actor renamed to match this suite's convention.
+            r = _run(["task", "add", "--project-id", "px",
+                      "--title", "Wire up the first real piece",
+                      "--status", "ready"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["next", "--project-id", "px", "--json", "--raw"], root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            after = json.loads(r.stdout)
+            self.assertEqual(after["candidate_count"], 1)
+            self.assertIsNotNone(after["picked"])
+            self.assertEqual(after["picked"]["title"],
+                             "Wire up the first real piece")
+
+
 class TestReleaseClosureLoop2RefuterFixes(unittest.TestCase):
     """Regression coverage for the twelve confirmed loop2-refuter
     findings this file's own correctness fixes (C1-C6) touch. Each test
@@ -690,6 +751,52 @@ class TestReleaseClosureLoop2RefuterFixes(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
             self.assertIn("zero tasks", r.stderr)
 
+    def test_deliver_refuses_a_hollow_project_even_when_every_task_is_closed(self):
+        """M2: deliver's own two checks (nonzero tasks, every task at the
+        terminal state) both pass on a project that never had a goal,
+        never had a single piece of evidence filed, and never had a task
+        actually pass review: `task transition` walks a task through the
+        WHOLE lifecycle to 'closed' with no evidence required at all, only
+        `review` files evidence, and nothing forces a caller to use it.
+
+        REPRODUCED pre-fix, in a throwaway root, after M4 closed the
+        birth-state hole so this could not be shortcut at `task add`
+        instead: start a project with no --goal, `task add` (born
+        'planned', legal), then `task transition` it straight through
+        ready, active, 'awaiting review', verified, accepted, delivered,
+        monitored, closed, six transitions, zero evidence rows, `review`
+        never called. `deliver --project-id px` still printed "delivered
+        px: all 1 task(s) closed" and exited 0."""
+        with tempfile.TemporaryDirectory() as root:
+            _init(root)
+            r = _run(["start", "--project-id", "px", "--name", "Probe"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "add", "--project-id", "px",
+                      "--task-id", "t1", "--title", "do thing"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for state, reason in (
+                    ("ready", "deps clear"), ("active", "beginning"),
+                    ("awaiting review", "work finished"),
+                    ("verified", "skip the review command"),
+                    ("accepted", "owner approved"),
+                    ("delivered", "handed off"), ("monitored", "watching"),
+                    ("closed", "monitoring window over")):
+                r = _run(["task", "transition", "--task-id", "t1",
+                          "--to", state, "--reason", reason]
+                         + list(ACTOR), root)
+                self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["deliver", "--project-id", "px"], root)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("no goal", r.stderr)
+            self.assertIn("no build evidence", r.stderr)
+            self.assertIn("no review", r.stderr)
+            # nothing was written: no CANVAS/DELIVERY-PACKET regeneration
+            # from a delivery that was refused.
+            self.assertFalse(
+                os.path.isfile(os.path.join(root, "DELIVERY-PACKET.md")))
+
     def test_start_refuses_a_second_project_without_allow_second(self):
         """C5: two different project_ids sharing one root would clobber
         CANVAS.md and the delivery packet in turn."""
@@ -711,14 +818,33 @@ class TestReleaseClosureLoop2RefuterFixes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self._started(root)
             self.assertTrue(os.path.isfile(os.path.join(root, "CANVAS.md")))
+            # M2: deliver now refuses a hollow project (no goal, no
+            # evidence, no task ever reviewed), so proj2 needs a goal and
+            # one reviewed task to reach the file-naming assertion this
+            # test actually cares about, exactly like proj1 already gets
+            # from ACME's own --goal elsewhere in this suite.
             self._started(root, project_id="proj2", name="Other",
-                          extra=("--allow-second",))
+                          extra=("--allow-second", "--goal", "Fix it"))
             self.assertTrue(
                 os.path.isfile(os.path.join(root, "CANVAS-proj2.md")),
                 "a second project's canvas must not clobber CANVAS.md")
             r = _run(["task", "add", "--project-id", "proj2",
                       "--task-id", "task2", "--title", "Do the other thing"]
                      + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "transition", "--task-id", "task2",
+                      "--to", "ready", "--reason", "deps clear"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "start", "--task-id", "task2",
+                      "--reason", "beginning"] + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["task", "transition", "--task-id", "task2",
+                      "--to", "awaiting review", "--reason", "work done"]
+                     + list(ACTOR), root)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = _run(["review", "task2", "--project-id", "proj2",
+                      "--reason", "checked it"] + list(ACTOR), root)
             self.assertEqual(r.returncode, 0, r.stderr)
             r = _run(["deliver", "--project-id", "proj2", "--partial"], root)
             self.assertEqual(r.returncode, 0, r.stderr)

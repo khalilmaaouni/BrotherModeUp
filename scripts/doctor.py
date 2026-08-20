@@ -507,6 +507,7 @@ CHECK_TITLES = collections.OrderedDict((
     ("consent", "setup has been completed"),
     ("vault", "vault path exists and is writable"),
     ("duplicate_install", "only one install method is wired"),
+    ("install_shape", "the install actually present is not stranded"),
     ("store", "project store health"),
     ("mode_wiring", "hook wiring matches installation_mode"),
     ("checksums", "CHECKSUMS.sha256 self-check"),
@@ -891,6 +892,74 @@ def check_duplicate_install(settings, settings_err, settings_path, root):
     return _result("duplicate_install", STATUS_PASS,
                    "PASS: only one install method (%s) is wired in %s."
                    % (which, _mask_home(settings_path)))
+
+
+def check_install_shape(settings, settings_err, settings_path, root):
+    """M1 (docs/plan/QUEUE.json), part (a): the install-shape detector.
+
+    Measured on the founder's own machine (docs/NORTH-STAR-CHAIN.md
+    finding 1): a skill-directory clone sits at ~/.claude/skills/
+    brothermode, its own hooks/hooks.json carries no reference to
+    bm_fence_hook.py (or the file is missing outright), and settings.json
+    holds no fence wiring either. loader_managed_fence_copies() only
+    counts a skill-dir copy whose OWN hooks.json really does name the
+    fence, so a copy in exactly this broken shape is invisible to it, and
+    check_duplicate_install above reports a bare PASS for "neither method
+    is wired" (its question is "is more than one wired", not "is any
+    wired at all"). This check asks the question neither of those asks:
+    given whatever install shape IS present on disk (skill-directory
+    clone, plugin, or nothing), is its fence hook actually wired
+    somewhere real. NO-DATA (STATUS_SKIP) when settings.json cannot be
+    read, or when no install evidence of ANY kind exists to judge the
+    shape of; FAIL, naming the stranded path, when a clone is present but
+    nothing loads it; PASS otherwise. Never a silent pass for "nothing
+    found"."""
+    if settings_err:
+        return _result(
+            "install_shape", STATUS_SKIP,
+            "NO-DATA: %s could not be read (%s), so whether this is a "
+            "skill-directory clone or a plugin install, and whether its "
+            "fence hook is wired, cannot be determined."
+            % (_mask_home(settings_path), settings_err))
+    plugin_name = _plugin_name(root)
+    home = os.path.expanduser("~")
+    skill_dir = os.path.join(home, ".claude", "skills", plugin_name)
+    has_skill_dir = os.path.isdir(skill_dir)
+    has_plugin = _plugin_enabled(settings, plugin_name)
+    has_settings_wiring = _clone_fence_present(settings)
+    loader_copies = loader_managed_fence_copies()
+    loader_wired = has_skill_dir and any(
+        os.path.normpath(copy) == os.path.normpath(skill_dir)
+        for copy in loader_copies)
+
+    if not (has_skill_dir or has_plugin or has_settings_wiring):
+        return _result(
+            "install_shape", STATUS_SKIP,
+            "NO-DATA: no plugin (%s is not in enabledPlugins), no "
+            "settings.json fence entry, and no skill-directory clone at "
+            "%s were found, so there is no install shape to judge here."
+            % (plugin_name, _mask_home(skill_dir)))
+
+    if has_plugin:
+        shape = "a plugin install (%s enabled in %s)" % (
+            plugin_name, _mask_home(settings_path))
+    elif has_settings_wiring:
+        shape = "a clone install with a settings.json fence entry"
+    else:
+        shape = "a skill-directory clone at %s" % _mask_home(skill_dir)
+
+    if has_plugin or has_settings_wiring or loader_wired:
+        return _result("install_shape", STATUS_PASS,
+                       "PASS: %s, and its fence hook is wired." % shape)
+    return _result(
+        "install_shape", STATUS_FAIL,
+        "FAIL: %s exists, but no fence hook is wired for it anywhere: "
+        "not in %s, and its own hooks/hooks.json does not name %s (or is "
+        "missing). This is a STRANDED install: the files are on disk and "
+        "nothing loads them. Run: python3 scripts/install.py --upgrade, "
+        "or remove the stranded copy at %s and reinstall."
+        % (shape, _mask_home(settings_path), FENCE_BASENAME,
+           _mask_home(skill_dir)))
 
 
 def check_store_health(doctor_root):
@@ -1293,6 +1362,8 @@ def run_all_checks(settings_path):
         _run_check("consent", check_consent),
         _run_check("vault", check_vault, root),
         _run_check("duplicate_install", check_duplicate_install,
+                   settings_for_scan, settings_err, settings_path, root),
+        _run_check("install_shape", check_install_shape,
                    settings_for_scan, settings_err, settings_path, root),
         _run_check("store", check_store_health, root),
         _run_check("mode_wiring", check_hook_wiring_matches_mode,
