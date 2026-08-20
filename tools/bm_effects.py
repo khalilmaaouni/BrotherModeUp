@@ -665,6 +665,12 @@ REGISTRY = {
         "hook": LEDGER_WRITE,
         "session-label": LEDGER_WRITE,
         "whoami": LEDGER_WRITE,
+        # query (2026-08-20, the real M11 fix) answers "would the hook
+        # allow this write" by calling decide() directly, the same code
+        # path as hook, so it inherits hook's classification for the
+        # same reason: decide() can call session_label() -> ensure_token()
+        # and create the fence token file.
+        "query": LEDGER_WRITE,
     },
 
     # -- bm_docs_export.py --------------------------------------------------

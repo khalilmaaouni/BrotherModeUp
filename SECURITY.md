@@ -139,10 +139,12 @@ What the code actually writes inside your project today:
   owner-only where the platform supports it (on Windows this is best-effort;
   rely on your user profile's access control).
 
-You can verify both claims yourself; the tools are about 128,300 lines of
-standard-library Python and shell (re-measured 2026-08-10 after two checks
-landed, a wall-clock lint and a progress-page check; the figure of 108,900 from
-2026-08-05 drifted past the 15 percent guard the test enforces, so it is
+You can verify both claims yourself; the tools are about 152,700 lines of
+standard-library Python and shell (re-measured 2026-08-20 after the change
+passport producer, its validator and the query verb landed; the figure of
+128,300 from 2026-08-10 drifted past the 15 percent guard the test enforces,
+and before it the figure of 108,900 from
+2026-08-05 drifted the same way, so it is
 corrected here rather than restated, which is the fourth such correction and is
 exactly the pattern the promise below is about. Worth naming plainly: this
 correction was not noticed by a person. The drift test refused the change and
