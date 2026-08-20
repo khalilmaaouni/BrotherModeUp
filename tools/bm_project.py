@@ -1780,9 +1780,16 @@ def cmd_deliver(argv):
                  % (non_terminal, total, TERMINAL_STATE))
             return 1
         holes = _delivery_holes(store, project, tasks)
-        if holes:
+        # M2 (2026-08-20): a hollow project may never be certified as a
+        # SUCCESS. An explicit --partial is a different act: the human is
+        # declaring the delivery incomplete, so it proceeds, and the holes
+        # are printed so a partial can never read as silently clean either.
+        if holes and not kv.get("partial"):
             _err("cannot deliver %s: %s" % (project_id, "; ".join(holes)))
             return 1
+        if holes:
+            _err("delivering PARTIALLY with holes on record: %s"
+                 % "; ".join(holes))
         text = render_delivery_packet(store, project_id)
         _write_generated(_root(), _packet_filename(store, project_id), text,
                          DELIVERY_BEGIN, DELIVERY_END)

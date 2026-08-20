@@ -796,6 +796,18 @@ class TestReleaseClosureLoop2RefuterFixes(unittest.TestCase):
             # from a delivery that was refused.
             self.assertFalse(
                 os.path.isfile(os.path.join(root, "DELIVERY-PACKET.md")))
+            # An explicit --partial is a different act: the human declares
+            # the delivery incomplete, so it proceeds, and the same holes
+            # are printed so a partial can never read as silently clean.
+            # Pinned 2026-08-20 after the full gate caught the first M2
+            # guard also refusing the CLI's legitimate partial-delivery
+            # flow (test_deliver_partial_writes_the_packet).
+            r = _run(["deliver", "--project-id", "px", "--partial"], root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("holes on record", r.stderr)
+            self.assertIn("no goal", r.stderr)
+            self.assertTrue(
+                os.path.isfile(os.path.join(root, "DELIVERY-PACKET.md")))
 
     def test_start_refuses_a_second_project_without_allow_second(self):
         """C5: two different project_ids sharing one root would clobber
