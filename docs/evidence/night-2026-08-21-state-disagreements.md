@@ -112,3 +112,65 @@ being declared. Overlap scan after the correction:
 WORTH NOTING IN THE SAME BREATH: that scan prints its own limit, "it says nothing about
 writers who never registered", which is the same NO-DATA discipline the M17 and M18
 defects exist to restore elsewhere in this estate.
+
+### F-N2: the installed copy was already repaired, so the prompt's stated fault no longer exists
+
+PROMPT SAID the installed copy under the skills directory "is 25 commits behind and
+reads store schema 20 against this store's 21, so it refuses with schema-ahead".
+
+COMMANDS SAID otherwise, run twice, once by a measurement agent and once by the
+orchestrator by hand:
+  diff -q ~/.claude/skills/brothermode/tools/bm_fence_hook.py tools/bm_fence_hook.py -> identical
+  diff -q ~/.claude/skills/brothermode/tools/bm_store.py       tools/bm_store.py     -> identical
+  SCHEMA_VERSION = 21 in both files
+  installed clone HEAD eacf249b, 12 commits behind this repository's HEAD, not 25
+
+The day run's install-clone repair fixed it. The instruction to run every tool as
+python3 tools/<name>.py from this checkout was followed anyway, because it is never
+wrong, but its stated REASON no longer holds.
+
+WHY THIS CHANGED THE NIGHT'S WORK rather than being a footnote: M17 and M18 were both
+specified against an estate condition that has since been repaired, so neither
+regression test could observe its fault. Both had to CONSTRUCT it instead, by copying
+the tools dependency closure and patching the copy's SCHEMA_VERSION down by exactly
+one. A test written to observe the estate would have passed against a healthy estate
+and proven nothing, which is the same failure family the unit exists to close.
+
+### F-N3: the foreign-commit monitor alerts on this session's own pushes
+
+OBSERVED twice tonight. The overnight watchdog's foreign-commit monitor compares
+origin/main against a stored baseline and reports movement. It reported:
+  FOREIGN COMMIT: origin/main moved 1b804d6 to fe19375 at 01:15:07
+  FOREIGN COMMIT: origin/main moved fe19375 to b06e17f at 01:33:32
+Both were this session's own pushes. The monitor cannot tell a peer's commit from the
+orchestrator's own, so every legitimate push produces a false alarm.
+
+WHY IT MATTERS rather than being cosmetic: an alert that fires on your own routine
+action is an alert you learn to ignore, and the one time it fires for a real foreign
+commit it will read the same as the last three that did not. The fix is one line of
+comparison logic (compare the new remote tip against this session's own HEAD, and stay
+silent when they match), and it is recorded here rather than made tonight because the
+watchdog lives outside this repository.
+
+### F-N4: the guard's spend figure and the subagents' own figures disagree, unresolved
+
+MEASURED at 01:32 JST with `python3 ~/.claude/hooks/spend_guard.py report`, with
+CLAUDE_PROJECT_DIR pointed at this project:
+  this session   416,121 output tokens (14 percent of its 3,000,000 ceiling)
+  this project   762,316 output across 1 session (7 percent of the 11,000,000 daily)
+  sibling project 2,623,660 output across 2 sessions
+Cross-repository total roughly 3,385,976 against the founder's self-enforced 8,000,000
+soft stop, so the night had ample room and no decision turned on this.
+
+THE UNRESOLVED PART, stated because it is the shape of a known incident rather than a
+rounding quibble: the five subagent completions this session received reported roughly
+1,101,579 tokens between them, which is MORE than the guard's figure for the entire
+project today. The two may simply be counting different things, most plausibly input
+plus output against output alone, and that would fully explain the gap. But the spend
+guard's own documentation says subagent spend counts toward the ceiling BECAUSE
+subagents were 74 percent of the output tokens in the 2026-08-09 runaway. If the
+guard were not in fact counting them, that would be the same hole reopened, and it
+would be invisible on any night that stayed well under budget, exactly like this one.
+NOT ESTABLISHED in either direction tonight. It is one experiment awake: run a session
+that does nothing but dispatch a subagent with a known output size, and read the
+guard's figure before and after.
