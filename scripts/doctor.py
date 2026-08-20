@@ -314,6 +314,18 @@ def blocked_write_simulation(command_words, tools_dir):
         env["BROTHERMODE_ROOT"] = root
         env.pop("BM_FENCE_STRICT", None)
         env.pop("BM_FENCE_SESSION_ID", None)
+        # queue M25, family provenance: the hook and store code this
+        # simulation runs lazily importlib-load their sibling module
+        # (bm_fence_hook.py loads bm_store.py) with the ordinary
+        # SourceFileLoader path, which writes a __pycache__/*.pyc beside
+        # the INSTALLED file it just imported, not under root above, the
+        # moment PYTHONDONTWRITEBYTECODE is unset and that directory is
+        # writable. That contradicts this file's own module docstring
+        # (CHECK 1: "every file it creates lives under a fresh mkdtemp
+        # directory that is removed at the end"), so every subprocess this
+        # function spawns gets the flag rather than the docstring's claim
+        # being weakened to fit the leak.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         store = os.path.join(tools_dir, "bm_store.py")
         fence = fence_path_in(command_words)

@@ -1355,10 +1355,27 @@ class TestPreWriteGate(unittest.TestCase):
     os.fdopen( also gained its own unconditional pattern, the same
     catch-all treatment os.open( already had, so a future fdopen call whose
     mode is a variable rather than a literal string still cannot hide.
+
+    Widened again for M28: the gap between "open(" and the mode string was
+    [^)]*, which cannot cross a NESTED closing paren, so a path argument
+    built from a call like os.path.join(...) hid the mode string behind
+    that call's own ")" and the whole open(...) site went unmatched, real
+    shape at scripts/benchmark.py line 116 (with open(os.path.join(self.
+    root, ".git", "info", "exclude"), "a") as fh:). Latent there only
+    because a matched .write( sits two lines below it. The gap now also
+    accepts one BALANCED, ONE-LEVEL-DEEP parenthesized group in addition
+    to plain non-paren characters, repeated any number of times. This
+    is a bounded fix, not a general balanced-paren matcher (Python's re
+    cannot recurse): a path built from a doubly-nested call, one call
+    inside another inside open()'s own parens, still hides its mode string
+    from this pattern. Grepping this tree at the time of this widening
+    found no such doubly-nested call site; if one is ever added, it joins
+    scripts/benchmark.py line 116's shape as a documented, bounded blind
+    spot, not a silent one.
     """
 
     WRITE_PATTERNS = (
-        r'open\([^)]*["\'][wax][rwxabt+]{0,3}["\']',
+        r'open\((?:[^()]|\([^()]*\))*["\'][wax][rwxabt+]{0,3}["\']',
         r'os\.open\(',
         r'os\.fdopen\(',
         r'\.write(lines)?\(',
@@ -1497,6 +1514,46 @@ class TestPreWriteGate(unittest.TestCase):
                 ".writelines()/shutil.copyfileobj() site inside a "
                 "scripts-shaped directory; the M27 fix regressed")
             self.assertEqual(found["scripts/bm_smuggled_binary_write.py"], 3)
+
+            with self.assertRaises(AssertionError):
+                self._assert_matches_manifest(found, manifest={})
+
+    def test_widened_scope_catches_a_smuggled_nested_paren_write(self):
+        """M28 adversarial test, the third widening. Pre-widening, the
+        open(...) mode-string pattern reached the mode string through
+        [^)]*, which cannot cross a NESTED closing paren: open(os.path.
+        join(...), "a") was invisible whenever the mode string sat past a
+        nested call in the path argument, exactly the real shape at
+        scripts/benchmark.py line 116 (with open(os.path.join(self.root,
+        ".git", "info", "exclude"), "a") as fh:). LATENT there only
+        because a matched .write( sits two lines below it; this fixture
+        has NO write call beside it at all, the estate where the gap goes
+        live. Plant a throwaway file using exactly that nested-paren shape
+        inside a directory named "scripts" under an isolated temp root,
+        never touching the real repo, and confirm the SAME comparison the
+        real gate runs both sees it and refuses it unreviewed."""
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            planted_dir = os.path.join(root, "scripts")
+            os.makedirs(planted_dir)
+            planted = os.path.join(planted_dir, "bm_smuggled_nested_write.py")
+            with io.open(planted, "w", encoding="utf-8") as f:
+                f.write(
+                    "import os\n\n\n"
+                    "def touch(root):\n"
+                    "    with open(os.path.join(root, \"state\", \"marker\"), "
+                    "\"w\") as fh:\n"
+                    "        fh.flush()\n")
+
+            found = self._sites(base=root, scan_roots=("scripts",))
+
+            self.assertIn(
+                "scripts/bm_smuggled_nested_write.py", found,
+                "the widened scanner missed an open(...) site whose mode "
+                "string sits past a NESTED closing paren in the path "
+                "argument, with no .write() call beside it to catch the "
+                "file some other way; the M28 fix regressed")
+            self.assertEqual(found["scripts/bm_smuggled_nested_write.py"], 1)
 
             with self.assertRaises(AssertionError):
                 self._assert_matches_manifest(found, manifest={})
@@ -5875,6 +5932,122 @@ class TestM17FenceLivenessAgainstRealStore(unittest.TestCase):
             # silently soften it.
             self.assertEqual(checks["fence"]["status"], "FAIL",
                              checks["fence"]["message"])
+
+
+class TestM25BlockedWriteSimulationLeavesNoBytecodeCache(unittest.TestCase):
+    """M25 (docs/plan/QUEUE.json, family provenance): scripts/doctor.py's
+    module docstring for CHECK 1 promises the blocked-write simulation is
+    harmless in the strict sense: 'every file it creates lives under a
+    fresh mkdtemp directory that is removed at the end'. That promise was
+    not kept. blocked_write_simulation() runs the wired hook and the store
+    CLI as subprocesses whose SCRIPT PATH is the real, installed tools_dir,
+    not the throwaway mkdtemp root, and both bm_fence_hook.py (which
+    lazily loads bm_store.py) and bm_store.py (which lazily loads
+    bm_autosave.py, bm_telemetry.py, and others) do it with
+    importlib.util.spec_from_file_location() plus exec_module(), the
+    ordinary SourceFileLoader path, which writes a __pycache__/*.pyc
+    beside the file it just imported the moment PYTHONDONTWRITEBYTECODE is
+    unset and that directory is writable.
+
+    Measured pre-fix with an isolated fixture (cwd outside any git
+    ancestry, so doctor's separate _verify_real_store() step, a different
+    function and out of scope here, takes its own NO-DATA path and spawns
+    nothing of its own): bm_autosave, bm_fence_hook, bm_store and
+    bm_telemetry each left a .pyc beside a fixture install whose
+    __pycache__ started empty and whose fence check itself still reported
+    PASS throughout. Fixed by setting PYTHONDONTWRITEBYTECODE=1 in the env
+    blocked_write_simulation hands its own subprocesses, beside the other
+    env mutations already there.
+
+    NO NEW SUITES ENTRY, same reasoning as TestM1InstallShapeDoctorCheck
+    and TestM17FenceLivenessAgainstRealStore above: scripts/*.py checks
+    are tested inline in an already-registered tools/test_*.py file."""
+
+    DOCTOR = os.path.join(HERE, "..", "scripts", "doctor.py")
+
+    def _env(self, home):
+        """Deliberately the OPPOSITE of TestM17FenceLivenessAgainstRealStore's
+        _env(): that helper SETS PYTHONDONTWRITEBYTECODE=1 for its own
+        subprocess-hygiene reasons, and that would inherit into doctor.py's
+        own env = dict(os.environ) and mask this exact defect from this
+        test. M25 is precisely about the var being UNSET, so this pops it
+        rather than sets it, in case it is already set in the ambient
+        shell running the suite."""
+        env = dict(os.environ)
+        env["HOME"] = home
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        for k in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT", "BROTHERME_CONFIG",
+                  "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+            env.pop(k, None)
+        return env
+
+    def _fixture_install(self, tmp):
+        """A real, working copy of every tools/*.py file (dependency
+        closure), the same technique TestM17FenceLivenessAgainstRealStore's
+        _old_install_one_schema_behind above uses, minus the schema patch:
+        M25 is about bytecode caching, not schema drift, so this fixture
+        stays at the current schema, unmodified."""
+        tools_dir = os.path.join(tmp, "fixture_install", "tools")
+        os.makedirs(tools_dir)
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy2(os.path.join(HERE, name), os.path.join(tools_dir, name))
+        return tools_dir
+
+    def _pyc_files(self, tools_dir):
+        cache_dir = os.path.join(tools_dir, "__pycache__")
+        if not os.path.isdir(cache_dir):
+            return []
+        return sorted(n for n in os.listdir(cache_dir) if n.endswith(".pyc"))
+
+    def test_no_bytecode_cache_appears_beside_the_installed_hook(self):
+        """REPRODUCED pre-fix (queue M25): running the fence simulation
+        against a fixture install, with PYTHONDONTWRITEBYTECODE unset and
+        cwd outside any git ancestry (so the separate real-store step
+        finds no project to verify and spawns nothing of its own), left
+        4 .pyc files under the fixture's own __pycache__/, beside the
+        installed hook and store, not under any mkdtemp directory. FAIL is
+        the honest pre-fix outcome for this assertion; the CHECK 1
+        docstring's promise is that this list is always empty."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            tools_dir = self._fixture_install(tmp)
+            self.assertEqual(self._pyc_files(tools_dir), [],
+                             "fixture assumption broke: a __pycache__ "
+                             "already exists beside a freshly copied "
+                             "fixture install before doctor even ran")
+            fence = os.path.join(tools_dir, "bm_fence_hook.py")
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                    "hooks": [{"type": "command", "command": "python3 " + fence,
+                              "timeout": 10}]}]}}, fh)
+            r = subprocess.run(
+                [sys.executable, self.DOCTOR, "--settings", settings, "--json"],
+                cwd=project, env=self._env(home),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=300)
+            output_tail = (r.stderr or r.stdout or "")[:500]
+            payload = json.loads(r.stdout)
+            checks = {c["key"]: c for c in payload["checks"]}
+            self.assertIn("fence", checks,
+                          "fixture assumption broke: no 'fence' check in "
+                          "doctor's --json output: %s" % output_tail)
+            cache_files = self._pyc_files(tools_dir)
+            self.assertEqual(cache_files, [],
+                             "BLOCKED-WRITE SIMULATION WROTE OUTSIDE ITS "
+                             "OWN TEMPORARY DIRECTORY: found %r beside the "
+                             "installed hook at %s, contradicting the "
+                             "CHECK 1 docstring's promise that every file "
+                             "the simulation creates lives under a fresh "
+                             "mkdtemp directory removed at the end. The "
+                             "fence check itself reported %s."
+                             % (cache_files, os.path.join(tools_dir, "__pycache__"),
+                                checks["fence"]["status"]))
 
 
 _migrate_install_spec = importlib.util.spec_from_file_location(
