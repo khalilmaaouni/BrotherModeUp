@@ -5795,6 +5795,103 @@ class TestM1MigrateInstallScript(unittest.TestCase):
             info = migrate_install.detect(home)
             self.assertFalse(info["stranded"], info)
 
+    def test_wired_but_schema_behind_hook_is_not_nothing_to_do(self):
+        """REPRODUCED pre-fix (M18, docs/plan/QUEUE.json, family
+        evidence-integrity): build_plan asked only whether a fence hook
+        was WIRED, never whether that wired copy could reach a verdict
+        against this project's real schema. Measured on 2026-08-20: an
+        installed clone's own bm_store.py was hundreds of commits stale
+        while wiring was intact, and the dry run still printed NOTHING
+        TO DO. This fixture reproduces the schema-behind shape with a
+        REAL, working copy of tools/ (the same dependency-closure
+        technique TestM17FenceLivenessAgainstRealStore's own
+        _old_install_one_schema_behind uses), its own bm_store.py
+        patched down by exactly one schema, wired via skill_dir's own
+        loader hooks.json (the same shape
+        test_detect_working_clone_via_loader_hooks_json_is_not_stranded
+        above uses to be "not stranded")."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            tools_dir = os.path.join(skill_dir, "tools")
+            os.makedirs(tools_dir)
+            for name in sorted(os.listdir(HERE)):
+                if name.endswith(".py") and not name.startswith("test_"):
+                    shutil.copy2(os.path.join(HERE, name),
+                                os.path.join(tools_dir, name))
+            store_copy = os.path.join(tools_dir, "bm_store.py")
+            with io.open(store_copy, encoding="utf-8") as fh:
+                src = fh.read()
+            old_line = "SCHEMA_VERSION = %d" % bs.SCHEMA_VERSION
+            new_line = "SCHEMA_VERSION = %d" % (bs.SCHEMA_VERSION - 1)
+            self.assertIn(old_line, src,
+                          "fixture assumption broke: tools/bm_store.py no "
+                          "longer defines %r verbatim" % old_line)
+            with io.open(store_copy, "w", encoding="utf-8") as fh:
+                fh.write(src.replace(old_line, new_line, 1))
+            os.makedirs(os.path.join(skill_dir, "hooks"))
+            with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                         "w", encoding="utf-8") as fh:
+                fh.write('{"hooks": {"PreToolUse": [{"hooks": [{'
+                        '"command": "python3 %s/bm_fence_hook.py"'
+                        '}]}]}}' % tools_dir)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn(
+                "NOTHING TO DO", r.stdout,
+                "a wired hook whose own bm_store.py is one schema behind "
+                "this project's cannot reach a verdict against this "
+                "project's real store; reporting NOTHING TO DO hides "
+                "exactly the gap M18 exists to close. Output:\n%s"
+                % r.stdout)
+            self.assertIn(str(bs.SCHEMA_VERSION - 1), r.stdout,
+                         "the plan must name the wired copy's own "
+                         "(behind) schema number. Output:\n%s" % r.stdout)
+            self.assertIn(str(bs.SCHEMA_VERSION), r.stdout,
+                         "the plan must name this project's own "
+                         "(current) schema number. Output:\n%s" % r.stdout)
+
+    def test_wired_copy_that_is_this_projects_own_tree_is_not_nothing_to_do(self):
+        """REPRODUCED pre-fix (M18 follow-up, orchestrator review): ROOT
+        in migrate_install.py is wherever the running script itself
+        lives, so running the INSTALLED copy's own scripts/
+        migrate_install.py makes ROOT and skill_dir the same directory.
+        A symlinked dev install collapses them the same way (an install
+        clone is exactly the kind of thing that gets symlinked). The
+        naive version comparison then reads one file, compares it to
+        itself, finds wired_version == current_version by construction,
+        and returns None: build_plan falls through to NOTHING TO DO
+        about a dimension it never actually looked at, the identical
+        M17/M18 defect reappearing inside the M18 fix itself."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            os.makedirs(os.path.join(home, ".claude", "skills"))
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            # skill_dir IS this project's own tree, reached through a
+            # symlink, collapsing ROOT and skill_dir to the same real
+            # path the same way running the installed copy's own script
+            # would.
+            os.symlink(migrate_install.ROOT, skill_dir)
+            fence = os.path.join(skill_dir, "tools", "bm_fence_hook.py")
+            settings = os.path.join(home, ".claude", "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                    "hooks": [{"type": "command",
+                              "command": "python3 " + fence,
+                              "timeout": 10}]}]}}, fh)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn(
+                "NOTHING TO DO", r.stdout,
+                "comparing a copy's schema against itself is not a "
+                "check; it must not be reported as NOTHING TO DO. "
+                "Output:\n%s" % r.stdout)
+            self.assertIn(
+                "NO-DATA", r.stdout,
+                "the self-comparison must say plainly it could not "
+                "tell, not stay silent about it. Output:\n%s" % r.stdout)
+
 
 class TestLoop11McpCopyFirstIsAutomated(unittest.TestCase):
     """LOOP 11 workstream C. The MCP server's copy-first design (snapshot the

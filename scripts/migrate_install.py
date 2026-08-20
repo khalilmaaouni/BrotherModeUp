@@ -156,6 +156,90 @@ def _loader_wired(skill_dir):
     return FENCE_BASENAME in text
 
 
+def _schema_version_of(path):
+    """The integer after "SCHEMA_VERSION = " in `path`, read as plain
+    text, or None when the file cannot be read or defines no such line.
+    A text search, not an import: `path` may be a stale or foreign copy
+    of bm_store.py, and importing it would run its module-level code."""
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("SCHEMA_VERSION = "):
+                    digits = line[len("SCHEMA_VERSION = "):].strip()
+                    try:
+                        return int(digits)
+                    except ValueError:
+                        return None
+    except (IOError, OSError):
+        return None
+    return None
+
+
+def _schema_gap_message(skill_dir):
+    """None when there is nothing to report: either `skill_dir`'s own
+    tools/bm_store.py is current (its SCHEMA_VERSION is at or above this
+    project's own tools/bm_store.py), or this project's own copy could
+    not be read (nothing to compare against, and that is this script's
+    own tree, not the install being inspected, so it is not this
+    install's fault). Otherwise a plain-language line: a NO-DATA line
+    when the wired copy IS this project's own tree (running this same
+    migrate_install.py from an installed copy makes ROOT and skill_dir
+    the same directory; a symlinked dev install collapses them the same
+    way), a NO-DATA line when the wired copy's own store file cannot be
+    found or read (so whether it can reach a verdict cannot be told), or
+    the concrete SCHEMA GAP when it is readable but behind.
+
+    WIRED is not the same as ABLE TO REACH A VERDICT (M18, docs/plan/
+    QUEUE.json, family evidence-integrity): bm_store.py refuses to open
+    a store already past the schema it understands (its own
+    schema-ahead refusal), so a wired hook running a stale copy fails
+    open on every write, same as no hook at all. scripts/doctor.py's own
+    fence-liveness check had the identical blind spot until M17: it
+    proved liveness only against a throwaway store the same code had
+    just built, never against a real store already ahead of it. This
+    function had the same blind spot until orchestrator review caught
+    it: run from the installed copy's own scripts/migrate_install.py,
+    ROOT and skill_dir resolve to the same file, wired_version equals
+    current_version by construction, and the old code returned None,
+    NOTHING TO DO about a dimension it never actually looked at."""
+    current_store = os.path.join(ROOT, "tools", "bm_store.py")
+    current_version = _schema_version_of(current_store)
+    if current_version is None:
+        return None
+    wired_store = os.path.join(skill_dir, "tools", "bm_store.py")
+    if os.path.realpath(wired_store) == os.path.realpath(current_store):
+        return (
+            "NO-DATA: %s is the same file as this project's own %s "
+            "(same real path once symlinks resolve), so whether its "
+            "wired fence hook can reach a verdict against this "
+            "project's own schema %d store cannot be determined: a "
+            "copy cannot be compared against itself."
+            % (wired_store, current_store, current_version))
+    if not os.path.isfile(wired_store):
+        return (
+            "NO-DATA: %s has no tools/bm_store.py, so whether its wired "
+            "fence hook can reach a verdict against this project's own "
+            "schema %d store cannot be determined."
+            % (wired_store, current_version))
+    wired_version = _schema_version_of(wired_store)
+    if wired_version is None:
+        return (
+            "NO-DATA: %s does not define SCHEMA_VERSION in a readable "
+            "form, so whether its wired fence hook can reach a verdict "
+            "against this project's own schema %d store cannot be "
+            "determined." % (wired_store, current_version))
+    if wired_version >= current_version:
+        return None
+    return (
+        "SCHEMA GAP: %s is stuck at schema %d while this project's own "
+        "tools/bm_store.py is already at schema %d. A wired hook this "
+        "far behind cannot reach a verdict: it refuses to open a store "
+        "already past the schema it understands, and fails open on "
+        "every write here, the same as if nothing were wired at all."
+        % (wired_store, wired_version, current_version))
+
+
 def detect(home):
     """Returns a dict describing the install shape found under `home`.
     Never raises: every filesystem or JSON problem is folded into
@@ -232,6 +316,18 @@ def build_plan(info):
         which = ("a plugin install" if info["has_plugin"] else
                 "a settings.json fence entry" if info["has_settings_wiring"]
                 else "its own loader-managed hooks.json")
+        gap = _schema_gap_message(info["skill_dir"])
+        if gap is not None:
+            lines.append(
+                "%s has a wired fence hook (%s), but WIRED is not the "
+                "whole question:" % (info["skill_dir"], which))
+            lines.append(gap)
+            lines.append("")
+            lines.append(
+                "FIX: reinstall over the same path to bring it current: "
+                "scripts/install.py --upgrade --target %s --settings %s"
+                % (info["skill_dir"], info["settings_path"]))
+            return lines
         lines.append(
             "NOTHING TO DO: %s already has a wired fence hook (%s); it "
             "is not stranded." % (info["skill_dir"], which))
