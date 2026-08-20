@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day Run Board</title>
+<style>
+:root{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+    --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+    --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+    --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+    --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+    --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+    --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
+  }
+}
+:root[data-theme="dark"]{
+  --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+  --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+  --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+  --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+  --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+  --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+  --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
+}
+:root[data-theme="light"]{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--sans);
+  font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--bm-accent);margin:0 0 10px}
+h1{font-family:var(--serif);font-size:clamp(30px,5vw,46px);line-height:1.1;margin:0 0 12px;
+  font-weight:600;text-wrap:balance}
+.stamp{font-family:var(--mono);font-size:12.5px;color:var(--bm-muted);border-left:3px solid var(--bm-accent);
+  padding:6px 0 6px 12px;margin:0 0 28px}
+h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600;text-wrap:balance}
+h2 .n{font-family:var(--mono);font-size:13px;color:var(--bm-muted);font-weight:400;margin-left:8px}
+h3{font-family:var(--sans);font-size:16px;margin:24px 0 8px;font-weight:600}
+.lede{color:var(--bm-muted);margin:0 0 16px;max-width:76ch}
+.northstar{background:var(--bm-accent-tint);border:1px solid var(--bm-accent);border-radius:10px;
+  padding:18px 20px;margin:0 0 30px}
+.northstar .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-accent);display:block;margin-bottom:6px}
+.northstar p{margin:0;font-family:var(--serif);font-size:19px;line-height:1.45}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:14px;margin:0 0 12px}
+.card{background:var(--bm-paper);border:1px solid var(--bm-rule);border-radius:10px;padding:15px 16px}
+.card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-muted);display:block;margin-bottom:7px}
+.card p{margin:0 0 6px;font-size:14.5px;line-height:1.45}
+.card p:last-child{margin-bottom:0}
+.card.now{border-left:4px solid var(--bm-settled-rule)}
+.card.you{border-left:4px solid var(--bm-needs-you-rule)}
+.card.risk{border-left:4px solid var(--bm-at-risk-rule)}
+.card.fc{border-left:4px solid var(--bm-for-info-rule)}
+.big{font-family:var(--serif);font-size:27px;line-height:1.1;display:block;margin-bottom:4px;
+  font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--bm-rule);
+  border-radius:10px;background:var(--bm-paper);padding:14px}
+table.gantt{border-collapse:collapse;width:100%;min-width:840px;font-size:13px}
+table.gantt th{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--bm-muted);
+  text-align:center;padding:0 0 8px;border-bottom:1px solid var(--bm-rule)}
+table.gantt th.lbl{text-align:left;width:300px;padding-left:2px}
+table.gantt td{padding:4px 0;border-bottom:1px solid var(--bm-rule)}
+table.gantt td.lbl{padding-right:14px;font-size:13.5px;line-height:1.35}
+table.gantt td.lbl .cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px;
+  font-variant-numeric:tabular-nums}
+.bar{height:17px;border-radius:4px;position:relative}
+.bar.done{background:var(--bm-settled-rule)}
+.bar.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-accent);opacity:.85}
+.bar.est{background:var(--bm-accent);opacity:.16;border:1px dashed var(--bm-accent)}
+.bar.wall{background:repeating-linear-gradient(45deg,var(--bm-needs-you-rule) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-needs-you-rule);opacity:.85}
+.key{display:flex;flex-wrap:wrap;gap:16px;font-family:var(--mono);font-size:11px;
+  color:var(--bm-muted);margin:12px 0 0;align-items:center}
+.key i{display:inline-block;width:22px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.deck{border:1px solid var(--bm-rule);border-radius:10px;padding:16px 17px;background:var(--bm-paper)}
+.deck.you{border-left:4px solid var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.deck.done{border-left:4px solid var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.deck h4{margin:0 0 8px;font-size:15.5px;font-family:var(--sans);font-weight:600}
+.deck p{margin:0 0 8px;font-size:14px;line-height:1.5}
+.deck p:last-child{margin-bottom:0}
+.deck .tag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  display:inline-block;margin-bottom:7px}
+.deck.you .tag{color:var(--bm-needs-you-ink)}
+.deck.done .tag{color:var(--bm-settled-ink)}
+.alert{border:1px solid var(--bm-rule);border-left:4px solid var(--bm-at-risk-rule);
+  background:var(--bm-at-risk-tint);border-radius:10px;padding:15px 17px;margin:0 0 13px}
+.alert.info{border-left-color:var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.alert.good{border-left-color:var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.alert h4{margin:0 0 7px;font-size:15.5px;font-weight:600}
+.alert dl{margin:0;display:grid;grid-template-columns:88px 1fr;gap:4px 12px;font-size:14px}
+.alert dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--bm-muted);padding-top:3px}
+.alert dd{margin:0;line-height:1.5}
+.phase{margin:26px 0 0}
+.chip{font-family:var(--mono);font-size:11.5px;background:var(--bm-accent-tint);color:var(--bm-accent);
+  border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px;
+  font-variant-numeric:tabular-nums}
+ul.ledger{list-style:none;margin:10px 0 0;padding:0}
+ul.ledger li{border-bottom:1px solid var(--bm-rule);padding:11px 0 11px 30px;position:relative}
+ul.ledger li::before{position:absolute;left:0;top:10px;font-family:var(--mono);font-size:14px}
+ul.ledger li.tick::before{content:"[x]";color:var(--bm-settled-ink)}
+ul.ledger li.open::before{content:"[ ]";color:var(--bm-muted)}
+ul.ledger li.wall::before{content:"[!]";color:var(--bm-needs-you-ink)}
+ul.ledger .t{font-size:14.5px;display:block;margin-bottom:5px}
+ul.ledger .ev{font-family:var(--mono);font-size:11.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:5px;padding:6px 9px;display:block;
+  white-space:pre-wrap;word-break:break-word;line-height:1.45}
+ul.ledger li.tick .ev{color:var(--bm-settled-ink);background:var(--bm-settled-tint)}
+ul.ledger li.wall .ev{color:var(--bm-needs-you-ink);background:var(--bm-needs-you-tint)}
+footer{margin:56px 0 0;padding:20px 0 0;border-top:2px solid var(--bm-accent);font-size:13.5px;color:var(--bm-muted)}
+footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);margin:0 0 10px;max-width:74ch}
+code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
+a{color:var(--bm-accent)}
+a:focus-visible,li:focus-visible{outline:2px solid var(--bm-accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">BrotherMode and BrotherSBE // the 2026-08-20 day run</p>
+<h1>The day the chain gets its passport</h1>
+<p class="stamp">Refreshed 2026-08-20 21:5x JST by the day-run session (bm1-2bd79386) after the release cut. BrotherMode main FROZEN at <code>eacf249</code>, tree clean, HEAD equals upstream. THE RELEASE IS CREATED BUT NOT PUBLISHED: the tag v3.3.2 exists on this machine and is absent from origin (68 remote tags listed, v3.3.2 not among them), and the founder decided FIX FIRST, so it stays unpushed and undeleted until the fixed tree is ready. The cut's own cross-family debate returned NOT READY with four blockers in the verified-reality record the release is named after. Nothing lands on main while that tag points at it.<br>
+TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions.</p>
+
+<div class="northstar">
+  <span class="k">North star</span>
+  <p>Human intent, then whichever development method the team already uses, then BrotherMode for execution provenance, then the change passport as the only seam, then the assurance product's eight concerns, then a human decision, release, and verified reality. The chain ends in observed reality, never in a green verdict.</p>
+</div>
+
+<h2>At a glance</h2>
+<div class="strip">
+  <div class="card now">
+    <span class="k">Now</span>
+    <p><span class="big">Ceremony</span>The handover ceremony is being taught to carry its own next-session prompt, so the next round starts complete no matter which account sits down. Built on a branch off the frozen cut, never on main.</p>
+  </div>
+  <div class="card you">
+    <span class="k">Waiting on you</span>
+    <p><span class="big">1 command</span>Your machine's copy of BrotherMode is 25 commits behind and cannot read its own ledger. One pull in that copy fixes it, and it changes every session here, so it is your call and it belongs between sessions rather than mid-work.</p>
+  </div>
+  <div class="card risk">
+    <span class="k">Risk watch</span>
+    <p><span class="big">Blind controls</span>While that copy is behind, the fence sweep, the handover detect and the stall sweep all answer no-data instead of a verdict. Every check reading no-data today is reporting that blindness, not passing.</p>
+  </div>
+  <div class="card fc">
+    <span class="k">Forecast</span>
+    <p><span class="big">2 to 4 hours</span>The four release blockers, with the 2.24x correction applied and medium confidence: transaction work and real database triggers, each with a test that fails on today's code, then a fresh debate and the re-cut prepared to your tag.</p>
+  </div>
+</div>
+
+<h2>Short range: today, two-hour blocks<span class="n">09:00 to 23:00 JST</span></h2>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Lane and task</th><th>09</th><th>11</th><th>13</th><th>15</th><th>17</th><th>19</th><th>21</th><th>23</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">3/3</span>Open: grant raised, ceremony done, rules surfaced</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>Step 1: the board, rebuilt and republished</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/4</span>A1 trust-surface fixes</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">6/6</span>A2 change passport producer, debate answered</td><td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">8/8</span>A3 the complaint fixes, M12 included</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>A4 every backlog item names its stage</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>A5 the verified-reality record, by the next session</td><td></td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>A6 the 3.3.2 cut, prepared and tagged locally</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>The cut debate said NOT READY: four blockers open</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">3/4</span>The ceremony carries its own next prompt</td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar sched"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Your machine's copy, 25 commits behind, one pull</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td></tr>
+</tbody>
+</table>
+<p class="key"><span><i class="bar done"></i>done, check quoted</span><span><i class="bar sched"></i>scheduled, running now</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>waits for your hand</span></p>
+</div>
+
+<h2>Long range: the eight gates to category leadership<span class="n">by gate, not by date</span></h2>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Gate</th><th>today</th><th>+1d</th><th>+3d</th><th>+1w</th><th>+2w</th><th>+1m</th><th>+2m</th><th>later</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">1/6</span>Gate 0, a trust surface with no contradictions</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/8</span>Gate 1, own Claude Code execution trust</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/6</span>Gate 2, the change passport as a hard contract</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">3/8</span>Gate 3, independent assurance complete</td><td><div class="bar est"></div></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>Gate 4, verified reality closes the loop</td><td><div class="bar est"></div></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/5</span>Gate 5, five external pilots, twenty deliveries</td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>Gate 6, distribution without becoming generic</td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>Gate 7, second runtime, only on proven demand</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td></tr>
+</tbody>
+</table>
+<p class="key"><span><i class="bar sched"></i>scheduled today</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>needs people outside this machine</span></p>
+</div>
+<p class="lede">Gate counters count named exit conditions from the strategy document, not impressions. Gate 3 stands at 3 of 8 because the sibling's behaviour, risk, and required-proof concerns already exist and refuse things; the mandate audit verified that directly. Today attacks Gates 0, 1, 2 and the first sliver of 4.</p>
+
+<h2>Decisions waiting on you<span class="n">3</span></h2>
+<div class="decks">
+  <div class="deck you">
+    <span class="tag">Later today, five minutes</span>
+    <h4>Tag release 3.3.2 when the cut is reached</h4>
+    <p>A6 prepares the release exactly to the tag step and stops; the tag is yours by the runbook's own law, the same discipline that let 3.3.1 ship clean. When the cut is ready the exact command lands in front of you.</p>
+    <p>Default if you say nothing: the release stays prepared, untagged, named in the close report.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Later today, one yes</span>
+    <h4>Repair this machine's own install</h4>
+    <p>A3 builds and tests the install-shape detector and the one-command migration against a fixture home. Applying it changes every session on this machine, so the live swap waits for your yes at a quiet moment.</p>
+    <p>Default if you say nothing: scripted and tested, not applied, surfaced again at close.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Standing, whenever</span>
+    <h4>Bitbucket seats</h4>
+    <p>The test workspace is still read-only from the seat limit. Nothing today needs it: host-neutral checks run locally and the Bitbucket leg is labeled blocked by name, exactly as documented. Freeing seats reopens that leg whenever you choose.</p>
+  </div>
+</div>
+
+<h2>Risk management, insights and alerts<span class="n">5</span></h2>
+
+<div class="alert good">
+  <h4>Grant and go traveled together this time</h4>
+  <dl>
+    <dt>What</dt><dd>Your budget arrived inside the launch prompt itself: 10,000,000 output tokens until 23:00 JST, applied as a raise in the brake file with that exact expiry, selftest OK quoted in the ledger. The night's failure shape, an armed run waiting on a sleeping hand, cannot recur today because you fired the launch yourself.</dd>
+    <dt>Why</dt><dd>The lost night cost a whole window. The lesson is structural: founder-hand steps happen at hour zero while you are at the keyboard, and today's two remaining hand-steps (tag, install swap) are already named above.</dd>
+    <dt>Action</dt><dd>None from you now. The run tracks its own spend against the 10M pool, which is shared across both repositories by discipline; the brake enforces per-repo figures mechanically.</dd>
+    <dt>When</dt><dd>Window closes 23:00 JST; the run closes with it.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The two one-writer registries still cannot see each other, and today one of them locked me out of my own work</h4>
+  <dl>
+    <dt>What</dt><dd>This session claimed the progress page in both registries, correctly, and the assurance product's fence hook then refused the write anyway. Its reason, quoted: this session "is not the writer for that path". It was. The hook compares the raw session id the harness hands it against the shortened label BrotherMode writes into its own registry, and those two formats can never match, so every BrotherMode claim looks foreign to it. Its own source calls this outcome a false miss and says it is the one direction it does not want to fail in.</dd>
+    <dt>Why</dt><dd>This matters more than one blocked edit. A one-writer control that refuses the rightful owner teaches people to switch it off, and a control people switch off protects nothing. It also means the half of M12 that was closed this morning was the other half: the assurance side can now read a BrotherMode fence line, but it still cannot recognise who owns it.</dd>
+    <dt>Action</dt><dd>I used the hook's own documented identity override, which is the supported way to tell it which identity to compare against, never its off switch, and said so in the open. The real repair is one of two: BrotherMode writes both identifiers on the fence line, or the assurance hook learns to derive the label the way BrotherMode does. That is a queued item, not a thing to patch in the middle of a release cut.</dd>
+    <dt>When</dt><dd>Named in tonight's pack as the first item of the next session, ahead of new feature work.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The trust product's own enforcement is not running on the machine that builds it</h4>
+  <dl>
+    <dt>What</dt><dd>No fence hook is wired in this machine's settings, so "only one worker edits a file at a time" is convention here, not mechanism. And the copy Claude Code loads is a stranded pre-rewrite clone: disjoint history, dead upstream, confirmed by command in the mandate audit.</dd>
+    <dt>Why</dt><dd>This is the exact contradiction class Gate 0 exists to kill: a product selling enforcement while its own estate runs on discipline. An outside auditor would find it in an hour, and anyone who cloned before the 2026-08-18 rewrite is stranded the same silent way.</dd>
+    <dt>Action</dt><dd>A1 adds the stranded-install check to doctor so the state can never again be silent. A3 builds the install-shape detector and the one-command repair, tested against a fixture home. The live swap is your yes.</dd>
+    <dt>When</dt><dd>Detector and script today; swap on your approval.</dd>
+  </dl>
+</div>
+
+<div class="alert info">
+  <h4>The sibling tree opens only on its own detect</h4>
+  <dl>
+    <dt>What</dt><dd>BrotherSBE had its own granted overnight session; that grant expired at 07:00. Before Lane B writes anything there, this run asks that tree's own ceremony whether a live peer still holds it.</dd>
+    <dt>Why</dt><dd>One writer per repository is law, and a concurrent session editing seven files under a lane once cost a full re-plan. Detect is the control; assuming is the failure.</dd>
+    <dt>Action</dt><dd>Run detect in that tree before B1; if a peer is live, the lane waits or hands off, named in the close report either way.</dd>
+    <dt>When</dt><dd>At Lane B open, after A2 delivers the fixture.</dd>
+  </dl>
+</div>
+
+<div class="alert good">
+  <h4>The passport's consumer already exists, so today builds the missing half, not both</h4>
+  <dl>
+    <dt>What</dt><dd>The sibling ships a passport reader with 19 tests; it reports two of the five fields as no-data in every run because nothing produces them. Today's centerpiece is the producer, on this side, plus the fixture both suites verify byte for byte.</dd>
+    <dt>Why</dt><dd>The seam is the strategy's moat: the moment both halves speak the same file, either product can be replaced without touching the other, which is what makes the duo infrastructure instead of a monolith.</dd>
+    <dt>Action</dt><dd>A2 builds the versioned schema, the deterministic generator, the standalone validator, the honest fourth field that may never be empty, and the contract fixture. A cross-family codex debate runs before A2 is called ready.</dd>
+    <dt>When</dt><dd>Late morning into mid-afternoon, the largest single budget of the run.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Estimates carry a measured 2.24x optimism correction</h4>
+  <dl>
+    <dt>What</dt><dd>This machine's judged history (14 samples) says raw estimates run 2.24x optimistic. The bars above are already corrected; even so, A5 and Lane B are explicitly budget-gated rather than promised.</dd>
+    <dt>Why</dt><dd>The mandate wants all complaints covered, and the honest way to promise that is to rank the work and state which items ride on remaining budget instead of claiming everything fits.</dd>
+    <dt>Action</dt><dd>Lanes close strictly in order, each with its done-check quoted before the next opens. Whatever the window closes on is written as UNFINISHED with its exact stop point.</dd>
+    <dt>When</dt><dd>Continuous; the 80 percent no-new-dispatch soft stop applies.</dd>
+  </dl>
+</div>
+
+<h2>The ledger</h2>
+
+<div class="phase">
+<h3>Phase 0, the day-run open<span class="chip">3/3 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">Your 10M grant applied as a raise in both project blocks, 23:00 JST expiry, brake stays mechanical</span>
+    <span class="ev">python3 ~/.claude/hooks/spend_guard.py selftest -> "pass grant live one hour before its until 9000000 / pass grant dead one hour after its until 800000 / OK" (10 grant-expiry cases). Blocks carry your words verbatim; snapshot at ~/Documents/BrotherArchive/spend-guard.before-dayrun-grant-2026-08-20.json</span></li>
+  <li class="tick"><span class="t">Baton ceremony open half: detect run, pack read in order, day-run handover acknowledged</span>
+    <span class="ev">handover-ack: b47807e86e9342f6a7015994e5a7567e acknowledged; it no longer renders into STATE.md.</span></li>
+  <li class="tick"><span class="t">Founder rules surfaced before substantial work; write scope claimed before writing</span>
+    <span class="ev">bm_learn apply: recorded 4 application(s), provisional work record 2bf144e3. Claim: day-run-step1-board, lifecycle c0839798, session bm1-2bd79386f08fe70edd173c43, files docs/plan/GANTT.html</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 1, the lanes in this repository<span class="chip">20/20 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">A1 trust surface: the stale release line, the real M11 fix, the stranded-install detector, honest degrade messages</span>
+    <span class="ev">Re-run by the orchestrator on the merged tree, then pushed as 21d1151 (HEAD equals upstream verified): test_bm_docs Ran 237 OK skipped=5 (new pinning test red on the reverted line, quoted by the builder); test_bm_fence_hook Ran 119 OK (QueryVerb pins query verdict equal to decide() on four cases); doctor "[13/14] the installed public tag matches the public origin: PASS" and forced no-network prints NO-DATA; test_bm_toolkit Ran 41 OK and grep for the two false phrases exits 1. Remaining rc.9 mentions sit under an explicit history marker; the live claim is test-pinned to PUBLIC_INSTALL_TAG.</span></li>
+  <li class="tick"><span class="t">A2 change passport v1, producer: schema, deterministic generator, standalone validator, honest fourth field, contract fixture, codex debate answered</span>
+    <span class="ev">Orchestrator re-runs on the merged tree: test_bm_passport 49 OK; test_bm_store 1111 OK; test_bm_docs 237 OK; validator exits 0/1/1/1 across the four fixtures with named reasons; my own double-generate printed BYTE-IDENTICAL then VALID, sensitivity "redacted" by default. Debate verdict NOT READY (F1 to F13, docs/evidence/codex/a2-debate-2026-08-20.md); all fixed same day except the required-CI half of F13, parked under the no-self-firing-CI law. The SBE consumer carries fields 2 and 5 from the canonical fixture (sha256 e6d68b76...); handshake handed to the sibling session. Discovered en route: bm_passport.py already shipped a deposit half, kept intact, generate added beside it.</span></li>
+  <li class="tick"><span class="t">A3 the complaint fixes, each with a regression test that fails on the pre-fix shape, plus M12 measured this morning</span>
+    <span class="ev">Orchestrator re-runs on the merged tree: test_bm_project 69 OK, test_bm_store 1116 OK, test_bm_toolkit 42 OK, test_bm_handover 48 OK, test_bm 304 OK, test_bm_effects 10 OK, doctor "[8/15] the install actually present is not stranded: PASS" and "All 15 checks passed". M2 deliver refuses hollow naming holes; M4 was already pinned; M5 reviews name the acceptance gap; M6 native floor RESOLVED not DEGRADE; M8 walkthrough leaves a ready task; M10 claimless full packs get real verdicts; M1 scriptable half done (install-shape check, migrate_install.py dry-run first, --apply double-gated), LIVE swap still your gate; M12 store claims now render a fence line the INSTALLED reconcile parses, regression pinned against the installed parser, peer break-glass record deleted.</span></li>
+  <li class="tick"><span class="t">A4 the 37 backlog items that name no stage get one, or leave</span>
+    <span class="ev">36 items stamped with the chain stage they served; the Azure item O22 REMOVED from the queue entirely per the founder's 2026-08-16 Azure-is-out law (not parked: the law says do not carry it; flip is him naming an Azure client). Check after the edit: no-stage count 0; bm_idle depth line "DEPTH 48 min_depth=5 blocked=3 in_flight=0 done=44", every blocked item (O4, G2, M1 live-swap half) staged and named.</span></li>
+  <li class="tick"><span class="t">The gate's catch, fixed before push: the M2 guard also refused the legitimate explicit-partial delivery</span>
+    <span class="ev">Gate 3 honestly red: test_brothermode_cli test_deliver_partial_writes_the_packet. Fix: an explicit --partial proceeds and prints its holes on stderr (never silently clean); companion assertion pinned in the M2 regression test. Re-runs: test_bm_project Ran 69 OK, test_brothermode_cli Ran 85 OK. Final gate on 9a8c7dd: "test_all: 3424 tests across 41 suites, 9 skipped, 731.2s wall. ALL GREEN"; pushed, HEAD equals upstream.</span></li>
+  <li class="tick"><span class="t">A5 the smallest after-release record, and the four new refusals taught to speak to a person</span>
+    <span class="ev">tools/bm_reality.py plus its suite, store schema 20 to 21, one insert-only table. Orchestrator re-ran every check on the merged tree rather than trusting the builder: test_bm_reality Ran 26 OK; test_bm_store Ran 1116 OK; test_bm_effects Ran 10 OK; test_bm Ran 304 OK; test_bm_docs Ran 237 OK; test_bm_visual Ran 84 OK. All four refusals fired by hand in a sandbox store, each returning a named reason: unaccountable-acceptance, no-accepted-release, defect-without-intent, bad-reality-kind. Return edge proven end to end, not asserted: a defect wrote queue item RR-4caaf606 at stage intent carrying its provenance, and bm_idle read the queue back at "OK: depth 49" where the real queue reads 48. Insert-only proven mechanically: the store's public surface for this table is add, get and list, with no update and no delete. Full gate on 61d0221: "test_all: 3450 tests across 42 suites, 9 skipped, 485.0s wall. ALL GREEN", exit 0; pushed, HEAD equals upstream equals ls-remote.</span></li>
+  <li class="tick"><span class="t">A6 close: release 3.3.2 prepared exactly to the tag gate, its debate answered rather than filed, the public-install smoke PASSED under a snapshot</span>
+    <span class="ev">VERSION 3.3.2, CHANGELOG entry, the explainer, all seven install pins and the four manifests moved together in one commit. test_bm_docs: 6 failures reduced to 1, and that one is "install_target_tag v3.3.2 does not exist in this repository", the assertion only your tag can clear, written into docs/RELEASE.md's new 3.3.2 section as the runbook's own ordering. Manifest: 1129 file(s) match, 0 mismatched, 0 missing, 0 wrong type; the 32 extras are BrotherSBE runtime state that no fresh clone has, and codex independently read the same tree as manifest_entries=1129 missing=0 mismatched=0 tracked_extras=0. Smoke: "PASSED: add, install (version 3.3.2, 6 hook groups), uninstall clean", with your real plugin scope byte-identical before and after (13c9474a..., 851e6d5c...). Debate: "VERDICT: NOT READY" on F1 to F4. F1 (unlocked queue race) and F3 (not genuinely insert only) CLOSED and verified by direct attack against the live store, plus F5 (invisible-character names) closed with them; F2 and F4 disclosed in the CHANGELOG itself and queued as R1 and R2, with F6 to F10 queued as R3 to R6.</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 2, the sibling tree, which ran its own plan instead<span class="chip">1/3, and the other two were never this run's to do</span></h3>
+<ul class="ledger">
+  <li class="open"><span class="t">B1 acceptance record: who accepted, when, against which passport and which assurance result; refuses hollow</span>
+    <span class="ev">check: acceptance without an accountable name is refused; a recorded one round-trips; both quoted from the new test.</span></li>
+  <li class="tick"><span class="t">B2 passport handshake: the same fixture bytes now sit in both repositories</span>
+    <span class="ev">Confirmed by this session rather than reported: sha256 of the fixture is e6d68b7622379d5c5c33beb567e1f1901850409cb3daaa9a45cb2825bba377e8 in this repository and byte for byte the same file in the sibling, matching the value you pinned in the launch prompt. The sibling session has closed (its tracked tree is clean at its own baton-pack commit), so no writer conflict exists and nothing in this run needed to open that tree.</span></li>
+  <li class="open"><span class="t">B3 one amber to green by that repo's own plan, choice recorded as a decision</span>
+    <span class="ev">check: the chosen concern's new test quoted; the CI-id spoofability stays disclosed, never silently patched.</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 3, yours<span class="chip">1/3 answered, 2 wait for your hand</span></h3>
+<ul class="ledger">
+  <li class="wall"><span class="t">The 3.3.2 tag, when the cut is reached</span>
+    <span class="ev">Founder-gated by the runbook itself; the exact command lands in front of you at the cut.</span></li>
+  <li class="wall"><span class="t">The install repair applied to this machine</span>
+    <span class="ev">Scripted and tested in A3; applying it changes every session on this machine, so it waits for your yes.</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Phase 4, the evening: the release held, the ceremony taught<span class="chip">2/6 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">The release exists and is deliberately unpublished</span>
+    <span class="ev">git ls-remote --tags origin exits 0 and lists 68 tags including v3.3.1; v3.3.2 is NOT among them. git for-each-ref shows a local annotated tag dated today. Founder decision, question window this evening: FIX FIRST, THEN RE-CUT. The tag stays unpushed and undeleted; main stays frozen at eacf249.</span></li>
+  <li class="tick"><span class="t">The install repair was run in dry run, and it disagreed with the symptom</span>
+    <span class="ev">python3 scripts/migrate_install.py --home ~ -> "NOTHING TO DO: ... already has a wired fence hook; it is not stranded." But the installed copy is 25 commits behind origin (git rev-list --left-right --count HEAD...origin/main -> 0 25) and carries SCHEMA_VERSION = 20 against the store's 21, which is why every sweep says NO-DATA. The repair checks hook wiring, not currency, so the control cannot see this failure. New item.</span></li>
+  <li class="wall"><span class="t">The four blockers in the verified-reality record</span>
+    <span class="ev">docs/evidence/codex/a6-cut-debate-2026-08-20.md ends VERDICT: NOT READY, blocking F1 to F4: an unlocked queue append that loses a defect in a race; queue and database writes that are not one transaction and leave a named orphan; a table advertised insert-only with no refusal triggers, whose test greps source instead of executing SQL; and a defect path that accepts any non-empty intent reference, so "no-such-queue-id" passes.</span></li>
+  <li class="open"><span class="t">The ceremony learns to carry its own next-session prompt</span>
+    <span class="ev">checks: the skeleton writes an eighth page and the read-order sentence names it; regeneration preserves hand-written content; verify-close FAILS on an unfilled prompt page naming the slot and PASSES once filled; the pack copies the LIVE board and names which file with its date.</span></li>
+  <li class="open"><span class="t">The pack stops shipping a stale command centre</span>
+    <span class="ev">Found this evening: the ceremony copied docs/plan/COMMAND-CENTER.html, last written 2026-08-17, into every pack, while the live board is docs/plan/GANTT.html, written today. Three days of packs carried a stale page with nothing saying so.</span></li>
+  <li class="wall"><span class="t">A finished session's write claim blocked the next writer</span>
+    <span class="ev">An OPEN sbe task from a session whose own close report reads FINISHED still owned CHECKSUMS.sha256 and the board, so the manifest could not be regenerated. Cleared by that session itself on request (decision packages 025 to 027, each forced with its reason recorded). Same family as M13, and now an item rather than an anecdote.</span></li>
+</ul>
+</div>
+
+<h2>Decisions recorded<span class="n">4</span></h2>
+<div class="decks">
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-20 evening</span>
+    <h4>Fix the four blockers before the release is published</h4>
+    <p>Told the four blockers by name and told that nothing is public yet, the founder chose to hold the tag rather than publish over them. Alternatives rejected: publish now and fix as 3.3.3; publish now with the blockers written into the limits page as accepted limits; freeze everything until tomorrow.</p>
+    <p>Flip condition: he decides the blockers are acceptable for a public release and says so, which would put those four lines into the limits page first.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-20 evening</span>
+    <h4>A stale claim is disposed of by its owner, not taken quietly</h4>
+    <p>A finished session left a write claim over the manifest and the board. The founder approved a recorded takeover, and before it was needed that session cleared its own three tasks with dispositions. The claim was never crossed.</p>
+    <p>Flip condition: an owner that cannot answer, where the takeover happens with its reason written down rather than silently.</p>
+  </div>
+
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-20</span>
+    <h4>The day run executes the night plan unchanged</h4>
+    <p>The unrun night left everything armed and nothing stale: the audit, the plan, the fixtures of intent. Rewriting the plan would spend budget on ceremony; the day run adopts it as written, with the board as its Step 1.</p>
+    <p>Flip condition: any lane item's assumption is disproven mid-run, which stops the plan and rewrites the remaining steps first.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-19</span>
+    <h4>The sibling lane opens only behind its own detect</h4>
+    <p>Last night that tree was owned by its own granted run; that grant expired at 07:00. Lane B still asks the tree's own ceremony before writing, because one writer per repository is law and assuming is the known failure.</p>
+    <p>Flip condition: detect shows a live peer, and the lane hands off instead.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-19</span>
+    <h4>Today builds no benchmark, no third sibling, no new runtime</h4>
+    <p>The mandate's own gate order: external proof needs external users, the trio must be earned by the duo, runtimes expand on demand. Today makes the claims those gates will test true first.</p>
+    <p>Flip condition: you name pilot users, and Gate 5 preparation enters the next plan.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-19</span>
+    <h4>The mandate is not retyped into the repository</h4>
+    <p>The strategy document carries the same authority with more detail and sits at the root. The plan carries the mandate's deltas.</p>
+    <p>Flip condition: you ask for the verbatim mandate filed, and it lands beside the strategy document.</p>
+  </div>
+</div>
+
+<footer>
+  <p class="contract">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions. A green from a script written here is worth nothing until somebody has tried to make it lie.</p>
+  <p>Refreshed 2026-08-20 17:40 JST by the day-run closing session (bm1-0a17e1d9) at its close. This page names no client, no company and no reviewer. Roles only.</p>
+</footer>
+
+</div>
+</body>
+</html>
