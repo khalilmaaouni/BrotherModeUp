@@ -36,7 +36,8 @@ WHERE THE BATON LIES, exactly:
    and untouched. DEFAULT IF YOU SAY NOTHING: it keeps suppressing scope complaints on
    those eight paths.
 
-3. M20 to M28 are queued, each carrying the reproduction that establishes it rather
+3. M20 to M29 are queued (M25, M27 and M28 were closed overnight after the scoped work
+   finished three hours early), each carrying the reproduction that establishes it rather
    than a description. M20 is the only BLOCKER among them and it is PRE-EXISTING, not
    introduced this night: doctor never runs the wired hook command with shell
    semantics, so a configured command carrying a redirection is judged on output the

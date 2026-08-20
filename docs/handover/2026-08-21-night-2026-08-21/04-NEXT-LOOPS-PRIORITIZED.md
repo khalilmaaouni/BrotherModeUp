@@ -16,6 +16,11 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
    doctor never runs the wired command with shell semantics.
 3. M23 and M24 together, both in the doctor's subprocess handling. M24 carries a
    data-loss edge: the installer's decode failure lands AFTER the directory is removed.
-4. M21, M25, M28, in any order.
+4. M21 and M29. M25 and M28 CLOSED overnight after the scoped work finished early.
+   M29 is the one to think about rather than patch: json.dump(obj, fh) has never been
+   matched by ANY generation of the write-site patterns, verified against the live
+   tuple. That is the third blind spot in the same inventory found in one night, and
+   all three were found by whoever happened to be working inside it rather than by an
+   audit of it. The question is whether a list of patterns can answer this at all.
 5. R1, then R2, awake, with the clock to finish them.
 <!-- bm-human:end -->

@@ -296,7 +296,7 @@ None outstanding.
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-main is at 19a6a4b, green and pushed. After every push tonight, HEAD, origin/main and
+main is at 478f4fa, green and pushed. After every push tonight, HEAD, origin/main and
 git ls-remote were compared and read the same sha.
 
 DONE, each with the command that proves it:
@@ -314,8 +314,16 @@ DONE, each with the command that proves it:
 - Two defects found INSIDE the M19 fix plus its unaudited sibling call site, 8492d05:
   FAILED (failures=3) reverted, OK across 59 restored.
 - M27, 19a6a4b. The write-site inventory could not see four write shapes.
+- The close pack itself, 23b4435, which was also the first real exercise of tonight's
+  own M19 fix: zip refreshed the pack board and said the pack was now dirty.
+- M25 and M28, 478f4fa, taken because the scoped work closed at 03:23, three hours
+  early. M25: the doctor's docstring promised it wrote nothing outside its temporary
+  directory while its subprocesses left a bytecode cache beside the installed hook,
+  and the red listed four real .pyc files. M28: the write-site pattern could not reach
+  a mode string across a nested closing paren. Sixteen sites became visible and FIVE
+  counts moved, each read rather than accepted.
 
-Five full gates ran tonight, all ALL GREEN, ending at 3484 tests across 42 suites.
+Seven full gates ran tonight, all ALL GREEN, ending at 3486 tests across 42 suites.
 
 IN FLIGHT: nothing. Every lane closed, every commit pushed, tree clean.
 
