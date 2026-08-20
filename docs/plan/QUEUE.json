@@ -1296,6 +1296,116 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "a fence line written by bm_store.py claim carries an identity the INSTALLED sbe_fence_hook.same_session matches for the harness session that made the claim, proven by a regression test that fails on the current single-label render, plus one real edit the hook refused before the fix and allows after it, both verdicts quoted"
+  },
+  {
+   "id": "R1",
+   "title": "the defect refusal is enforced by the command line, not by the store: add_reality_record accepts any non-empty intent_ref, so a direct caller can pass a queue id that never existed (codex debate F4, 2026-08-20, BLOCKER, disclosed in the 3.3.2 changelog rather than silently carried)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "a reality row of kind defect cannot be written with an intent_ref that does not resolve to a real queue item, proven by a test that writes a fake id through the store API and is refused, and that fails on the current shape"
+  },
+  {
+   "id": "R2",
+   "title": "the queue write and the reality row are two writes, not one: a crash between them leaves a queue item with no record, and the queue file is never fsynced so power loss can keep the row and lose the rename (codex debate F2, 2026-08-20, BLOCKER)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 180,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "a simulated failure between the two writes leaves the pair consistent in both directions, proven by a test that injects the failure at each point"
+  },
+  {
+   "id": "R3",
+   "title": "a caller mints its own record_id for a reality row, so identifier provenance is caller controlled even though an existing row cannot be overwritten (codex debate F6, 2026-08-20, MAJOR)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "record ids are minted inside the store only, proven by a test that a caller-supplied id is refused or ignored"
+  },
+  {
+   "id": "R4",
+   "title": "bm_reality defect validates only that the queue holds a list, so a queue missing schema or min_depth is accepted, rewritten and followed by a reality commit; and a relative --queue resolves against the process working directory rather than --root, while a symlinked queue is read through but replaced as a directory entry (codex debate F7 and F8, 2026-08-20, MAJOR)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 120,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "the canonical queue validator runs before the file is modified, a relative --queue anchors to root, and a symlinked queue is either refused or deliberately resolved, each with a test that fails on the current shape"
+  },
+  {
+   "id": "R5",
+   "title": "bm_reality writes its result to a locale-dependent stdout after committing, so on a non-UTF-8 console an unencodable release id commits and then exits 2, inviting a duplicate retry (codex debate F9, 2026-08-20, MAJOR; same family as the subprocess-locale lesson of 2026-08-19)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "output is encoding safe before any write, proven by a test under a non-UTF-8 stdout encoding that still exits 0 after a successful commit"
+  },
+  {
+   "id": "R6",
+   "title": "reusing a project id after purge aliases the dead project's reality history to the new one, because reality_records deliberately carries no foreign key so the audit trail outlives the project (codex debate F10, 2026-08-20, MAJOR; the no-foreign-key choice itself was confirmed correct by the same review)",
+   "state": "queued",
+   "stage": "verified-reality",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/bm_reality.py",
+    "tools/bm_store.py",
+    "tools/test_bm_reality.py"
+   ],
+   "done_check": "a purged project id cannot be reused, or every reality row carries an immutable incarnation identifier, proven by a test that reuses an id and shows the old rows do not follow it"
+  },
+  {
+   "id": "M14",
+   "title": "the installed sbe fence hook reads STATE.md's HUMAN PROSE section as live fence lines: six historical narrative bullets (finish-and-ship, docs-refresh, loop0-builder and three closure notes) are each parsed as a live fence with no readable files: scope, and the hook then FAILS OPEN on every one, printing a warning per line on every single write. Enforcement is silently absent for those lines, and six warnings per write is exactly the volume that teaches a reader to stop reading them (measured 2026-08-20 by the day-run closing session by invoking the installed hook directly)",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "STATE.md",
+    "tools/bm_store.py"
+   ],
+   "done_check": "invoking the installed sbe_fence_hook against any path in this repository prints ZERO no-readable-scope warnings, proven by the quoted output before and after, and a test pins that STATE.md's human prose outside the generated markers is not parsed as a fence"
+  },
+  {
+   "id": "M15",
+   "title": "NOT ESTABLISHED, kept as an open question rather than a claim: whether the installed fence hook treats a PARKED store record as live. The day-run first session reports parking day-run-step1-board before this session was refused on docs/plan/GANTT.html by that same fence, which would make it a second defect beside the prefix-match one, but the attempt to measure it directly was swamped by M14's fail-open warnings and returned ALLOW for both a parked-only path and an actively fenced one, so nothing was established in either direction",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "with M14 fixed so the warnings no longer swamp the output, the installed hook is invoked against a path covered ONLY by a parked record and its verdict is quoted; a refusal confirms the defect and gets its own regression test, an allow closes this item as measured and not a defect"
   }
  ]
 }
