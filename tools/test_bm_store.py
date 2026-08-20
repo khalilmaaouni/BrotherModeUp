@@ -11501,8 +11501,13 @@ class TestLoop11ExportWithholdingPolicy(unittest.TestCase):
 
     def test_export_policy_id_shaped_set_stays_closed(self):
         """Same rule for the shape-gated set: adding a column here is a
-        privacy decision and must be made on purpose."""
+        privacy decision and must be made on purpose. attribution.session_id
+        joined this set in the cross-family review 2026-08-20 F1 fix
+        (tools/bm_passport.py generate): the same shape-gated treatment
+        records.session_id and transitions.session_id already had, made
+        deliberately rather than left as the gap it was."""
         self.assertEqual(sorted(bs._DUMP_ID_SHAPED_COLUMNS), [
+            ("attribution", "session_id"),
             ("autosave_receipts", "session_id"),
             ("autosave_receipts", "worktree_id"),
             ("learning_applications", "session_id"),
@@ -20417,6 +20422,88 @@ class TestCrossFamilyF4ReadOnlyOpensReadOnly(unittest.TestCase):
             "sqlite3.connect(path,", body,
             "a plain read-write sqlite3.connect(path, ...) is back in the "
             "one place that must open read-only")
+
+
+class TestReadOnlyStoreReadSnapshot(unittest.TestCase):
+    """Cross-family review 2026-08-20, F2 (tools/bm_passport.py generate).
+    ReadOnlyStore's connection is opened isolation_level=None, so every
+    statement outside an explicit transaction is its own autocommit read;
+    a caller issuing several accessor calls in a row can have a concurrent
+    writer commit BETWEEN them and see two different moments of the store
+    in one report. read_snapshot() wraps a block in one BEGIN/COMMIT so
+    every read inside it shares one WAL snapshot."""
+
+    def test_read_snapshot_isolates_from_a_concurrent_commit(self):
+        with tempfile.TemporaryDirectory() as root:
+            # The writer connection is kept OPEN across the whole test
+            # rather than closed after its first write: Store.close()
+            # checkpoints and can remove the -wal sidecar, and with no
+            # -wal present at connect time _connect_read_only takes the
+            # mode=ro&immutable=1 branch, which freezes the WHOLE
+            # connection at its own open moment for as long as it lives.
+            # That would make every read below return "before" regardless
+            # of read_snapshot's BEGIN/COMMIT, proving nothing about
+            # transactional isolation. Keeping a writer attached holds the
+            # -wal in existence, so ReadOnlyStore takes the WAL-aware
+            # mode=ro branch instead, the one this fix actually changes.
+            writer = bs.Store(root, create=True)
+            try:
+                writer.upsert_project(_project(name="before"), _actor())
+                self.assertTrue(
+                    os.path.exists(bs.store_path(root) + "-wal"),
+                    "no -wal sidecar exists; this test cannot tell "
+                    "read_snapshot's isolation from immutable-mode "
+                    "freezing")
+
+                ro = bs.ReadOnlyStore(root)
+                try:
+                    with ro.read_snapshot():
+                        first = ro.get_project("proj1", raw=True)
+                        self.assertEqual(first["name"], "before")
+
+                        # The writer commits a change WHILE the snapshot
+                        # above is still open.
+                        writer.upsert_project(_project(name="after"), _actor())
+
+                        second = ro.get_project("proj1", raw=True)
+                        self.assertEqual(
+                            second["name"], "before",
+                            "a commit from a SECOND connection was visible "
+                            "inside the same read snapshot; F2 is not "
+                            "fixed")
+                    # Once the snapshot ends, a fresh read sees the
+                    # committed change: this is isolation for the
+                    # DURATION of the snapshot, never a stale cache held
+                    # past it.
+                    after_snapshot = ro.get_project("proj1", raw=True)
+                    self.assertEqual(after_snapshot["name"], "after")
+                finally:
+                    ro.close()
+            finally:
+                writer.close()
+
+    def test_read_snapshot_still_ends_the_transaction_when_the_body_raises(self):
+        """A caller's exception inside the `with` block must not leave a
+        transaction open on the connection: the next read (or the next
+        snapshot) must still work, and the exception itself must still
+        propagate rather than being swallowed by the cleanup."""
+        with tempfile.TemporaryDirectory() as root:
+            store = bs.Store(root, create=True)
+            try:
+                store.upsert_project(_project(), _actor())
+            finally:
+                store.close()
+
+            ro = bs.ReadOnlyStore(root)
+            try:
+                with self.assertRaises(ValueError):
+                    with ro.read_snapshot():
+                        ro.get_project("proj1", raw=True)
+                        raise ValueError("boom")
+                # The connection is still usable: no transaction left open.
+                self.assertIsNotNone(ro.get_project("proj1", raw=True))
+            finally:
+                ro.close()
 
 
 class TestCrossFamilyF5ClaimCannotResurrectARemovedUnit(unittest.TestCase):

@@ -5205,6 +5205,18 @@ _DUMP_ID_SHAPED_COLUMNS = frozenset((
     ("learning_candidates", "source_session_id"),
     ("learning_evidence", "source_session_id"),
     ("learning_applications", "session_id"),
+    # Cross-family review 2026-08-20, F1 (tools/bm_passport.py generate):
+    # attribution.session_id was missing from this list entirely, so under
+    # the default (raw=False) export policy it fell through to rule 5
+    # ("anything else that is text -> WITHHELD entirely") exactly like
+    # attribution.actor_name and .action do on purpose. A session id is
+    # not founder prose, it is this codebase's own generated identifier
+    # (_default_cli_session_id() or an explicit --session of the same
+    # shape), the identical fact that already earns records.session_id
+    # and transitions.session_id a place on this list. Shape-gated, not
+    # blanket-safe, for the same reason those two are: a caller who typed
+    # a codename into --session still gets it withheld.
+    ("attribution", "session_id"),
 ))
 
 # LOOP 5 (KNOWN-LIMITS, reproduced live before this fix): the shape rule used
@@ -17394,6 +17406,47 @@ class ReadOnlyStore(object):
         # Reuses Store.dump() verbatim: it only calls _exec(self, ...) over
         # _TABLES, which works identically against a read-only connection.
         return Store.dump(self, raw=raw)
+
+    @contextlib.contextmanager
+    def read_snapshot(self):
+        """ONE consistent read snapshot across multiple accessor calls
+        (cross-family review 2026-08-20, F2: tools/bm_passport.py generate
+        called get_project/list_tasks/list_attribution/open_key_decisions/
+        list_evidence as five independent statements). This connection is
+        opened with isolation_level=None (_connect_read_only), so every
+        statement outside an explicit transaction is its own autocommit
+        read: a writer committing BETWEEN two of those five calls can leave
+        the later ones seeing state the earlier ones never did, so the
+        passport they assemble never matched any single moment the store
+        was actually in.
+
+        A bare `BEGIN` opens a DEFERRED read transaction. In WAL mode
+        (this store's own default) the first SELECT inside it takes a
+        snapshot of the database as it stood at that instant, and every
+        later SELECT in the same transaction keeps reading THAT snapshot
+        even if another connection commits meanwhile; that is the whole
+        point of WAL, and it costs nothing extra here because this
+        connection already reads through the WAL (_connect_read_only's own
+        mode=ro ladder). `query_only=ON` is already set on this connection,
+        so BEGIN can never upgrade to a write transaction even by accident.
+
+        COMMIT (never ROLLBACK) ends it, in a `finally` so a caller's
+        exception still propagates: nothing here writes, so either verb
+        releases the read lock identically, and COMMIT is the one that
+        cannot itself raise on a connection SQLite already closed out from
+        under (a `finally` running after `self.conn` was cleared by a
+        quarantine deeper in the `with` body). Routed through _exec (GATE
+        4), the one place any SQL runs against a Store's connection, same
+        as Store._transaction beside it."""
+        _exec(self, "BEGIN")
+        try:
+            yield
+        finally:
+            if self.conn is not None:
+                try:
+                    _exec(self, "COMMIT")
+                except Exception:
+                    pass
 
     def identity_by_name(self, name):
         # Same reuse, same reason: one SELECT through _exec, no writes. A

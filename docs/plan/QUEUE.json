@@ -1209,6 +1209,19 @@
     "tools/bm_fence_hook.py"
    ],
    "done_check": "python3 tools/test_bm_fence_hook.py QueryVerb green: tools/bm_fence_hook.py ships a `query PATH [--session-id ID]` verb that calls decide(), the same function cmd_hook() calls, and QueryVerb pins its verdict equal to decide()'s own verdict on four cases (unclaimed path allow, foreign claim deny, own claim allow, unreadable store fail-open with reason printed)"
+  },
+  {
+   "id": "M12",
+   "title": "the two one-writer registries disagree: the BrotherSBE scope reconcile reads only .sbe tasks and STATE.md fence lines and cannot see BrotherMode store claims, so a path correctly claimed in the store is named undeclared at every peer session stop (measured 2026-08-20 by the mandate session against claim day-run-step1-board; break-glass day-run-board-registry-mismatch-2026-08-20 covers stops until fixed)",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "a store claim renders a live fence line into STATE.md in the shape the installed sbe_session_reconcile.py parses; a regression test pins the rendered shape and fails on the pre-fix render; a reconcile-shaped check over a tree whose only declaration is a store claim names zero undeclared paths; the peer break-glass record is deleted in the same change"
   }
  ]
 }
