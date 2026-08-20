@@ -106,6 +106,11 @@ The close report's first line is FINISHED or UNFINISHED, one of two words,
 never a percentage. verify-close refuses a hollow pack, a missing status line,
 a stale zip, and any session still holding unparked records, naming them by id.
 
+skeleton also generates 07-NEXT-SESSION-PROMPT.md by default: a paste-ready
+prompt for whoever opens next, with four FILL-BY-HAND slots (goal, decisions
+already made, ordered work list, frozen or blocked). verify-close refuses an
+unfilled slot, naming exactly which one.
+
 IT WILL REFUSE YOU AND IT IS USUALLY RIGHT. On its first real close it refused
 its own author twice: once for a missing zip, once for three live claims. Park
 what it names and run it again rather than working around it.

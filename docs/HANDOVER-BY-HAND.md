@@ -40,9 +40,9 @@ removes the guess.
 If UNFINISHED, the same paragraph says exactly where the work stopped and what
 the next person does first.
 
-## The seven pages
+## The eight pages
 
-Write these as seven files, or seven sections of one document. The order is
+Write these as eight files, or eight sections of one document. The order is
 the reading order, and it is deliberate: a reader who stops after page two
 should still have what they need to act.
 
@@ -80,13 +80,23 @@ so the next person does not rebuild what already exists.
 every loose end: locks released, schedules stopped, background jobs ended,
 work saved somewhere durable.
 
+**8. The next session prompt.** A paste-ready prompt for whoever opens the
+next session, so continuing the work never depends on someone remembering to
+write one by hand. Fill exactly four things: the goal of the next round in
+one sentence; the decisions already made, so the next session does not
+re-ask; the ordered work list, every item naming its files and its runnable
+done-check; and what is frozen or blocked, and why. Nothing else on this page
+needs writing by hand: the rest is generated, including the rules this
+project has already paid for once and the facts that make the pack portable
+to a different account on the same machine.
+
 ## The two halves
 
 Most handover procedures cover only the leaving. That is why they decay: the
 person leaving is the one with the least time and the least incentive.
 
 **Closing half**, before work stops:
-1. Write the seven pages, filling every section by hand. A generated skeleton
+1. Write the eight pages, filling every section by hand. A generated skeleton
    can carry the facts; the judgement has to be written.
 2. The close report opens with FINISHED or UNFINISHED.
 3. Release every lock and claim, with a note saying what state you left it in.
@@ -125,7 +135,7 @@ between that and lost work is the next person having a habit of looking.
 Everything above is what this tool does, and nothing it does is outside the
 procedure above.
 
-    python3 tools/bm_handover.py skeleton     # writes the seven pages, prefilled
+    python3 tools/bm_handover.py skeleton     # writes the eight pages, prefilled
     python3 tools/bm_handover.py verify-close # refuses a hollow or stale close
     python3 tools/bm_handover.py zip          # packages it to send
     python3 tools/bm_handover.py detect       # what the previous session left

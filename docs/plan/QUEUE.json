@@ -1406,6 +1406,19 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "with M14 fixed so the warnings no longer swamp the output, the installed hook is invoked against a path covered ONLY by a parked record and its verdict is quoted; a refusal confirms the defect and gets its own regression test, an allow closes this item as measured and not a defect"
+  },
+  {
+   "id": "M16",
+   "title": "a bm_ tool run from inside a git worktree walks UP and finds the MAIN checkout's .brothermode marker, so it reads and writes the shared project instead of the worktree: measured 2026-08-20 when a worktree agent's skeleton run wrote a real handover pack into the main checkout, outside its own sandbox, and could not clean it up afterwards. Worktree isolation is the control that lets parallel writers exist at all, and root resolution silently escapes it unless BROTHERMODE_ROOT is set by hand",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 75,
+   "files": [
+    "tools/bm_store.py",
+    "tools/test_bm_store.py"
+   ],
+   "done_check": "root resolution refuses to cross a worktree boundary, or names it: a bm_ tool invoked with cwd inside .claude/worktrees/<name> resolves to that worktree, or exits naming the ambiguity and the BROTHERMODE_ROOT override; a regression test drives a tool from a worktree fixture and fails on the pre-fix walk-up behaviour"
   }
  ]
 }

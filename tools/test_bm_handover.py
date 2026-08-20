@@ -136,15 +136,42 @@ class HandoverCase(unittest.TestCase):
         self.assertTrue(sep, "no human block found in %s" % path)
         self.write(path, pre + begin + "\n" + body + "\n" + end + post)
 
+    def fill_all_human_blocks(self, path, body):
+        """Replace EVERY human block in a generated pack page with `body`.
+        07-NEXT-SESSION-PROMPT.md carries len(bh.PROMPT_SLOTS) separate
+        blocks (goal, decisions, work list, frozen/blocked) rather than
+        the single block every other page has; this is that page's
+        equivalent of fill_human_block."""
+        text = self.read(path)
+        begin, end = bs.HUMAN_BLOCK_BEGIN, bs.HUMAN_BLOCK_END
+        out, rest, filled = [], text, 0
+        while True:
+            pre, sep, tail = rest.partition(begin)
+            out.append(pre)
+            if not sep:
+                break
+            _mid, sep2, tail2 = tail.partition(end)
+            self.assertTrue(sep2, "unterminated human block in %s" % path)
+            out.append(begin + "\n" + body + "\n" + end)
+            filled += 1
+            rest = tail2
+        self.assertTrue(filled, "no human block found in %s" % path)
+        self.write(path, "".join(out))
+
     def fill_pack(self, pack_dir, status_line="FINISHED: all clear."):
         """Fill every narrative slot in a freshly generated pack with real
         text, so no FILL-BY-HAND marker survives. 06-CLOSE-REPORT.md's
-        block opens with `status_line`."""
+        block opens with `status_line`. 07-NEXT-SESSION-PROMPT.md's four
+        slots are each filled the same way, via fill_all_human_blocks."""
         for name in bh.PACK_FILES:
             path = os.path.join(pack_dir, name)
             if name == "06-CLOSE-REPORT.md":
                 self.fill_human_block(
                     path, status_line + "\nNothing else outstanding.")
+            elif name == bh.PROMPT_PAGE:
+                self.fill_all_human_blocks(
+                    path, "Filled in by the test suite: nothing left to "
+                          "say about this slot.")
             else:
                 self.fill_human_block(
                     path, "Filled in by the test suite: nothing left to "
@@ -207,6 +234,67 @@ class TestSkeleton(HandoverCase):
         self.assertIn("fence-beta", handover_text,
                       "the structural section did not pick up the new record")
 
+    def test_v6_skeleton_writes_the_eighth_prompt_page_and_names_it_in_read_order(self):
+        """Pre-fix: PACK_FILES held only the seven narrative/close files, so
+        skeleton never wrote 07-NEXT-SESSION-PROMPT.md at all, and
+        00-READ-ME-FIRST.md's own read-order sentence never named an
+        eighth file to read."""
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        prompt_path = os.path.join(out_dir, bh.PROMPT_PAGE)
+        self.assertTrue(os.path.isfile(prompt_path),
+                        "07-NEXT-SESSION-PROMPT.md was not written")
+        prompt_text = self.read(prompt_path)
+        for label, _hint in bh.PROMPT_SLOTS:
+            self.assertIn(label, prompt_text,
+                          "slot %r missing from the generated page" % label)
+        read_me = self.read(os.path.join(out_dir, "00-READ-ME-FIRST.md"))
+        self.assertIn(bh.PROMPT_PAGE, read_me,
+                      "the read-order sentence does not name the eighth page")
+
+    def test_v7_regeneration_preserves_all_four_prompt_slots(self):
+        """Pre-fix: there was no eighth page at all, so nothing preserved a
+        hand-filled slot across a regeneration; the multi-block region this
+        page carries (four separate human blocks under one NOTES_HEADING)
+        is also a shape I10's preserve-verbatim logic had never been
+        exercised against before this page existed."""
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code)
+        target = os.path.join(out_dir, bh.PROMPT_PAGE)
+        sentinel = "A real goal a human wrote by hand: ship the A7 lane."
+        text = self.read(target)
+        begin, end = bs.HUMAN_BLOCK_BEGIN, bs.HUMAN_BLOCK_END
+        pre, _, rest = text.partition(begin)
+        _mid, sep, post = rest.partition(end)
+        self.assertTrue(sep, "no human block found in %s" % target)
+        self.write(target, pre + begin + "\n" + sentinel + "\n" + end + post)
+        # A second record now exists, changing the STRUCTURAL part of every
+        # page; the human paragraph in the FIRST slot must not move.
+        self.claim("fence-beta")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code)
+        regenerated = self.read(target)
+        self.assertIn(sentinel, regenerated,
+                      "the first prompt slot's human text did not survive "
+                      "regeneration")
+        # And the OTHER three slots must still each carry their own
+        # FILL-BY-HAND default: this page has four blocks, not one, and
+        # filling one must not disturb the rest.
+        self.assertEqual(
+            regenerated.count(bh.FILL_BY_HAND), len(bh.PROMPT_SLOTS) - 1,
+            "filling one slot changed how many of the other slots still "
+            "carry their own default text")
+
 
 # ---------------------------------------------------------------------------
 # V3: verify-close
@@ -267,6 +355,47 @@ class TestVerifyClose(HandoverCase):
         pack_dir = self._fresh_pack()
         self.fill_pack(pack_dir)
         code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+        self.park(rec, session_id="closing-session")
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_prompt_page_unfilled_slot_fails_naming_the_slot(self):
+        """CHANGE 2: an unfilled 07-NEXT-SESSION-PROMPT.md slot must FAIL,
+        naming exactly which slot, the same courtesy check 2 already gives
+        the close report's status line. Pre-fix this page did not exist at
+        all (PACK_FILES held seven files), so nothing could ever refuse
+        it."""
+        self.claim("fence-alpha")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        # Unfill ONE slot only: leave the other three filled, so a FAIL
+        # here can only come from the one slot still holding FILL-BY-HAND,
+        # not from a confound like "no human block at all".
+        target = os.path.join(pack_dir, bh.PROMPT_PAGE)
+        text = self.read(target)
+        begin, end = bs.HUMAN_BLOCK_BEGIN, bs.HUMAN_BLOCK_END
+        pre, _, rest = text.partition(begin)
+        _mid, sep, post = rest.partition(end)
+        self.assertTrue(sep)
+        self.write(target, pre + begin + "\n" + bh.FILL_BY_HAND
+                  + ": still not written.\n" + end + post)
+        code, out, _err = self.run_cli("verify-close", "--pack", pack_dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("FAIL", out)
+        self.assertIn(bh.PROMPT_PAGE, out)
+        self.assertIn(bh.PROMPT_SLOTS[0][0], out,
+                      "the FAIL does not name which slot is unfilled")
+
+    def test_prompt_page_fully_filled_passes(self):
+        """The other half: once every slot (and everything else) is
+        filled, the pack passes, same as any other clean close."""
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        pack_dir = self._fresh_pack()
+        self.fill_pack(pack_dir)
+        code, _o, _e = self.run_cli("zip", "--pack", pack_dir)
         self.assertEqual(0, code)
         self.park(rec, session_id="closing-session")
         code, out, _err = self.run_cli(
@@ -911,7 +1040,7 @@ class TestVerifyClose(HandoverCase):
             "skeleton", "--out", "docs/handover/pack1", "--date",
             "2026-08-11", "--slot", "pack1")
         self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
-        self.assertIn("command center copy: included", out)
+        self.assertIn("board copy: included (COMMAND-CENTER.html)", out)
         read_me = self.read(os.path.join(out_dir, "00-READ-ME-FIRST.md"))
         self.assertNotIn("no copy is included", read_me,
                          "00-READ-ME-FIRST.md contradicts stdout: it says "
@@ -991,6 +1120,76 @@ class TestVerifyClose(HandoverCase):
             os.path.isdir(os.path.join(self.root, "tmp", "abs-out-evil")),
             "the absolute --out was silently reinterpreted as relative")
         self.assertFalse(os.path.isdir("/tmp/abs-out-evil"))
+
+
+# ---------------------------------------------------------------------------
+# CHANGE 3: the pack copies the LIVE board (GANTT.html preferred over the
+# older COMMAND-CENTER.html), not whichever page happens to be stale.
+# ---------------------------------------------------------------------------
+
+class TestBoardCopy(HandoverCase):
+    """Pre-fix: cmd_skeleton only ever looked at docs/plan/COMMAND-
+    CENTER.html. This project's own live board moved to docs/plan/
+    GANTT.html on 2026-08-17 to 2026-08-20 while COMMAND-CENTER.html sat
+    unwritten, so every pack in that window copied a stale board under a
+    name nobody was looking at."""
+
+    def test_gantt_preferred_and_named_with_its_own_date(self):
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        self.write(os.path.join(plan_dir, "COMMAND-CENTER.html"),
+                   "<html>stale board</html>")
+        gantt = os.path.join(plan_dir, "GANTT.html")
+        self.write(gantt, "<html>live board</html>")
+        mtime = time.time() - 3600
+        os.utime(gantt, (mtime, mtime))
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertTrue(
+            os.path.isfile(os.path.join(out_dir, "GANTT.html")),
+            "GANTT.html was not copied even though it exists")
+        self.assertFalse(
+            os.path.isfile(os.path.join(out_dir, "COMMAND-CENTER.html")),
+            "the stale COMMAND-CENTER.html was copied even though the "
+            "live GANTT.html exists")
+        self.assertIn("board copy: included (GANTT.html)", out)
+        read_me = self.read(os.path.join(out_dir, "00-READ-ME-FIRST.md"))
+        self.assertIn("GANTT.html", read_me)
+        stamp = time.strftime("%Y-%m-%d", time.localtime(mtime))
+        self.assertIn(stamp, read_me,
+                      "the board's own modification date is not named")
+
+    def test_command_center_fallback_when_gantt_absent(self):
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        self.write(os.path.join(plan_dir, "COMMAND-CENTER.html"),
+                   "<html>only board</html>")
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertTrue(
+            os.path.isfile(os.path.join(out_dir, "COMMAND-CENTER.html")),
+            "the fallback board was not copied when GANTT.html is absent")
+        self.assertIn("board copy: included (COMMAND-CENTER.html)", out)
+
+    def test_no_board_at_all_is_named_rather_than_shipped_quietly(self):
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("no docs/plan/GANTT.html or docs/plan/"
+                      "COMMAND-CENTER.html found, skipped", out)
+        read_me = self.read(os.path.join(out_dir, "00-READ-ME-FIRST.md"))
+        self.assertIn("No board was found", read_me)
 
 
 # ---------------------------------------------------------------------------
