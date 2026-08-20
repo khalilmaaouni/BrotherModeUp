@@ -45,12 +45,22 @@ CHECK 1: THE FENCE HOOK, KEPT EXACTLY AS BEFORE
      other three cannot report itself healthy.
   3. Says out loud that the fence FAILS OPEN, and what that means for the
      answer above.
+  4. Asks that SAME wired hook's own store code to verify THIS PROJECT'S
+     ACTUAL store, read-only, if one exists on disk (fix-round 2026-08-21,
+     queue M17, family evidence-integrity). Steps 1-3 build a throwaway
+     store and read it right back with the very code that just created it,
+     so that loop can never be behind itself and can never expose a version
+     gap. A real store already migrated ahead of a stale copy of
+     bm_store.py sitting next to the wired hook is reported as a PROBLEM
+     here; before this step existed, that gap passed silently and doctor
+     reported the fence live while it was failing open on every write.
 
   The simulation is harmless in the strict sense: every file it creates lives
-  under a fresh mkdtemp directory that is removed at the end, it never touches
-  your project, your store, or your STATE.md, and the write it simulates is
-  never performed by anything. Nothing outside the temporary directory is
-  read for the simulation except the hook and store code being tested.
+  under a fresh mkdtemp directory that is removed at the end, and the write it
+  simulates is never performed by anything. Nothing outside the temporary
+  directory is read for the simulation except the hook and store code being
+  tested and, for step 4, a single read-only verify of this project's own
+  store, which never writes to it or to your STATE.md.
 
 WHAT NO CHECK HERE CAN TELL YOU
   That Claude Code has loaded the settings file you just fixed. A hook is
@@ -281,7 +291,10 @@ def _run(cmd, cwd, env, stdin_text=None, timeout=120):
 
 
 def blocked_write_simulation(command_words, tools_dir):
-    """Ask the WIRED hook command to judge one foreign write and one own write.
+    """Ask the WIRED hook command to judge one foreign write and one own write,
+    then ask that same hook's own store code to verify THIS PROJECT'S real
+    store, read-only, if one exists (queue M17: the throwaway store above is
+    always self-consistent and can never expose a version gap by itself).
 
     Returns a list of problem strings; empty means the fence is live."""
     problems = []
@@ -394,6 +407,38 @@ def blocked_write_simulation(command_words, tools_dir):
                     "CALIBRATION FAILED: the owner of the claim was refused "
                     "its own file on %s, so this hook denies writes it should "
                     "allow. Output: %s" % (tool_name, text2[:300]))
+
+        # THIS PROJECT'S OWN STORE, separate from the throwaway one above
+        # (fix-round 2026-08-21, queue M17, family evidence-integrity). Every
+        # check above builds a fresh store with this same `store` code and
+        # reads it right back, so the code that creates a store always
+        # understands the store it just created; that loop can never expose
+        # a version gap. The wired hook's real job is judging writes against
+        # the store THIS PROJECT actually uses, which may already sit at a
+        # schema a stale copy of bm_store.py next to the wired hook cannot
+        # read. Ask that same `store` to verify the real one, read-only, if
+        # it exists; a refusal here means the fence fails open on every real
+        # write in this project while the throwaway simulation still reports
+        # clean, exactly what happened on 2026-08-20.
+        real_root = os.getcwd()
+        real_store_path = os.path.join(real_root, ".brothermode", "store.sqlite3")
+        if os.path.isfile(real_store_path):
+            real_env = dict(os.environ)
+            real_env["BROTHERMODE_ROOT"] = real_root
+            rv = _run([sys.executable, store, "verify"], real_root, real_env)
+            if rv.returncode != 0:
+                problems.append(
+                    "THE WIRED HOOK CANNOT READ THIS PROJECT'S OWN STORE: "
+                    "%s verify against %s exited %d: %s. The blocked-write "
+                    "simulation above only proves the hook can judge a "
+                    "throwaway store it built itself, which is always at "
+                    "the schema this same code writes; it says nothing "
+                    "about the store this project actually uses. Until the "
+                    "wired hook is upgraded to a copy that understands this "
+                    "store, the fence fails open on every real write here."
+                    % (store, real_store_path, rv.returncode,
+                       ((rv.stdout or "") + (rv.stderr or "")).strip()[:400]
+                       or "(no output)"))
 
         if os.path.exists(os.path.join(root, "sim", "written-by-doctor")):
             problems.append("the simulation wrote a file it should not have")

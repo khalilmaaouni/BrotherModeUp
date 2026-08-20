@@ -5522,6 +5522,114 @@ class TestM1InstallShapeDoctorCheck(unittest.TestCase):
                              checks["install_shape"]["message"])
 
 
+class TestM17FenceLivenessAgainstRealStore(unittest.TestCase):
+    """M17 (docs/plan/QUEUE.json, family evidence-integrity): scripts/
+    doctor.py's fence liveness check used to prove liveness only against a
+    THROWAWAY project's store, built and read back by the very same
+    bm_store.py code sitting beside the wired hook. That loop can never be
+    behind itself, so it could never catch the one gap that matters most: a
+    wired hook whose own bm_store.py is older than the schema THIS
+    PROJECT'S real store is already at. Measured on 2026-08-20: doctor
+    reported the fence check PASS while the installed hook's bm_store.py
+    understood at most schema 20 and this project's real store was already
+    at schema 21, so the installed bm_store.py refused to open it
+    (schema-ahead) and the fence hook's own documented fail-open behavior
+    let every write in this repository through unfenced.
+
+    NO NEW SUITES ENTRY, same reasoning as TestM1InstallShapeDoctorCheck
+    above: scripts/*.py checks are tested inline in an already-registered
+    tools/test_*.py file, never a dedicated test_doctor.py."""
+
+    DOCTOR = os.path.join(HERE, "..", "scripts", "doctor.py")
+
+    def _env(self, home):
+        env = dict(os.environ)
+        env["HOME"] = home
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for k in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT", "BROTHERME_CONFIG",
+                  "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+            env.pop(k, None)
+        return env
+
+    def _run_doctor(self, home, project, settings):
+        return subprocess.run(
+            [sys.executable, self.DOCTOR, "--settings", settings, "--json"],
+            cwd=project, env=self._env(home),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def _checks(self, stdout):
+        payload = json.loads(stdout)
+        return {c["key"]: c for c in payload["checks"]}
+
+    def _old_install_one_schema_behind(self, tmp):
+        """A real, working copy of every tools/*.py file (dependency
+        closure, the same technique DoctorStrictAndSummaryCase in
+        test_bm_consent.py uses to build a wired-and-live fence fixture),
+        except this copy's own bm_store.py has its SCHEMA_VERSION patched
+        down by exactly one: a real, functioning hook that understands one
+        schema less than the code sitting beside it in this repo today."""
+        tools_dir = os.path.join(tmp, "old_install", "tools")
+        os.makedirs(tools_dir)
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy2(os.path.join(HERE, name), os.path.join(tools_dir, name))
+        store_copy = os.path.join(tools_dir, "bm_store.py")
+        with io.open(store_copy, encoding="utf-8") as fh:
+            src = fh.read()
+        old_line = "SCHEMA_VERSION = %d" % bs.SCHEMA_VERSION
+        new_line = "SCHEMA_VERSION = %d" % (bs.SCHEMA_VERSION - 1)
+        self.assertIn(old_line, src,
+                      "fixture assumption broke: tools/bm_store.py no "
+                      "longer defines %r verbatim" % old_line)
+        with io.open(store_copy, "w", encoding="utf-8") as fh:
+            fh.write(src.replace(old_line, new_line, 1))
+        return tools_dir
+
+    def test_real_store_ahead_of_wired_hook_fails_not_passes(self):
+        """REPRODUCED pre-fix: the throwaway-store simulation this check
+        runs is self-consistent by construction (the same code creates and
+        then reads the store), so it passes regardless of this gap; doctor
+        reported the fence PASS while the wired hook could not open this
+        project's actual store at all. FAIL, or a SKIP naming why it could
+        not tell, are both acceptable; PASS is not, per this file's own
+        NO-DATA discipline (never silently PASS what was not checked)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            old_tools = self._old_install_one_schema_behind(tmp)
+            # THIS PROJECT'S OWN REAL STORE, created by the CURRENT,
+            # unmodified tools/bm_store.py beside this test file, one
+            # schema ahead of the wired hook's copy above by construction.
+            r = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                cwd=project, env=self._env(home),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=300)
+            self.assertEqual(r.returncode, 0,
+                             "fixture setup: could not init the real "
+                             "project store: %s" % (r.stderr or r.stdout))
+            fence = os.path.join(old_tools, "bm_fence_hook.py")
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                    "hooks": [{"type": "command", "command": "python3 " + fence,
+                              "timeout": 10}]}]}}, fh)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertNotEqual(checks["fence"]["status"], "PASS",
+                                "doctor reported the fence live while the "
+                                "wired hook's own store code cannot open "
+                                "this project's real store: %s"
+                                % checks["fence"]["message"])
+            self.assertEqual(checks["fence"]["status"], "FAIL",
+                             checks["fence"]["message"])
+            self.assertIn("schema", checks["fence"]["message"].lower())
+
+
 _migrate_install_spec = importlib.util.spec_from_file_location(
     "migrate_install", os.path.join(HERE, "..", "scripts", "migrate_install.py"))
 migrate_install = importlib.util.module_from_spec(_migrate_install_spec)
