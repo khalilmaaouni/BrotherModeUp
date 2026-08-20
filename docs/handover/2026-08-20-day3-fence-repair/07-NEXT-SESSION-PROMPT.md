@@ -31,8 +31,8 @@ The ONE thing that genuinely does not carry across accounts is the published pro
 ### Goal of the next round
 
 <!-- bm-human:begin -->
-Merge the two unmerged branches to main and fix the two controls that reported a
-healthy fence while one-writer enforcement was off for the whole repository.
+Fix the two controls that reported a healthy fence while one writer per file was not
+being enforced anywhere in this repository.
 <!-- bm-human:end -->
 
 ### Decisions already made
@@ -53,34 +53,35 @@ healthy fence while one-writer enforcement was off for the whole repository.
 ### Ordered work list
 
 <!-- bm-human:begin -->
-1. Merge feature/ceremony-carries-the-next-prompt and day3-fence-repair-and-queue to
-   main, in that order, after checking with whoever owns the first.
-   Done-check: `git log --oneline -1 origin/main` shows 930c55e or a descendant, and
-   `git rev-parse HEAD` equals `git rev-parse @{u}` equals the ls-remote sha.
-2. M17, scripts/doctor.py plus tools/test_bm.py. Make the fence check exercise THIS
-   project's store. Done-check: point it at a store one schema ahead of the installed
-   copy and observe FAIL, then confirm the pre-fix code passes the same fixture so the
-   test is not asserting something already true.
-3. M18, scripts/migrate_install.py plus tools/test_bm.py. Done-check: its dry-run
-   against an install that cannot read the project's store prints a repair plan naming
-   the version gap instead of NOTHING TO DO.
-4. M13, our half: export the derived bm1- label at claim time in tools/bm_store.py.
-   Their variable and commit are the spec, 3d0a2b1, SBE_SESSION_ALIASES.
+1. M17, scripts/doctor.py plus tools/test_bm.py. Make the fence check exercise THIS
+   project's store rather than a throwaway it builds itself.
+   Done-check: point it at a store one schema ahead of the installed copy and observe
+   FAIL, then confirm the pre-fix code passes the same fixture, so the test is not
+   asserting something already true.
+2. M18, scripts/migrate_install.py plus tools/test_bm.py.
+   Done-check: its dry-run against an install that cannot read the project's store prints
+   a repair plan naming the version gap instead of NOTHING TO DO.
+3. M13, our half: export the derived bm1- label at claim time in tools/bm_store.py. Their
+   variable and commit are the spec, 3d0a2b1, SBE_SESSION_ALIASES.
    Done-check: the rightful owner is not refused out of their own fence.
+4. R1 to R6, and read the close report first: the v3.3.2 tag was pushed over a recorded
+   decision to fix R1 and R2 first. Whether that stands is the founder's call, not yours.
 <!-- bm-human:end -->
 
 ### Frozen or blocked
 
 <!-- bm-human:begin -->
-BLOCKED, and it needs the founder: nothing. He cleared every gate this session
-reached, and the grant in ~/.claude/spend-guard.json expired at 23:00 JST on
-2026-08-20, so a new session needs a fresh figure from him before any large run.
-Baseline after expiry is 500,000 soft and 800,000 hard per session.
+NOTHING IS BLOCKED AND NOTHING IS FROZEN. The freeze ended when the tag was pushed, and
+main is at a91d222 carrying both sessions, gated green and pushed. Start by verifying the
+tip rather than trusting that sha:
+  git fetch origin && git rev-parse origin/main
 
-FROZEN: main sits on the release-cut commit eacf249 with the v3.3.2 tag now pushed,
-so the freeze that applied all day is OVER. Landing on main is permitted again.
+NEEDS THE FOUNDER, and it is one number: the spend grant in ~/.claude/spend-guard.json
+expired at 23:00 JST on 2026-08-20. Until he names a fresh figure, every session runs at
+the baseline 500,000 soft and 800,000 hard output tokens. Nothing is broken; a long run
+will simply stop early.
 
-NOT BLOCKED BUT UNPROVEN, carry it honestly: the repaired fence has not been observed
-refusing a foreign session's write against a real foreign active claim in this
-repository, because none existed by the time the repair landed. See the close report.
+NEEDS THE FOUNDER, second and smaller: whether the pushed v3.3.2 tag stands given the
+earlier decision to fix R1 and R2 first. It published nothing (no Release object exists,
+Actions are disabled), so there is no urgency, but do not publish a Release until he says.
 <!-- bm-human:end -->

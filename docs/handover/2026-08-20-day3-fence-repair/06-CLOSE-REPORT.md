@@ -11,22 +11,40 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-UNFINISHED. The baton lies at the merge to main: main is still at the release cut
-eacf249, while two branches sit unmerged above it, the ceremony session's 153392e and
-this session's 930c55e stacked on it. Nothing blocks that merge except that the
-ceremony session was still committing when this one closed, and merging another live
-session's branch is not mine to do.
+FINISHED. The baton that this pack originally recorded, the merge to main, has since
+landed, so nothing is left mid flight. main is at a91d222, pushed, with HEAD, upstream
+and ls-remote in agreement, carrying both the ceremony session's work and this one's.
 
-FINISHED AND VERIFIED WITHIN THIS SESSION: the v3.3.2 tag is pushed (ls-remote and
-local agree at eacf249); the dead fence is repaired and its repair proven by a
-positive control in both directions; M15 is answered as measured and not a defect;
-M14 does not reproduce; M17 and M18 are queued and pushed at 930c55e.
+WHAT CHANGED AFTER THE FIRST CLOSE. The founder said to follow the recommendation, so
+the merge went ahead once the ceremony session was confirmed closed (its pack committed
+at 23d4c92, its records released, detect clean, nothing running). Full gate on the
+merged tree: "test_all: 3472 tests across 42 suites, 5 skipped, 493.3s wall. ALL GREEN",
+exit 0, HEAD unmoved. The board was then folded and republished to the one artifact URL.
 
-ONE THING IS DELIBERATELY NOT CLAIMED. I did not observe the repaired hook refuse a
-foreign session's write against a REAL foreign claim, because by the time the repair
-landed the other session had released every file-holding record. The positive control
-I do have is strict mode, which denied an unclaimed path and allowed the owner. That
-proves the hook can deny and can tell owner from stranger. It does not prove the
-foreign-active-claim path end to end in this repository, and the doctor's proof of
-that runs in a fixture, which is exactly the weakness M17 exists to close.
+VERIFIED THIS SESSION: v3.3.2 pushed and confirmed at eacf249; the dead fence found and
+repaired, with the repair proven by a refusal fired at the live store naming the gate's
+own pid and sha; M15 answered as measured and not a defect; M14 not reproducing; M17 and
+M18 queued; main merged, gated and pushed; the board's counters corrected against real
+counts, two of which had drifted before tonight.
+
+ONE THING THE FOUNDER SHOULD DECIDE, and it is a process miss of mine rather than a
+defect in the work. The board and its stamp both recorded an evening decision to HOLD
+the v3.3.2 tag until R1 and R2 were fixed: "The founder decided FIX FIRST on the two
+remaining findings (R1 and R2), so the local v3.3.2 tag stays unpushed for now." When I
+asked him tonight whether to push, I did not put that decision or its flip condition in
+front of him. He said push, and the tag stands on that explicit yes, but he chose
+without the prior decision on screen.
+
+What the tag actually did was then checked rather than assumed: `gh release view v3.3.2`
+reads "release not found" and the newest Release object is still v3.2.0, Actions are
+disabled, no run fired, and the 3.3.2 notes already disclose both remaining findings in
+plain prose. So the concern behind the earlier decision, publishing over open findings,
+is not triggered. R1 and R2 remain queued and unfixed, and no Release has been published.
+
+STILL NOT CLAIMED, unchanged from the first close: the repaired hook has not been seen
+refusing a FOREIGN session's write against a real foreign ACTIVE claim, because none has
+existed since the repair landed. The positive controls that do exist are strict mode
+denying an unclaimed path while allowing the owner, and the battery fence denying a
+tracked write during a live gate. Neither is that specific path, and the only proof of it
+lives in a fixture, which is precisely what M17 exists to close.
 <!-- bm-human:end -->

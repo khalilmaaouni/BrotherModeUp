@@ -9,30 +9,34 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-1. MERGE THE TWO OPEN BRANCHES TO MAIN. main is still at eacf249, the release cut.
-   The ceremony session's work sits at 153392e on
-   feature/ceremony-carries-the-next-prompt, and this session's single commit 930c55e
-   sits on day3-fence-repair-and-queue on top of it. Neither is merged. Done-check:
-   `git log --oneline origin/main -1` shows 930c55e or later, and the full gate is
-   green on the merged tree.
+0. DONE AFTER THE FIRST CLOSE, recorded so nobody redoes it: both branches are merged.
+   main is at a91d222, pushed, HEAD equals upstream equals ls-remote. Full gate on the
+   merged tree: "test_all: 3472 tests across 42 suites, 5 skipped, 493.3s wall. ALL
+   GREEN", exit 0. The board is folded and republished to the one artifact URL.
 
-2. M17 AND M18, now queued with their done-checks written. These are the two controls
-   that said PASS while the fence was dead, and until they are fixed the same failure
-   is invisible to both of them again tomorrow.
+1. M17 AND M18, the two controls that reported a healthy fence while it enforced nothing.
+   These are the first code work. Until they are fixed the same failure is invisible to
+   both of them again tomorrow.
    Files: scripts/doctor.py, scripts/migrate_install.py, tools/test_bm.py.
+   Done-check M17: point the doctor's fence check at a store one schema ahead of the
+   installed copy and observe FAIL, then confirm the pre-fix code passes the same fixture,
+   so the test is not asserting something that was already true.
+   Done-check M18: migrate_install.py dry-run against an install that cannot read the
+   project's store prints a repair plan naming the version gap instead of NOTHING TO DO.
 
-3. M13, still genuinely open. BrotherSBE fixed their half at 3d0a2b1 with
-   SBE_SESSION_ALIASES. Our half is to export the derived label from bm_store.py at
-   claim time, which it already computes and prints: tonight it printed
-   "Claiming under bm1-1a93ad213dba77aba8af981c" unprompted.
+2. M13, still genuinely open. BrotherSBE fixed their half at 3d0a2b1 with
+   SBE_SESSION_ALIASES. Our half is to export the derived label at claim time in
+   tools/bm_store.py, which already computes and prints it: it printed "Claiming under
+   bm1-1a93ad213dba77aba8af981c" unprompted this session.
 
-4. R1 to R6 from the codex debate, disclosed in CHANGELOG.md rather than fixed.
+3. R1 to R6 from the codex debate, disclosed in the 3.3.2 notes rather than fixed. See
+   the close report: the tag was pushed over a recorded decision to fix these first, and
+   whether that stands is the founder's call.
 
-5. THE INSTALL SWAP remains the largest gap in docs/KNOWN-LIMITS.md, and note that
-   scripts/migrate_install.py cannot currently detect the condition that broke the
-   fence tonight. That is M18.
+4. THE INSTALL SWAP remains the largest gap in docs/KNOWN-LIMITS.md, and note that
+   scripts/migrate_install.py cannot currently detect the condition that broke the fence
+   this session. That is M18.
 
-6. Standing debt, unchanged and untouched by this session: silent-failure-lints
-   (185 hits in legacy benchmark/ and bench_*), and the weekly review
-   (tools/WEEKLY-REVIEW.md), now more than 8 days overdue.
+5. Standing debt, untouched: silent-failure-lints (185 hits in legacy benchmark/ and
+   bench_*), and the weekly review (tools/WEEKLY-REVIEW.md), now more than 8 days overdue.
 <!-- bm-human:end -->
