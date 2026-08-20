@@ -167,7 +167,7 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
   </div>
   <div class="card risk">
     <span class="k">Risk watch</span>
-    <p><span class="big">Three verdicts that measured the wrong thing</span>A packaging command destroyed a file outside the project. A fence check said PASS from one directory and FAIL from another on the same estate. And M14 was retired on evidence about a different hook, a retirement this session copied into its own pack before testing it. Seven full gates were green through all three.</p>
+    <p><span class="big">A done state is a claim nothing re-checks</span>Three items recorded as CLOSED were open: M14 retired against a hook it does not name, M16 where a brief read a queue entry as a fix, and M9 found only because the first two made me suspicious. An audit of 14 of the 50 done items found four more whose check no longer means what it says. Eight full gates were green through all of it, because none of this is the kind of thing a test suite asks.</p>
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
@@ -324,7 +324,7 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
 <h2>The ledger</h2>
 
 <div class="phase">
-<h3>Phase 6, the night the fixes were audited by a stranger<span class="chip">14/14 ticked</span></h3>
+<h3>Phase 6, the night the fixes were audited by a stranger<span class="chip">15/15 ticked</span></h3>
 <ul class="ledger">
   <li class="tick"><span class="t">M19 closed: the pack can no longer archive a board that went stale after it was generated</span>
     <span class="ev">cmd_zip re-runs the same _board_source lookup and copy that cmd_skeleton already uses, immediately before the pack is read. Proven red then green TWICE, once in the writer sandbox and once in this checkout: reverting only the fix gives "zip left the pack&#39;s own board copy on disk stale even though it just archived it", restoring it gives "Ran 56 tests / OK". Committed a9098a4.</span></li>
@@ -376,6 +376,8 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
     <span class="ev">Commit 153392e&#39;s own message reads "the worktree escape queued as M16": the branch carried the QUEUE ENTRY, not a fix, and neither commit mentioning M16 touches bm_store.py or bm_fence_hook.py. Reproduced on a throwaway NESTED clone: BROTHERMODE_ROOT unset gave "root resolved via marker" pointing at the MAIN checkout&#39;s store; set, it gave "root resolved via env" and the worktree&#39;s own. Counted by the orchestrator&#39;s own hand: 0 production callers pass refuse_past_git_boundary=True, the only 5 that do sit in a test file wired to nothing, and tools/bm_escalate.py reimplements the same walk with no such parameter so it cannot opt in at all. A sibling-layout worktree did NOT reproduce; nesting is the trigger.</span></li>
   <li class="tick"><span class="t">Seven stale worktrees hold 25 uncommitted files, in exactly the nested layout M16 makes dangerous</span>
     <span class="ev">Found while checking whether a measurement&#39;s worktree was disturbing a running gate. Compared byte for byte against origin/main: 19 of 25 files are IDENTICAL, so that work landed by the ordinary route and the worktree is residue; 6 are not, and for four of those main moved past them, three by this session. CHANGELOG.md and pyproject.toml are the two needing a look. NOTHING WAS TOUCHED: removing a worktree is deletion and deletion is your gate, and moving them would break the registry that makes them findable. PO-3 works on the way in and has no counterpart on the way out. Queued as M30, whose done-check refuses to offer removal while any file reads UNLANDED.</span></li>
+  <li class="tick"><span class="t">One in fourteen items marked DONE was not done, and no control found any of the three</span>
+    <span class="ev">After M14 and M16 both turned out open, an audit checked 14 of the 50 items in state done. It found M9 STILL OPEN with a live reproduction: tools/bm_progress_check.py contains ZERO occurrences of successor, pointer, COMMAND-CENTER or frozen, counted directly, while M9&#39;s own done_check requires a page with a successor pointer to report the successor&#39;s freshness or a NO-DATA, "never a bare OWED". A different bug was fixed instead and only a commit message says so. FOUR more done_checks no longer mean what they say: M28&#39;s title claims a gap left unfixed that the code closed; M15&#39;s names a precondition that is false; O15&#39;s names doctor check 9, which today means something else entirely; M2&#39;s names a test class that no longer exists under that name. All three wrong verdicts tonight were found BY ACCIDENT. Queued as M31, whose done-check refuses to report CONFIRMED for any item it could not actually execute.</span></li>
 </ul>
 </div>
 
