@@ -1553,7 +1553,7 @@
   {
    "id": "M27",
    "title": "the reviewed write-site inventory cannot see two write shapes, so a site can enter a scanned file without ever being reviewed: its mode regex is open\\([^)]*[\"']w[\"'] which matches a bare w and NOT wb, and the compensating .write( pattern does not match .writelines( or shutil.copyfileobj(. Verified 2026-08-21 by running the two patterns directly: open(p, \"wb\") returns False, fh.writelines(lines) returns False, shutil.copyfileobj(src, fh) returns False. NOT currently a live hole in this repository: the one binary open in tools/bm_handover.py is followed on the next line by fh.write(data), which IS matched, so that site is counted. Found while fixing the M19 defects, by the writer that had to touch the inventory twice",
-   "state": "queued",
+   "state": "done",
    "stage": "evidence-integrity",
    "clock": "agent",
    "forecast_minutes": 30,
@@ -1562,6 +1562,19 @@
     "tools/write_sites.json"
    ],
    "done_check": "a file planted with open(p, \"wb\") plus writelines, and one with shutil.copyfileobj, are both counted by the scanner; the regression test fails on the pre-fix patterns"
+  },
+  {
+   "id": "M28",
+   "title": "one write-site shape stays invisible to the widened scanner and it was found by the writer that widened it, not by a later audit: the mode pattern uses [^)]* to reach the mode string, which cannot cross a NESTED closing paren, so open(os.path.join(root, \".git\", \"info\", \"exclude\"), \"a\") at scripts/benchmark.py line 116 does not match. Verified 2026-08-21 by running the widened pattern against that exact line: False. LATENT, not live: a .write( two lines below it is matched, so the site is counted today and nothing goes unreviewed. It becomes live the moment such a site has no matched write beside it. Left unfixed on purpose because closing it means changing how the scanner parses rather than widening a character class, and that is restructuring",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "tools/test_bm.py",
+    "tools/write_sites.json"
+   ],
+   "done_check": "a planted file whose open() call wraps its path in a nested call, with no .write beside it, is counted by the scanner; the regression test fails on the current [^)]* pattern"
   }
  ]
 }

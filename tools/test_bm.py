@@ -1331,14 +1331,39 @@ class TestPreWriteGate(unittest.TestCase):
     .write(), only inside tools/. Missed os.replace, shutil's write
     functions, os.mkdir/makedirs, os.unlink/remove and os.chmod inside files
     already reviewed, and never scanned scripts/, mcp/, brotherme/.
+
+    Widened again for M27: the mode pattern required an exact single "w"
+    between quotes, so open(p, "wb") (or "ab", "xb", "w+" and similar)
+    never matched at all; the write-call pattern matched only .write(, so
+    .writelines( and shutil.copyfileobj( were invisible even when the mode
+    pattern above also missed them. A site written as open(p, "wb")
+    followed by writelines or copyfileobj was invisible in both directions
+    at once. NOT a live hole when this landed: the one binary open in the
+    tree (tools/bm_handover.py's zip_path write) already sat on a line
+    followed by a plain fh.write(data), which the old .write( pattern
+    already matched, so that site was already counted; this closes a
+    latent gap, not a bleeding one. The mode class now accepts any mode
+    string starting with w, a or x (write, append, exclusive-create) followed
+    by up to three more mode characters (b, t, +, or a repeat of r/w/x/a),
+    which also covers os.fdopen(fd, "wb") and friends since fdopen( shares
+    the "open(" substring the pattern searches for. Deliberately NOT
+    widened to match a leading "r": open(p, "r") and open(p, "rb") are the
+    single most common call shape in this tree, and matching reads would
+    make the scanner "match everything", which is as useless as matching
+    nothing; "r+" (update mode, technically write-capable) is left out for
+    the same reason and because grepping this tree found zero uses of it.
+    os.fdopen( also gained its own unconditional pattern, the same
+    catch-all treatment os.open( already had, so a future fdopen call whose
+    mode is a variable rather than a literal string still cannot hide.
     """
 
     WRITE_PATTERNS = (
-        r'open\([^)]*["\']w["\']',
+        r'open\([^)]*["\'][wax][rwxabt+]{0,3}["\']',
         r'os\.open\(',
-        r'\.write\(',
+        r'os\.fdopen\(',
+        r'\.write(lines)?\(',
         r'os\.replace\(',
-        r'shutil\.(copy2?|copyfile|copytree|move|rmtree)\(',
+        r'shutil\.(copy2?|copyfile|copytree|copyfileobj|move|rmtree)\(',
         r'os\.(mkdir|makedirs)\(',
         r'os\.(unlink|remove)\(',
         r'os\.chmod\(',
@@ -1437,6 +1462,41 @@ class TestPreWriteGate(unittest.TestCase):
                           "inside a scripts-shaped directory; the C-04 fix "
                           "regressed")
             self.assertEqual(found["scripts/bm_smuggled_write.py"], 1)
+
+            with self.assertRaises(AssertionError):
+                self._assert_matches_manifest(found, manifest={})
+
+    def test_widened_scope_catches_a_smuggled_binary_write(self):
+        """M27 adversarial test, the second widening. Pre-widening, two
+        escaping shapes were BOTH invisible at once: open(p, "wb") never
+        matched the mode pattern (it required an exact single "w" between
+        quotes), and .writelines(/shutil.copyfileobj( never matched the
+        write-call pattern (it matched only .write(). Plant a throwaway
+        file using exactly those two shapes inside a directory named
+        "scripts" under an isolated temp root, never touching the real
+        repo, and confirm the SAME comparison the real gate runs both sees
+        it and refuses it unreviewed."""
+        with tempfile.TemporaryDirectory() as d:
+            root = os.path.realpath(d)
+            planted_dir = os.path.join(root, "scripts")
+            os.makedirs(planted_dir)
+            planted = os.path.join(planted_dir, "bm_smuggled_binary_write.py")
+            with io.open(planted, "w", encoding="utf-8") as f:
+                f.write(
+                    "import shutil\n\n\n"
+                    "def smuggled_write(tmp, path, src_fh, dst_fh):\n"
+                    "    with open(tmp, \"wb\") as fh:\n"
+                    "        fh.writelines([b\"data\"])\n"
+                    "    shutil.copyfileobj(src_fh, dst_fh)\n")
+
+            found = self._sites(base=root, scan_roots=("scripts",))
+
+            self.assertIn(
+                "scripts/bm_smuggled_binary_write.py", found,
+                "the widened scanner missed an open(...\"wb\") or a "
+                ".writelines()/shutil.copyfileobj() site inside a "
+                "scripts-shaped directory; the M27 fix regressed")
+            self.assertEqual(found["scripts/bm_smuggled_binary_write.py"], 3)
 
             with self.assertRaises(AssertionError):
                 self._assert_matches_manifest(found, manifest={})
