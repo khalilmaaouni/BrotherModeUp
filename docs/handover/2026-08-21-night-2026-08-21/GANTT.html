@@ -163,11 +163,11 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
   </div>
   <div class="card you">
     <span class="k">Waiting on you</span>
-    <p><span class="big">2 now</span>Nothing is blocking tonight. The grant question is closed: you named 10 million and it is applied. What needs you is whether M18 counts as closed when it still cannot answer its own question, and the standing Bitbucket seats. Both are on the cards below with a default if you say nothing.</p>
+    <p><span class="big">3 now</span>Nothing is blocking tonight. The grant question is closed: you named 10 million and it is applied. What needs you is whether M18 counts as closed when it still cannot answer its own question, and the standing Bitbucket seats. The third is seven stale worktrees holding 25 uncommitted files: 19 provably landed, 6 needing a look, none touched because deletion is your gate. All three have a default if you say nothing.</p>
   </div>
   <div class="card risk">
     <span class="k">Risk watch</span>
-    <p><span class="big">A fix that carried the defect it fixed</span>Every control I ran tonight passed the work: three suites green, two full gates green, the write-site inventory satisfied. All of it missed a package command that destroyed a file outside the project, and a fence check that said PASS from one directory and FAIL from another on the same estate. Only the outside family caught them.</p>
+    <p><span class="big">Three verdicts that measured the wrong thing</span>A packaging command destroyed a file outside the project. A fence check said PASS from one directory and FAIL from another on the same estate. And M14 was retired on evidence about a different hook, a retirement this session copied into its own pack before testing it. Seven full gates were green through all three.</p>
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
@@ -324,7 +324,7 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
 <h2>The ledger</h2>
 
 <div class="phase">
-<h3>Phase 6, the night the fixes were audited by a stranger<span class="chip">11/11 ticked</span></h3>
+<h3>Phase 6, the night the fixes were audited by a stranger<span class="chip">14/14 ticked</span></h3>
 <ul class="ledger">
   <li class="tick"><span class="t">M19 closed: the pack can no longer archive a board that went stale after it was generated</span>
     <span class="ev">cmd_zip re-runs the same _board_source lookup and copy that cmd_skeleton already uses, immediately before the pack is read. Proven red then green TWICE, once in the writer sandbox and once in this checkout: reverting only the fix gives "zip left the pack&#39;s own board copy on disk stale even though it just archived it", restoring it gives "Ran 56 tests / OK". Committed a9098a4.</span></li>
@@ -370,6 +370,12 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
     <span class="ev">R1 was NOT taken, deliberately: it corrects to between 2 and 4.5 hours against a hard 06:45 stop and it is store transaction work, which is the thing the founder warned about for R2. M25 and M28 were taken instead, both found by this night&#39;s own work, both proven red then green in this checkout, committed 478f4fa. M25 red listed four real .pyc files written beside the installed hook; the docstring&#39;s promise was made true rather than weakened. M28 red read "17 != 15". Gate: "3486 tests across 42 suites, 5 skipped, 669.0s wall. ALL GREEN" exit 0.</span></li>
   <li class="tick"><span class="t">The third blind spot in one inventory in one night, and the reason it outranks both fixes</span>
     <span class="ev">M27 the mode string, M28 the nested paren, M29 the write verb. json.dump(obj, fh) has never matched ANY generation of these patterns, verified by running the live nine-pattern tuple against that exact line. Sixteen write sites became visible tonight that this inventory had never counted; eight carry model transcript text by design, and one had a correct count whose CONTENT had never been reviewed. Every one of the three was found by whoever happened to be working INSIDE the inventory, none by an audit of it. M29 asks whether a list of patterns can answer this question at all.</span></li>
+  <li class="tick"><span class="t">M14 was RETIRED on evidence about the wrong hook, and this session had repeated that retirement in its own pack before testing it</span>
+    <span class="ev">M14 names sbe_fence_hook.py, the assurance plugin&#39;s hook. The retirement evidence is entirely about bm_fence_hook.py and a schema mismatch fixed by pointing an install clone at origin/main: a different component. One identical PreToolUse payload sent to both, by the orchestrator&#39;s own hand: sbe_fence_hook 34 warning lines, each reading "STATE.md carries a live fence line with no readable `files:` scope, so this hook cannot tell what it owns and did NOT enforce it"; bm_fence_hook ONE line, and it never parses STATE.md text at all. WORSE than first reported: 34 warnings per write rather than six, across every historical Wave section. M14 is OPEN. Nothing was fixed; the pack line, the queue entry and this board were corrected. Evidence: docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md</span></li>
+  <li class="tick"><span class="t">M16 measured and CONFIRMED OPEN, after the same brief said a merged branch held it</span>
+    <span class="ev">Commit 153392e&#39;s own message reads "the worktree escape queued as M16": the branch carried the QUEUE ENTRY, not a fix, and neither commit mentioning M16 touches bm_store.py or bm_fence_hook.py. Reproduced on a throwaway NESTED clone: BROTHERMODE_ROOT unset gave "root resolved via marker" pointing at the MAIN checkout&#39;s store; set, it gave "root resolved via env" and the worktree&#39;s own. Counted by the orchestrator&#39;s own hand: 0 production callers pass refuse_past_git_boundary=True, the only 5 that do sit in a test file wired to nothing, and tools/bm_escalate.py reimplements the same walk with no such parameter so it cannot opt in at all. A sibling-layout worktree did NOT reproduce; nesting is the trigger.</span></li>
+  <li class="tick"><span class="t">Seven stale worktrees hold 25 uncommitted files, in exactly the nested layout M16 makes dangerous</span>
+    <span class="ev">Found while checking whether a measurement&#39;s worktree was disturbing a running gate. Compared byte for byte against origin/main: 19 of 25 files are IDENTICAL, so that work landed by the ordinary route and the worktree is residue; 6 are not, and for four of those main moved past them, three by this session. CHANGELOG.md and pyproject.toml are the two needing a look. NOTHING WAS TOUCHED: removing a worktree is deletion and deletion is your gate, and moving them would break the registry that makes them findable. PO-3 works on the way in and has no counterpart on the way out. Queued as M30, whose done-check refuses to offer removal while any file reads UNLANDED.</span></li>
 </ul>
 </div>
 
