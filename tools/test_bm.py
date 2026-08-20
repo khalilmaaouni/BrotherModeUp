@@ -5629,6 +5629,193 @@ class TestM17FenceLivenessAgainstRealStore(unittest.TestCase):
                              checks["fence"]["message"])
             self.assertIn("schema", checks["fence"]["message"].lower())
 
+    def test_subdirectory_cwd_still_finds_the_real_store(self):
+        """REPRODUCED pre-fix (reviewer defect B3): the real-store check
+        used real_root = os.getcwd(), so a doctor run from ANY
+        subdirectory of the project (project/docs/, say) looked for
+        docs/.brothermode/store.sqlite3, found nothing, and silently
+        added no problem at all: the identical estate that FAILs from the
+        project root PASSed from a subdirectory. Same fixture as
+        test_real_store_ahead_of_wired_hook_fails_not_passes above
+        (schema-behind wired hook, current-schema real store), run with
+        cwd inside a subdirectory instead of the project root: the fix
+        must resolve the real root honestly and report the SAME FAIL,
+        not go silent."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            subdir = os.path.join(project, "docs")
+            os.makedirs(home)
+            os.makedirs(subdir)
+            old_tools = self._old_install_one_schema_behind(tmp)
+            r = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                cwd=project, env=self._env(home),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=300)
+            self.assertEqual(r.returncode, 0,
+                             "fixture setup: could not init the real "
+                             "project store: %s" % (r.stderr or r.stdout))
+            fence = os.path.join(old_tools, "bm_fence_hook.py")
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                    "hooks": [{"type": "command", "command": "python3 " + fence,
+                              "timeout": 10}]}]}}, fh)
+            # ONLY DIFFERENCE from the root-run test above: doctor's cwd is
+            # a subdirectory of the project, not the project root itself.
+            r = self._run_doctor(home, subdir, settings)
+            checks = self._checks(r.stdout)
+            self.assertNotEqual(checks["fence"]["status"], "PASS",
+                                "doctor reported the fence live from a "
+                                "SUBDIRECTORY of the project while the "
+                                "wired hook's own store code cannot open "
+                                "this project's real store, the exact "
+                                "estate that FAILs from the project root: "
+                                "%s" % checks["fence"]["message"])
+            self.assertEqual(checks["fence"]["status"], "FAIL",
+                             checks["fence"]["message"])
+            self.assertIn("schema", checks["fence"]["message"].lower())
+
+    def _wire_current_fence(self, settings):
+        """A normal, CURRENT, fully working fence hook (not the
+        one-schema-behind fixture above): defects B4 and B5 below are
+        about the STORE PATH SHAPE and the INTERPRETER used, not a schema
+        gap, so the ordinary tools/*.py beside this test file is the
+        wired hook."""
+        fence = os.path.join(HERE, "bm_fence_hook.py")
+        with io.open(settings, "w", encoding="utf-8") as fh:
+            json.dump({"hooks": {"PreToolUse": [{
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "hooks": [{"type": "command", "command": "python3 " + fence,
+                          "timeout": 10}]}]}}, fh)
+        return fence
+
+    def test_store_path_as_a_directory_is_reported_not_skipped(self):
+        """REPRODUCED pre-fix (reviewer defect B4): os.path.isfile()
+        returns False for a PATH that exists but is a directory, so the
+        pre-fix check treated "store.sqlite3 is a directory" identically
+        to "no store here at all" and silently added no problem, while
+        the real wired hook hits that same broken path on every real
+        write and takes its no-store fail-open path. A broken store must
+        be reported, not quietly waved through as "nothing to see"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            brothermode_dir = os.path.join(project, ".brothermode")
+            os.makedirs(brothermode_dir)
+            os.makedirs(os.path.join(brothermode_dir, "store.sqlite3"))
+            settings = os.path.join(tmp, "settings.json")
+            self._wire_current_fence(settings)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertEqual(checks["fence"]["status"], "FAIL",
+                             "a store path that is a DIRECTORY must be "
+                             "reported, not silently treated as 'no "
+                             "store': %s" % checks["fence"]["message"])
+            self.assertIn("not a database file",
+                          checks["fence"]["message"].lower())
+
+    def test_store_path_as_a_dangling_symlink_is_reported_not_skipped(self):
+        """REPRODUCED pre-fix (reviewer defect B4), second shape named in
+        the review: a DANGLING SYMLINK at the store path also fails
+        os.path.isfile() (it follows the link and finds nothing), so it
+        was silently read as "no store to inspect" exactly like the
+        directory case above."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            brothermode_dir = os.path.join(project, ".brothermode")
+            os.makedirs(brothermode_dir)
+            os.symlink(os.path.join(brothermode_dir, "does-not-exist"),
+                      os.path.join(brothermode_dir, "store.sqlite3"))
+            settings = os.path.join(tmp, "settings.json")
+            self._wire_current_fence(settings)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            self.assertEqual(checks["fence"]["status"], "FAIL",
+                             "a store path that is a DANGLING SYMLINK "
+                             "must be reported, not silently treated as "
+                             "'no store': %s" % checks["fence"]["message"])
+            self.assertIn("not a database file",
+                          checks["fence"]["message"].lower())
+
+    def test_real_store_check_uses_the_wired_interpreter_not_sys_executable(self):
+        """REPRODUCED pre-fix (reviewer defect B5): the real-store verify
+        subprocess call used sys.executable instead of command_words[0],
+        the interpreter the WIRED command actually names, the same
+        command_words the deny/allow simulation already runs faithfully.
+        Proof: a shim interpreter that logs every argv it is called with
+        and always exits 17, wired as the fence command in place of
+        python3. The deny/allow simulation above calls the shim 8 times
+        (4 write tools x deny-then-allow) and every one is logged; the
+        pre-fix real-store step quietly called sys.executable instead, so
+        'verify' never appeared in the shim's log even though a real,
+        healthy, current-schema project store sits right there for it to
+        check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            r = subprocess.run(
+                [sys.executable, os.path.join(HERE, "bm_store.py"), "init"],
+                cwd=project, env=self._env(home),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=300)
+            self.assertEqual(r.returncode, 0,
+                             "fixture setup: could not init the real "
+                             "project store: %s" % (r.stderr or r.stdout))
+
+            shim_log = os.path.join(tmp, "shim-log.txt")
+            shim_path = os.path.join(tmp, "shim_interpreter.py")
+            with io.open(shim_path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "#!/usr/bin/env python3\n"
+                    "import sys\n"
+                    "with open(%r, \"a\") as fh:\n"
+                    "    fh.write(repr(sys.argv) + \"\\n\")\n"
+                    "sys.exit(17)\n" % shim_log)
+            st = os.stat(shim_path)
+            os.chmod(shim_path,
+                     st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+            fence = os.path.join(HERE, "bm_fence_hook.py")
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                    "hooks": [{"type": "command",
+                              "command": shim_path + " " + fence,
+                              "timeout": 10}]}]}}, fh)
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+
+            self.assertTrue(os.path.isfile(shim_log),
+                            "fixture assumption broke: the shim was "
+                            "never invoked at all")
+            with io.open(shim_log, encoding="utf-8") as fh:
+                log_text = fh.read()
+            self.assertIn("verify", log_text,
+                          "the real-store check ran the WRONG "
+                          "interpreter: the wired command names %s, and "
+                          "the deny/allow simulation above already calls "
+                          "it faithfully (its own log lines are proof), "
+                          "but no logged call carries 'verify', meaning "
+                          "the real-store step used sys.executable "
+                          "instead of the wired interpreter, silently "
+                          "bypassing the shim entirely. Log:\n%s"
+                          % (shim_path, log_text))
+            # Incidental, not the discriminating assertion (the deny/allow
+            # simulation already fails loudly against this shim on its
+            # own): still worth pinning down so a future change cannot
+            # silently soften it.
+            self.assertEqual(checks["fence"]["status"], "FAIL",
+                             checks["fence"]["message"])
+
 
 _migrate_install_spec = importlib.util.spec_from_file_location(
     "migrate_install", os.path.join(HERE, "..", "scripts", "migrate_install.py"))

@@ -291,10 +291,14 @@ def _run(cmd, cwd, env, stdin_text=None, timeout=120):
 
 
 def blocked_write_simulation(command_words, tools_dir):
-    """Ask the WIRED hook command to judge one foreign write and one own write,
-    then ask that same hook's own store code to verify THIS PROJECT'S real
-    store, read-only, if one exists (queue M17: the throwaway store above is
-    always self-consistent and can never expose a version gap by itself).
+    """Ask the WIRED hook command to judge one foreign write and one own
+    write, in a throwaway project this function builds and deletes itself.
+
+    THIS PROJECT'S OWN real store is verified separately, by
+    _verify_real_store() below, called from doctor(): the loop here (the
+    same store code creates a throwaway store and then reads it right
+    back) can never be behind itself, so it can never expose a version gap
+    by itself (queue M17, family evidence-integrity).
 
     Returns a list of problem strings; empty means the fence is live."""
     problems = []
@@ -408,38 +412,6 @@ def blocked_write_simulation(command_words, tools_dir):
                     "its own file on %s, so this hook denies writes it should "
                     "allow. Output: %s" % (tool_name, text2[:300]))
 
-        # THIS PROJECT'S OWN STORE, separate from the throwaway one above
-        # (fix-round 2026-08-21, queue M17, family evidence-integrity). Every
-        # check above builds a fresh store with this same `store` code and
-        # reads it right back, so the code that creates a store always
-        # understands the store it just created; that loop can never expose
-        # a version gap. The wired hook's real job is judging writes against
-        # the store THIS PROJECT actually uses, which may already sit at a
-        # schema a stale copy of bm_store.py next to the wired hook cannot
-        # read. Ask that same `store` to verify the real one, read-only, if
-        # it exists; a refusal here means the fence fails open on every real
-        # write in this project while the throwaway simulation still reports
-        # clean, exactly what happened on 2026-08-20.
-        real_root = os.getcwd()
-        real_store_path = os.path.join(real_root, ".brothermode", "store.sqlite3")
-        if os.path.isfile(real_store_path):
-            real_env = dict(os.environ)
-            real_env["BROTHERMODE_ROOT"] = real_root
-            rv = _run([sys.executable, store, "verify"], real_root, real_env)
-            if rv.returncode != 0:
-                problems.append(
-                    "THE WIRED HOOK CANNOT READ THIS PROJECT'S OWN STORE: "
-                    "%s verify against %s exited %d: %s. The blocked-write "
-                    "simulation above only proves the hook can judge a "
-                    "throwaway store it built itself, which is always at "
-                    "the schema this same code writes; it says nothing "
-                    "about the store this project actually uses. Until the "
-                    "wired hook is upgraded to a copy that understands this "
-                    "store, the fence fails open on every real write here."
-                    % (store, real_store_path, rv.returncode,
-                       ((rv.stdout or "") + (rv.stderr or "")).strip()[:400]
-                       or "(no output)"))
-
         if os.path.exists(os.path.join(root, "sim", "written-by-doctor")):
             problems.append("the simulation wrote a file it should not have")
         return problems
@@ -448,6 +420,146 @@ def blocked_write_simulation(command_words, tools_dir):
                 % (type(exc).__name__, exc)]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _resolve_real_project_root(start=None):
+    """Where does THIS PROJECT'S real store actually live? Mirrors tools/
+    bm_store.py's resolve_root() precedence, stated in its own docstring:
+    BROTHERMODE_ROOT first, then a marker directory (.brothermode/)
+    anywhere up the tree, then .git, never os.getcwd() alone. Duplicated
+    here rather than imported, the same reason find_fence_entries above
+    duplicates install.py's ownership rule: each script in this directory
+    is self-contained on purpose.
+
+    Fixes queue M17 defect B3: the real-store check used to use
+    os.getcwd() alone as the project root, so a doctor run from ANY
+    subdirectory of a project (project/docs/, say) looked for
+    docs/.brothermode/store.sqlite3, found nothing, and silently treated
+    a real, existing, schema-behind store as though it were not there.
+
+    Returns (root_path, source), source in ("env", "marker", "git"), or
+    (None, None) when nothing anchors a project at or above `start`."""
+    env_root = os.environ.get("BROTHERMODE_ROOT")
+    if env_root:
+        p = os.path.realpath(env_root)
+        if os.path.isdir(p):
+            return p, "env"
+    chain = []
+    cur = os.path.realpath(start or os.getcwd())
+    while True:
+        chain.append(cur)
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    for d in chain:
+        if os.path.isdir(os.path.join(d, ".brothermode")):
+            return d, "marker"
+    for d in chain:
+        if os.path.exists(os.path.join(d, ".git")):
+            return d, "git"
+    return None, None
+
+
+def _describe_non_regular_path(path):
+    """One-line description of what sits at `path` when it exists but is
+    not a regular file, so a FAIL message says what to go fix without the
+    reader having to go look themselves."""
+    if os.path.isdir(path):
+        return "a directory"
+    if os.path.islink(path):
+        return "a broken symlink (its target does not exist)"
+    return "present but not a regular file"
+
+
+def _verify_real_store(tools_dir, command_words):
+    """THIS PROJECT'S OWN STORE, separate from the throwaway one
+    blocked_write_simulation above builds and reads back with the same
+    code (queue M17, family evidence-integrity): that loop can never
+    expose a version gap by itself, because the same code creates the
+    store and then reads it right back. The wired hook's real job is
+    judging writes against the store THIS PROJECT actually uses, which
+    may already sit at a schema a stale copy of bm_store.py next to the
+    wired hook cannot read; a refusal here means the fence fails open on
+    every real write in this project while the throwaway simulation above
+    still reports clean, exactly what happened on 2026-08-20.
+
+    Fix-round 2026-08-21 closed three defects an outside reviewer found in
+    that first fix, all one family: this step declining to look and
+    saying nothing when it declined.
+      - B3: real_root used to be os.getcwd() alone; _resolve_real_
+        project_root() above now walks the same precedence tools/
+        bm_store.py documents for itself, so a doctor run from a
+        subdirectory of the project still finds the real store.
+      - B4: a store path that exists but is not a regular file (a
+        directory, a dangling symlink) used to fail os.path.isfile() and
+        get read as "no store to inspect"; it is a PROBLEM now, because
+        the wired hook hits that same broken path on every real write and
+        takes its no-store fail-open path there, which is not the same as
+        there being no store to worry about.
+      - B5: the verify subprocess used sys.executable; it now uses
+        command_words[0], the interpreter the WIRED command actually
+        names, the same one the deny/allow simulation above already runs
+        faithfully, so this step exercises what the harness would really
+        run.
+
+    Returns (problems, notes), both lists of strings. Every path where
+    this check cannot tell goes into NOTES, never silence: a project with
+    no store yet is not a failure (matches check_store_health's own SKIP
+    a little further down in this file), but this step must never look
+    like it verified something it did not."""
+    problems = []
+    notes = []
+    store = os.path.join(tools_dir, "bm_store.py")
+
+    real_root, source = _resolve_real_project_root()
+    if real_root is None:
+        notes.append(
+            "real-store check: NO-DATA, could not resolve this project's "
+            "root from the current directory (checked BROTHERMODE_ROOT, "
+            "then every parent directory for .brothermode/, then for "
+            ".git), so this project's real store was not verified.")
+        return problems, notes
+
+    real_store_path = os.path.join(real_root, ".brothermode", "store.sqlite3")
+    if not os.path.lexists(real_store_path):
+        notes.append(
+            "real-store check: SKIP, no project store at %s (root "
+            "resolved via %s), so there is nothing to verify yet."
+            % (real_store_path, source))
+        return problems, notes
+
+    if not os.path.isfile(real_store_path):
+        problems.append(
+            "THE REAL STORE PATH IS NOT A DATABASE FILE: %s exists but is "
+            "%s, so bm_store.py cannot open it. Doctor is reporting this "
+            "rather than silently calling it 'no store': the wired hook "
+            "hits the exact same broken path on every real write in this "
+            "project and takes its no-store fail-open path there, which "
+            "means the fence is unenforced, not merely unproven. Remove "
+            "or fix %s so a real store can be created (bm_store.py init)."
+            % (real_store_path, _describe_non_regular_path(real_store_path),
+               real_store_path))
+        return problems, notes
+
+    interpreter = command_words[0]
+    real_env = dict(os.environ)
+    real_env["BROTHERMODE_ROOT"] = real_root
+    rv = _run([interpreter, store, "verify"], real_root, real_env)
+    if rv.returncode != 0:
+        problems.append(
+            "THE WIRED HOOK CANNOT READ THIS PROJECT'S OWN STORE: "
+            "%s verify against %s exited %d: %s. The blocked-write "
+            "simulation above only proves the hook can judge a "
+            "throwaway store it built itself, which is always at "
+            "the schema this same code writes; it says nothing "
+            "about the store this project actually uses. Until the "
+            "wired hook is upgraded to a copy that understands this "
+            "store, the fence fails open on every real write here."
+            % (store, real_store_path, rv.returncode,
+               ((rv.stdout or "") + (rv.stderr or "")).strip()[:400]
+               or "(no output)"))
+    return problems, notes
 
 
 def doctor(settings_path):
@@ -479,8 +591,12 @@ def doctor(settings_path):
                     "hook error and continue, and writes proceed unfenced."
                     % (_mask_home(copy), FENCE_BASENAME)], notes)
             words = ["python3", fence]
-            problems.extend(blocked_write_simulation(
-                words, os.path.dirname(fence)))
+            loader_tools_dir = os.path.dirname(fence)
+            problems.extend(blocked_write_simulation(words, loader_tools_dir))
+            store_problems, store_notes = _verify_real_store(
+                loader_tools_dir, words)
+            problems.extend(store_problems)
+            notes.extend(store_notes)
             return problems, notes
         return (["NO FENCE HOOK IS WIRED. settings.json (%s) has no PreToolUse "
                  "entry naming %s, no auto-loaded plugin copy under "
@@ -528,6 +644,9 @@ def doctor(settings_path):
 
     tools_dir = os.path.dirname(os.path.abspath(fence))
     problems.extend(blocked_write_simulation(words, tools_dir))
+    store_problems, store_notes = _verify_real_store(tools_dir, words)
+    problems.extend(store_problems)
+    notes.extend(store_notes)
     return problems, notes
 
 
