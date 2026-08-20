@@ -72,7 +72,7 @@ uninstall path are in [Install and preflight](#install-and-preflight) further
 down.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.2
 claude plugin install brothermode@brothermode-marketplace
 ```
 
@@ -348,7 +348,7 @@ source; uninstalling removes the plugin and leaves your project data and
 vault untouched.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.2
 claude plugin install brothermode@brothermode-marketplace
 ```
 
@@ -419,7 +419,7 @@ future session should come from a fixed, checkable snapshot; a moving branch
 feeding auto-run code was the weakest link the original external audit named.
 
 ```bash
-git clone --branch v3.3.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 That tag is not typed by hand: it is generated from the same release fact every

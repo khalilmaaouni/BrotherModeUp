@@ -3720,11 +3720,82 @@ CREATE INDEX IF NOT EXISTS reality_records_links_to_idx
 _REALITY_DDL_STATEMENTS = _split_ddl(_REALITY_DDL)
 _REALITY_INDEX_STATEMENTS = _split_ddl(_REALITY_INDEX_DDL)
 
+# F3 (cross-family adversarial review, 2026-08-20): the CREATE TABLE above
+# says "insert only" in a comment, but nothing before this stopped plain
+# SQL run against store.conn from UPDATEing or DELETEing a reality_records
+# row. Two BEFORE triggers close that: any UPDATE or DELETE aimed at this
+# table aborts before it touches a row, no matter how it is reached,
+# add_reality_record or a caller who went straight at store.conn.
+#
+# CREATE TRIGGER IF NOT EXISTS, same as every CREATE TABLE and CREATE
+# INDEX statement above, so it is safe to run twice: _migrate_20_to_21
+# reaches this on BOTH paths, a brand new store (via _ensure_schema) and a
+# genuine schema-20 store being upgraded, exactly like the table and index
+# DDL it sits beside.
+#
+# Deliberately NOT run through _split_ddl: that helper splits a script on
+# EVERY ";" (see its own docstring), which would cut the trigger body's
+# "RAISE(ABORT, ...);" away from its closing "END", turning one CREATE
+# TRIGGER statement into two invalid fragments. Each trigger is therefore
+# its own complete, standalone statement string, handed to conn.execute()
+# directly, exactly the way _split_ddl's own output already is.
+_REALITY_NO_UPDATE_TRIGGER = """
+CREATE TRIGGER IF NOT EXISTS reality_records_no_update
+BEFORE UPDATE ON reality_records
+BEGIN
+  SELECT RAISE(ABORT, 'reality_records is insert only: an audit row recorded at the time may not be rewritten by a later and more flattering judgement. Insert a new linked record instead of updating this one.');
+END
+""".strip()
+
+_REALITY_NO_DELETE_TRIGGER = """
+CREATE TRIGGER IF NOT EXISTS reality_records_no_delete
+BEFORE DELETE ON reality_records
+BEGIN
+  SELECT RAISE(ABORT, 'reality_records is insert only: an audit row recorded at the time may not be erased by a later and more flattering judgement. Project purge deliberately leaves this table alone; delete is never the right operation here.');
+END
+""".strip()
+
+_REALITY_TRIGGER_STATEMENTS = (
+    _REALITY_NO_UPDATE_TRIGGER, _REALITY_NO_DELETE_TRIGGER)
+
 # The five honest values reality_records.kind may hold, read by
 # Store.add_reality_record to refuse a bad value before the INSERT ever
 # reaches the table's own CHECK constraint, the same discipline
 # _VERIFICATION_STATES already follows for capability_receipts.
 _REALITY_KINDS = ("accepted", "reopened", "rolled-back", "incident", "defect")
+
+# F5 (cross-family adversarial review, 2026-08-20): plain .strip() removes
+# ordinary whitespace but leaves format and control characters behind. A
+# value of U+200B ZERO WIDTH SPACE is non-empty after .strip() (Python's
+# str.isspace(), which .strip() relies on, does not count it as
+# whitespace), so it walked straight past every "must be non-empty"
+# refusal below while rendering as blank. "Accepted by [nothing]" is
+# exactly the hollow record those refusals exist to prevent.
+#
+# Categories rejected once nothing but them remains, after an ordinary
+# strip(): Cc (control), Cf (format, the category U+200B itself belongs
+# to), Zs/Zl/Zp (space/line/paragraph separators beyond plain ASCII
+# space). unicodedata is already imported above (see its other two call
+# sites in this file); Python 3.9, standard library only.
+_INVISIBLE_CATEGORIES = frozenset(["Cc", "Cf", "Zs", "Zl", "Zp"])
+
+
+def _visible_or_empty(value):
+    """Strip `value`, then treat the result as empty when every character
+    left in it is invisible (see _INVISIBLE_CATEGORIES above). Every
+    identity or reference field add_reality_record checks for
+    emptiness (accountable, release_id, links_to, intent_ref) is run
+    through this instead of a bare .strip(), so the existing refusals
+    (unaccountable-acceptance, no-accepted-release, defect-without-intent)
+    catch an invisible-only value exactly as they already catch a
+    genuinely empty one. No new reason code: the refusal a caller sees is
+    the same one it would see for "", because as far as this table is
+    concerned an all-invisible value IS empty."""
+    stripped = (value or "").strip()
+    if stripped and all(unicodedata.category(ch) in _INVISIBLE_CATEGORIES
+                        for ch in stripped):
+        return ""
+    return stripped
 
 # The closed sets record_view refuses against, and the caller-settable
 # keys of its dict argument. Same discipline and same reason as
@@ -4994,15 +5065,18 @@ def _migrate_19_to_20(conn):
 def _migrate_20_to_21(conn):
     """Schema 20 to 21 (A5, the smallest verified-reality record,
     docs/NORTH-STAR-CHAIN.md's own terminal stage plus H4's return edge).
-    ONE new table (reality_records). ADDITIVE ONLY: no existing table
-    gains, loses or changes a column, and no existing index is dropped or
-    redefined.
+    ONE new table (reality_records) plus its two guard triggers (F3, the
+    same schema bump, never a schema 22: this table has never shipped in
+    a tagged release, so the fix amends this migration in place). ADDITIVE
+    ONLY: no existing table gains, loses or changes a column, and no
+    existing index or trigger is dropped or redefined.
 
     Follows _migrate_19_to_20's own contract exactly: every statement in
-    _REALITY_DDL_STATEMENTS and _REALITY_INDEX_STATEMENTS is CREATE TABLE
-    IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, safe whether this runs
-    against a genuinely old schema-20 store or, via _ensure_schema,
-    against a brand new one that already has the table.
+    _REALITY_DDL_STATEMENTS, _REALITY_INDEX_STATEMENTS and
+    _REALITY_TRIGGER_STATEMENTS is CREATE TABLE IF NOT EXISTS, CREATE
+    INDEX IF NOT EXISTS or CREATE TRIGGER IF NOT EXISTS, safe whether this
+    runs against a genuinely old schema-20 store or, via _ensure_schema,
+    against a brand new one that already has the table and its triggers.
 
     Same contract as every migration before it: it runs inside the
     caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open
@@ -5022,6 +5096,8 @@ def _migrate_20_to_21(conn):
     for statement in _REALITY_DDL_STATEMENTS:
         conn.execute(statement)
     for statement in _REALITY_INDEX_STATEMENTS:
+        conn.execute(statement)
+    for statement in _REALITY_TRIGGER_STATEMENTS:
         conn.execute(statement)
 
 
@@ -13170,14 +13246,14 @@ class Store(object):
         record_id = record_dict.get("record_id") or uuid.uuid4().hex
         recorded_at = now_iso()
         occurred_at = (record_dict.get("occurred_at") or "").strip() or recorded_at
-        accountable = (record_dict.get("accountable") or "").strip()
+        accountable = _visible_or_empty(record_dict.get("accountable"))
         passport_sha256 = (record_dict.get("passport_sha256") or "").strip()
         detail = record_dict.get("detail") or ""
         project_id = record_dict.get("project_id") or ""
         session_id = record_dict.get("session_id") or ""
         with self._transaction():
             if kind == "accepted":
-                release_id = (record_dict.get("release_id") or "").strip()
+                release_id = _visible_or_empty(record_dict.get("release_id"))
                 if not release_id or not accountable:
                     raise OwnershipRefused(
                         "unaccountable-acceptance",
@@ -13187,7 +13263,7 @@ class Store(object):
                 links_to = ""
                 intent_ref = ""
             else:
-                links_to = (record_dict.get("links_to") or "").strip()
+                links_to = _visible_or_empty(record_dict.get("links_to"))
                 linked = None
                 if links_to:
                     linked = _exec(
@@ -13200,7 +13276,7 @@ class Store(object):
                         "reality record; a %r record cannot be audited "
                         "without one" % (links_to, kind))
                 release_id = linked["release_id"]
-                intent_ref = (record_dict.get("intent_ref") or "").strip()
+                intent_ref = _visible_or_empty(record_dict.get("intent_ref"))
                 if kind == "defect" and not intent_ref:
                     raise OwnershipRefused(
                         "defect-without-intent",

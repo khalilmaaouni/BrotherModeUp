@@ -1,5 +1,65 @@
 # Changelog
 
+## 3.3.2, released 2026-08-20 (annotated tag v3.3.2, on the commit that alone carries VERSION 3.3.2 per rule 1)
+
+The release that closes the two open ends of the chain this project is built
+around. Until now BrotherMode could show you everything that happened up to
+the moment a change was handed to review, and nothing at all after it. A
+passport now leaves the execution side carrying who did the work and where it
+came from, and a record now comes back the other way saying whether the
+release actually worked. Neither existed at 3.3.1.
+
+- **The change passport, produced for the first time.** `tools/bm_passport.py`
+  writes the deposit that the assurance side consumes: what changed, who is
+  accountable, which method was used, what evidence exists, and what could not
+  be established. Two of its fields read NO-DATA on the consuming side in
+  every earlier run, because nothing on this side ever delivered them. A
+  standalone validator, `tools/bm_passport_validator.py`, ships in the install
+  and refuses a hollow deposit: an empty string reads as absence on the far
+  side, so depositing one fills nothing while looking filled.
+- **The verified-reality record.** `tools/bm_reality.py` records what happened
+  after a release: who accepted it, when, against which passport, and any
+  reopen, rollback or incident that links back to that acceptance. Three
+  refusals carry the weight. Nobody accepts a release anonymously, and a name
+  made of invisible characters does not count as a name. An incident that
+  links back to no accepted release is refused, because it cannot be audited.
+  And a defect must name the new piece of work it opened, which is the return
+  edge: a defect the project cannot route back into its own queue leaves the
+  loop open, and a record of reality that never feeds the next intent is a log
+  rather than a loop. The table is insert only and enforced as such by the
+  database itself, so a later and more flattering judgement cannot rewrite
+  what was recorded at the time, not even through plain SQL.
+
+  STATED PLAINLY, because a pre-tag adversarial review found it and narrowing
+  the claim is cheaper than discovering it later: the command line creates the
+  new piece of work and the record carries its identifier, but the record
+  cannot itself confirm that identifier still resolves. A caller reaching the
+  storage layer directly can supply one that never existed. The queue write
+  and the record are also two writes rather than one, so a crash between them
+  can leave a piece of work with no record beside it. Both are named backlog
+  items rather than silent gaps.
+- **The trust surface, swept.** The live install line is pinned rather than
+  described, `scripts/doctor.py` now detects a stranded install (a copy whose
+  history was orphaned by a rewrite, which reports healthy while running code
+  nobody can trace), the fence hook answers when it is asked what it holds
+  instead of only speaking in refusals, and several degrade messages stopped
+  claiming more than they had checked.
+- **Every engineer complaint carried into this release is closed with a test
+  that fails on the old shape**, rather than closed by prose. A separate
+  correction landed in the same batch: a guard that refused a legitimate
+  partial delivery now distinguishes certifying that something succeeded from
+  declaring that it is incomplete, and lets the second proceed with its holes
+  printed.
+- **Every backlog item now names the stage of the chain it serves**, and
+  `tools/bm_idle.py` refuses an item that names a stage the chain does not
+  have.
+
+Unchanged and still true: the largest gap in `docs/KNOWN-LIMITS.md` stands.
+On a machine where this project is installed as a directory copy under
+`~/.claude/skills/`, none of its own hooks load, so the controls described
+here are the ones a session runs deliberately, not ones the harness enforces
+for it. That swap is a founder decision and has not been made.
+
 ## 3.3.1, released 2026-08-18 (annotated tag v3.3.1, on the commit that alone carries VERSION 3.3.1 per rule 1)
 
 A corrective release. `v3.3.0` shipped a `CHECKSUMS.sha256` that lists a file

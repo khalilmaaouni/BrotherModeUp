@@ -200,7 +200,7 @@ refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa
   </div>
 
   <h2>What makes it different</h2>
-  <p>Nine mechanisms, one line each. The first two are machinery on Claude Code, gates that refuse; six are working discipline that the machinery records and the tests hold in place; the last one is where it runs. This section is kept current by rule: any release that changes a feature updates it in the same change.</p>
+  <p>Eleven mechanisms, one line each. The first two are machinery on Claude Code, gates that refuse; eight are working discipline that the machinery records and the tests hold in place; the last one is where it runs. This section is kept current by rule: any release that changes a feature updates it in the same change.</p>
   <div class="steps">
     <div class="step"><b>One writer per file.</b> A claim is recorded before work starts, and the gate you just watched refuses the second writer while that claim lives.</div>
     <div class="step"><b>Proof or it is not done.</b> Done requires a check that ran after the last change and passed, and delivery writes that evidence into a packet.</div>
@@ -211,6 +211,8 @@ refused (overlap): claim overlaps active record 'website-pages' (lifecycle 01daa
     <div class="step"><b>Decisions come to you.</b> Choices arrive one at a time, recommended option first, with the tradeoff stated in plain words.</div>
     <div class="step"><b>Risky moments stay yours.</b> Sign-ins, payments, publishing, and deletions are prepared with their undo and handed back. It never types your credentials.</div>
     <div class="step"><b>It also runs in Cursor.</b> New in 3.3.1: its own install, its own hooks, and a local handover so planning in one tool can hand execution to the other. Stated plainly, this mode is experimental, and the one writer per file gate above is ADVISORY under Cursor rather than refusing, until a live check proves otherwise.</div>
+    <div class="step"><b>The change passport.</b> New in 3.3.2: a single deposit that carries what changed, who is accountable, the method used, the evidence, and what could not be established, so the review side never has to reconstruct any of it. <code>python3 tools/bm_passport.py generate</code> writes it, and it matters most the moment somebody who was not there has to judge the work.</div>
+    <div class="step"><b>The verified-reality record.</b> New in 3.3.2: records who accepted a release and what happened afterwards, and turns a defect found later back into a new piece of work instead of a note. <code>python3 tools/bm_reality.py accept</code> and <code>defect</code> answer the question that matters once testing is done: did it actually work.</div>
   </div>
 
   <h3>What that feels like in a conversation</h3>

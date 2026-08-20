@@ -30,20 +30,37 @@ WHAT THIS SUITE IS ACTUALLY DEFENDING
      hand-written DDL, the same discipline tools/test_bm_store.py's own
      TestSchema20CapabilityReceipts uses for the schema bump immediately
      before this one.
-  5. INSERT ONLY, asserted MECHANICALLY: no UPDATE or DELETE FROM
-     reality_records statement exists anywhere in tools/bm_store.py's own
-     source, found by searching the actual SQL shape rather than trusting
-     what its docstrings claim.
+  5. INSERT ONLY, asserted BY EXECUTING THE ATTACK (F3, cross-family
+     adversarial review, 2026-08-20): a real store is opened, one row is
+     inserted through Store.add_reality_record, and then a plain
+     'UPDATE reality_records SET ...' and a plain 'DELETE FROM
+     reality_records' are run directly through store.conn, the same path
+     any future caller who skips the service method would take. Both must
+     raise. This suite used to grep tools/bm_store.py's own source for
+     those two SQL spellings instead, which proved the words never
+     appeared in a comment, never that the database itself refuses the
+     statement; that source-level check still runs, but only as an EXTRA
+     assertion beside the executed one, never as the proof.
+  6. THE QUEUE APPEND LOCK (F1, same review): a second _QueueAppendLock on
+     the same queue file is refused, naming the first holder's pid, while
+     the first still holds it, and succeeds once the first releases it.
+  7. INVISIBLE-ONLY IDENTITY VALUES ARE REFUSED (F5, same review): a value
+     of nothing but U+200B ZERO WIDTH SPACE or an ASCII control character
+     passes a bare .strip() and used to slip through R1's accountable and
+     release_id checks and R3's intent_ref check; add_reality_record must
+     now refuse those exactly as it refuses "".
 
 Every fixture is a tempfile.TemporaryDirectory(), never the real project
 store. The CLI is invoked as a real subprocess (run_cli) for the
 integration-shaped tests, so its argument parsing, exit codes and stdout
-are exercised exactly as a caller would see them; the three refusals are
-exercised through the store's own Python API directly, for the reason
-given above.
+are exercised exactly as a caller would see them; the three refusals, the
+insert-only attack, the queue lock and the invisible-character checks are
+exercised through the store's own Python API (or bm_reality.py's own
+module, imported directly) for the reason given above.
 
 Standard library only. Run: python3 tools/test_bm_reality.py
 """
+import contextlib
 import io
 import json
 import os
@@ -52,6 +69,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -83,6 +101,18 @@ def _load_bm_store_module():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "bm_store_for_reality_test", STORE_SOURCE_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_bm_reality_module():
+    """Load bm_reality.py itself as a module (never via subprocess), so a
+    test can reach _QueueAppendLock and _DefectQueueLockRefused directly
+    (F1). Same pattern as _load_bm_store_module above."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "bm_reality_for_test", TOOL_PATH)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -277,6 +307,115 @@ class TestTheThreeRefusals(unittest.TestCase):
             self.assertIn(kind, str(cm.exception))
 
 
+class TestInvisibleOnlyValuesAreRefused(unittest.TestCase):
+    """F5 (cross-family adversarial review, 2026-08-20): a bare .strip()
+    removes ordinary whitespace but leaves U+200B ZERO WIDTH SPACE (Unicode
+    category Cf) and ASCII control characters (category Cc) behind, so a
+    value made of nothing else was non-empty to every check below and
+    passed straight through R1 and R3 while rendering as blank. Real
+    invisible characters, not a mock or a stand-in: ZWSP = "\\u200b",
+    control = "\\x07" (BEL). No new reason code anywhere here: an
+    invisible-only value must be refused with the SAME reason a genuinely
+    empty one already gets, or tools/bm_visual.py's REFUSAL_HELP map (and
+    tools/test_bm_visual.py's bidirectional check of it) would need a new
+    entry, which the brief this fix comes from forbids."""
+
+    ZWSP = "\u200b"
+    CONTROL = "\x07"
+
+    def setUp(self):
+        self.mod = _load_bm_store_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = self.mod.Store(self.tmp.name, create=True)
+        self.addCleanup(self.store.close)
+
+    def _accept(self, release_id="v1", accountable="Khalil"):
+        return self.store.add_reality_record(
+            {"kind": "accepted", "release_id": release_id,
+             "accountable": accountable})["record_id"]
+
+    # -- R1: accountable made of nothing but invisible characters ---------
+
+    def test_zero_width_space_only_accountable_is_refused(self):
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "accepted", "release_id": "v1",
+                 "accountable": self.ZWSP})
+        self.assertEqual("unaccountable-acceptance", cm.exception.reason)
+
+    def test_control_character_only_accountable_is_refused(self):
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "accepted", "release_id": "v1",
+                 "accountable": self.CONTROL})
+        self.assertEqual("unaccountable-acceptance", cm.exception.reason)
+
+    def test_zero_width_space_only_release_id_is_refused(self):
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "accepted", "release_id": self.ZWSP,
+                 "accountable": "Khalil"})
+        self.assertEqual("unaccountable-acceptance", cm.exception.reason)
+
+    def test_zero_width_space_padded_accountable_is_also_refused(self):
+        # Ordinary whitespace AROUND the zero-width space must not save
+        # it: strip() removes the ASCII spaces, and the invisible check
+        # must still find nothing visible left.
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "accepted", "release_id": "v1",
+                 "accountable": "  " + self.ZWSP + "  "})
+        self.assertEqual("unaccountable-acceptance", cm.exception.reason)
+
+    def test_a_real_visible_name_beside_a_zero_width_space_is_accepted(self):
+        # The check must not overreach: a genuinely visible value that
+        # happens to CONTAIN an invisible character elsewhere is not what
+        # this refusal is about.
+        result = self.store.add_reality_record(
+            {"kind": "accepted", "release_id": "v1",
+             "accountable": "Khalil" + self.ZWSP})
+        self.assertEqual("accepted", result["kind"])
+
+    # -- R3: intent_ref made of nothing but invisible characters ----------
+
+    def test_zero_width_space_only_intent_ref_is_refused_as_defect_without_intent(self):
+        accepted_id = self._accept(release_id="v3")
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "defect", "links_to": accepted_id,
+                 "intent_ref": self.ZWSP})
+        self.assertEqual("defect-without-intent", cm.exception.reason)
+
+    # -- links_to made of nothing but invisible characters -----------------
+
+    def test_control_character_only_links_to_is_refused_as_no_accepted_release(self):
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "incident", "links_to": self.CONTROL})
+        self.assertEqual("no-accepted-release", cm.exception.reason)
+
+    # -- the case that passes TODAY, before this fix, demonstrating the --
+    # -- bug: a bare .strip() leaves U+200B alone (Python's str.isspace, --
+    # -- which .strip() relies on, does not count it as whitespace), so --
+    # -- record_dict["accountable"] stayed truthy and R1 let it straight --
+    # -- through. Verified by hand: with bm_store.py's add_reality_record --
+    # -- reverted to plain (record_dict.get("accountable") or "").strip() --
+    # -- (the pre-fix line), this exact call returns a record instead of --
+    # -- raising, so this test goes from green to red across the fix, --
+    # -- the opposite of every other test in this class. ------------------
+
+    def test_the_defect_this_fix_closes_zero_width_space_used_to_pass(self):
+        with self.assertRaises(self.mod.OwnershipRefused) as cm:
+            self.store.add_reality_record(
+                {"kind": "accepted", "release_id": "v1",
+                 "accountable": self.ZWSP})
+        self.assertEqual("unaccountable-acceptance", cm.exception.reason)
+        # And the row a pre-fix store WOULD have written is confirmed
+        # absent, not merely that an exception was raised somewhere.
+        self.assertEqual([], self.store.list_reality_records(raw=True))
+
+
 class TestTheReturnEdge(unittest.TestCase):
     """5, 6. `defect` writes docs/plan/QUEUE.json's new item BEFORE the
     reality row, both carry the other's id, and a queue write that fails
@@ -397,6 +536,135 @@ class TestTheReturnEdge(unittest.TestCase):
                 "must not touch the queue at all")
 
 
+class TestDefectQueueLock(unittest.TestCase):
+    """F1 (cross-family adversarial review, 2026-08-20): `defect`'s own
+    read-QUEUE.json/append/replace/record sequence had no cross-process
+    lock, so two concurrent defects could each read the same queue, each
+    replace it (last write wins), and each then commit a reality row
+    naming a queue item the other process's replace had already erased.
+    _QueueAppendLock (tools/bm_reality.py, mirroring tools/bm_autosave.py's
+    own _WorktreeLock mechanism) closes that window; these tests exercise
+    the lock class directly, not through a real race (which would be
+    nondeterministic to schedule from a test), the same way
+    tools/test_bm_autosave.py's own lock tests work its _WorktreeLock."""
+
+    def setUp(self):
+        self.mod = _load_bm_reality_module()
+        # Fast tests: acquire()'s wait defaults to 10 real seconds, which
+        # would make a refusal test slow AND would only prove patience,
+        # not correctness. Restored in tearDown so no other test in this
+        # process ever sees the shortened default.
+        self._orig_wait = self.mod._QueueAppendLock.DEFAULT_WAIT
+        self.mod._QueueAppendLock.DEFAULT_WAIT = 0.3
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.queue_path = os.path.join(self.tmp.name, "QUEUE.json")
+        with io.open(self.queue_path, "w", encoding="utf-8") as handle:
+            json.dump({"schema": 1, "min_depth": 1, "items": []}, handle)
+
+    def tearDown(self):
+        self.mod._QueueAppendLock.DEFAULT_WAIT = self._orig_wait
+
+    def test_a_second_holder_is_refused_while_the_first_holds_it(self):
+        first = self.mod._QueueAppendLock(self.queue_path)
+        first.acquire()
+        try:
+            second = self.mod._QueueAppendLock(self.queue_path)
+            with self.assertRaises(self.mod._DefectQueueLockRefused) as cm:
+                second.acquire()
+            self.assertEqual(str(os.getpid()), cm.exception.holder_pid)
+            self.assertFalse(
+                second.held, "a refused acquire must not mark itself held")
+        finally:
+            first.release()
+
+    def test_the_lock_file_is_never_silently_overwritten(self):
+        # Losing the race must mean a refusal, never a second _try_once
+        # quietly clobbering the first holder's lock file (which would be
+        # exactly the silent-overwrite behaviour the brief forbids).
+        first = self.mod._QueueAppendLock(self.queue_path)
+        first.acquire()
+        try:
+            with open(first.path, "rb") as handle:
+                before = handle.read()
+            second = self.mod._QueueAppendLock(self.queue_path)
+            with self.assertRaises(self.mod._DefectQueueLockRefused):
+                second.acquire()
+            with open(first.path, "rb") as handle:
+                after = handle.read()
+            self.assertEqual(before, after)
+        finally:
+            first.release()
+
+    def test_a_released_lock_can_be_reacquired_by_someone_else(self):
+        first = self.mod._QueueAppendLock(self.queue_path)
+        first.acquire()
+        first.release()
+        second = self.mod._QueueAppendLock(self.queue_path)
+        second.acquire()  # must not raise: the path is clear
+        self.assertTrue(second.held)
+        second.release()
+        self.assertFalse(os.path.exists(second.path))
+
+    def test_a_stale_lock_is_cleared_and_can_be_reacquired(self):
+        first = self.mod._QueueAppendLock(self.queue_path)
+        first.acquire()
+        # Force it stale rather than sleeping past STALE_SECONDS (600s):
+        # back-date its mtime the same way a genuinely abandoned lock
+        # file (its holder crashed) would present itself.
+        stale_time = time.time() - self.mod._QueueAppendLock.STALE_SECONDS - 1
+        os.utime(first.path, (stale_time, stale_time))
+        first.held = False  # the crashed holder never gets to release()
+
+        second = self.mod._QueueAppendLock(self.queue_path)
+        second.acquire()  # must not raise: the stale lock is cleared first
+        second.release()
+
+    def test_run_defect_refuses_visibly_when_the_queue_is_locked(self):
+        # Calls bm_reality._run_defect IN PROCESS (never a subprocess): a
+        # real subprocess would import its own fresh copy of the module,
+        # unaffected by this test's monkeypatched DEFAULT_WAIT, and would
+        # wait the real 10 seconds before refusing. A lock file already
+        # sitting at the expected path (as a genuine holder would leave
+        # it) must make `defect` refuse, name the holder, and touch
+        # neither the queue file nor the store, exactly like any other
+        # refusal in this suite.
+        init_store(self.tmp.name)
+        store_mod, load_err = self.mod._load_bm_store()
+        self.assertIsNone(load_err, load_err)
+        store = store_mod.Store(self.tmp.name, create=False)
+        try:
+            accepted = store.add_reality_record(
+                {"kind": "accepted", "release_id": "v-lock",
+                 "accountable": "Khalil"})
+        finally:
+            store.close()
+
+        lock_path = self.queue_path + ".lock"
+        with open(lock_path, "wb") as handle:
+            handle.write(b"999999999 0.0\n")
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                rc = self.mod._run_defect(
+                    store_mod, self.tmp.name,
+                    ["--release-record", accepted["record_id"], "--title",
+                     "should be refused, the queue is locked", "--queue",
+                     self.queue_path])
+        finally:
+            os.remove(lock_path)
+        self.assertNotEqual(0, rc)
+        self.assertIn("queue-locked", stderr.getvalue())
+        self.assertIn("999999999", stderr.getvalue())
+
+        with io.open(self.queue_path, "r", encoding="utf-8") as handle:
+            queue = json.load(handle)
+        self.assertEqual(
+            [], queue["items"],
+            "a defect refused for a locked queue must not have appended "
+            "anything before discovering that")
+
+
 class TestSchema21RealityRecords(unittest.TestCase):
     """7. A store created at schema 20 migrates to 21 and gains the table
     with no loss; a brand new store has it. Proven against a REAL
@@ -515,31 +783,60 @@ class TestSchema21RealityRecords(unittest.TestCase):
 
 
 class TestInsertOnly(unittest.TestCase):
-    """8. Insert only, asserted MECHANICALLY: no UPDATE or DELETE FROM
-    reality_records statement anywhere in tools/bm_store.py's own
-    source, found by searching the actual SQL shape rather than trusting
-    what a docstring claims. A guard that only read the module's prose
-    would go green even if a later change added
-    'UPDATE reality_records SET ...' beside a comment insisting the table
-    is insert only; this test would go red the moment that line existed."""
+    """8. Insert only, asserted BY EXECUTING THE ATTACK (F3, cross-family
+    adversarial review, 2026-08-20). A real store is opened, one row is
+    inserted through Store.add_reality_record, and then a plain SQL
+    UPDATE and a plain SQL DELETE are run directly through store.conn,
+    the same route any caller who reaches past the service method would
+    take: this is a test of BEHAVIOUR, not of what tools/bm_store.py's
+    source happens to say about itself. It fails the moment either of the
+    two BEFORE triggers (reality_records_no_update,
+    reality_records_no_delete, tools/bm_store.py's own _REALITY_TRIGGER_
+    STATEMENTS) is missing or broken, which is exactly what the previous
+    version of this test (a source grep for the same two SQL spellings)
+    could not detect: it proved the words never appeared in a comment,
+    never that the database itself refuses the statement. Verified by
+    hand: commenting out either trigger's execute() call in
+    tools/bm_store.py's _migrate_20_to_21 and re-running this file turns
+    test_update_against_reality_records_is_aborted (or the delete
+    counterpart) red with a plain AssertionError, no exception raised
+    where one was required."""
 
-    _MUTATING_SQL = re.compile(
-        r'(UPDATE\s+reality_records\b|DELETE\s+FROM\s+reality_records\b)',
-        re.IGNORECASE)
+    def setUp(self):
+        self.mod = _load_bm_store_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = self.mod.Store(self.tmp.name, create=True)
+        self.addCleanup(self.store.close)
+        self.record_id = self.store.add_reality_record(
+            {"kind": "accepted", "release_id": "v1",
+             "accountable": "Khalil"})["record_id"]
 
-    def test_no_update_or_delete_statement_targets_reality_records(self):
-        with io.open(STORE_SOURCE_PATH, encoding="utf-8") as handle:
-            source = handle.read()
-        matches = self._MUTATING_SQL.findall(source)
-        self.assertEqual(
-            [], matches,
-            "tools/bm_store.py contains a statement that mutates or "
-            "deletes a reality_records row; this table must be insert "
-            "only")
+    def _row(self):
+        return self.store.conn.execute(
+            "SELECT accountable FROM reality_records WHERE record_id=?",
+            (self.record_id,)).fetchone()
+
+    def test_update_against_reality_records_is_aborted(self):
+        with self.assertRaises(sqlite3.Error):
+            self.store.conn.execute(
+                "UPDATE reality_records SET accountable=? "
+                "WHERE record_id=?", ("Somebody Else", self.record_id))
+        # The abort must be real, not merely raised-and-ignored: the row
+        # underneath still carries the value it was inserted with.
+        self.assertEqual("Khalil", self._row()["accountable"])
+
+    def test_delete_against_reality_records_is_aborted(self):
+        with self.assertRaises(sqlite3.Error):
+            self.store.conn.execute(
+                "DELETE FROM reality_records WHERE record_id=?",
+                (self.record_id,))
+        self.assertIsNotNone(
+            self._row(), "the row must still exist; DELETE must not have "
+            "removed it before the trigger raised")
 
     def test_store_exposes_no_update_or_delete_method_for_reality_records(self):
-        mod = _load_bm_store_module()
-        suspect = [name for name in dir(mod.Store)
+        suspect = [name for name in dir(self.mod.Store)
                   if "reality" in name.lower()
                   and ("update" in name.lower()
                        or "delete" in name.lower()
@@ -549,6 +846,23 @@ class TestInsertOnly(unittest.TestCase):
             [], suspect,
             "Store carries a method that looks like it mutates or "
             "removes a reality record: %s" % suspect)
+
+    # Kept as an EXTRA signal, never the proof (see class docstring): a
+    # source-grep can go green for the wrong reason (the words simply
+    # never appear), so it no longer stands alone.
+    _MUTATING_SQL = re.compile(
+        r'(UPDATE\s+reality_records\b|DELETE\s+FROM\s+reality_records\b)',
+        re.IGNORECASE)
+
+    def test_no_hand_written_mutating_statement_in_source_either(self):
+        with io.open(STORE_SOURCE_PATH, encoding="utf-8") as handle:
+            source = handle.read()
+        matches = self._MUTATING_SQL.findall(source)
+        self.assertEqual(
+            [], matches,
+            "tools/bm_store.py contains a statement that mutates or "
+            "deletes a reality_records row; this table must be insert "
+            "only")
 
 
 class TestCLIUsageAndRefusalsAreVisible(unittest.TestCase):

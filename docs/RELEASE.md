@@ -53,7 +53,7 @@ now reads `2.0.0-rc.12.dev1`, a DEVELOPMENT identity, not a release candidate.
 tag at all. The public install target stays pinned at the last tag actually
 known to resolve, `install_target_tag`. That was `v2.0.0-rc.9` when this
 paragraph was written 2026-08-01; it has moved since. The live value is
-`PUBLIC_INSTALL_TAG` in `tools/bm_project_facts.py`, currently `v3.3.1`,
+`PUBLIC_INSTALL_TAG` in `tools/bm_project_facts.py`, currently `v3.3.2`,
 independent of whatever VERSION says. See "The version law" below for the
 rule this follows.
 
@@ -168,10 +168,10 @@ for that date.
 Tags exist now, so this is the install instruction, not a future one:
 
 ```bash
-git clone --branch v3.3.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
-`--branch v3.3.1` checks out that exact tag, not a moving branch head. It
+`--branch v3.3.2` checks out that exact tag, not a moving branch head. It
 is the public install target, not necessarily the identity the tree on `main`
 currently carries: `python3 tools/bm_project_facts.py --field
 install_target_tag` prints the tag every onboarding page pins, and `python3
@@ -612,6 +612,37 @@ assertions that fail the moment `VERSION` moves without its manifests
 (`pyproject.toml`, the two plugin manifests, and this page) are what caught it
 here, and they are the reason the bump is a four-file change rather than a
 one-line one.
+
+SUPERSEDED 2026-08-20 by the section below: the 3.3.2 cut moved
+`install_target_tag` to `v3.3.2`, so the sentence above about it staying at
+`v3.3.1` describes the development line only, not the state of this tree.
+
+## 3.3.2, the release cut (2026-08-20)
+
+STATE AT THIS COMMIT: `VERSION` reads `3.3.2`, and the four release-truth
+assertions named just above are satisfied together in this one commit rather
+than across several: `pyproject.toml`, `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json` and this page all read `3.3.2`, and
+`PUBLIC_INSTALL_TAG` reads `v3.3.2` on every install page byte for byte.
+
+ONE ASSERTION IS RED HERE, ON PURPOSE, and it is the same one the 3.3.1
+section describes: `TestReleaseTruth.test_the_public_install_target_tag_resolves_in_git`
+fails with "install_target_tag v3.3.2 does not exist in this repository",
+because steps 5 and 6 are founder-gated and the tag cannot exist at the moment
+the release-cut commit lands. That is the runbook's own ordering rather than a
+defect, and it re-arms the moment the founder cuts and pushes the tag.
+
+WHAT THAT COSTS, stated so nobody has to rediscover it: nothing may land on
+`main` after this commit until the tag is pushed. A commit that follows a
+release-cut commit strands the cut, and this project has already lost two
+release commits to trees that moved past them. The rule is not caution, it is
+the recorded cost of doing it the other way twice.
+
+WHAT THIS RELEASE CARRIES: the change passport producer and its standalone
+validator, the verified-reality record with its three refusals and its return
+edge from a defect back into new intent, the trust-surface sweep, and every
+engineer complaint carried into it closed with a test that fails on the old
+shape. `CHANGELOG.md` is the user-facing version of that list.
 
 ## The version law (release-closure program, 2026-08-01)
 

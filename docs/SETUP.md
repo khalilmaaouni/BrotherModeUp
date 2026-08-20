@@ -35,7 +35,7 @@ Code's own plugin manager, proven end to end by
 terminal.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.2
 claude plugin install brothermode@brothermode-marketplace
 ```
 
@@ -73,7 +73,7 @@ desktop browser, which this project has not separately verified.
 THE PINNED CLONE, for auditors and immutable-snapshot installs:
 
 ```bash
-git clone --branch v3.3.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 The path matters: Claude Code discovers skills under `~/.claude/skills/`, and the session-start script resolves its own location, so the clone is the installation. Verify:

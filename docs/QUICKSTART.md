@@ -28,7 +28,7 @@ No file editing of any kind happens on this path. You will not touch
 hand. The plugin brings its own automatic wiring with it.
 
 ```bash
-claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.1
+claude plugin marketplace add khalilmaaouni/BrotherModeUp@v3.3.2
 ```
 
 ```bash
@@ -107,7 +107,7 @@ page deliberately does not type that identity by hand: a typed version goes
 stale the day after it is written; `docs/RELEASE.md` explains why.
 
 ```bash
-git clone --branch v3.3.1 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
+git clone --branch v3.3.2 --depth 1 https://github.com/khalilmaaouni/BrotherModeUp.git ~/.claude/skills/brothermode
 ```
 
 Expected: git prints a few lines ending in something like `Resolving deltas:

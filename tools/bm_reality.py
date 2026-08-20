@@ -73,6 +73,7 @@ import json
 import os
 import shlex
 import sys
+import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -421,6 +422,125 @@ def _run_enter(mod, root, args):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# F1 (cross-family adversarial review, 2026-08-20): `defect` reads
+# QUEUE.json, appends an item, and replaces the file, then commits a
+# reality row naming that item. Two concurrent `defect` calls can each
+# read the SAME queue, each replace it (last write wins), and each then
+# commit a reality row whose intent_ref points at a queue item the other
+# process's replace already erased. This tool's own domain is
+# multi-writer safety, so a race here is a defect in the thing it exists
+# to guard against.
+#
+# The lock mirrors tools/bm_autosave.py's _WorktreeLock mechanism exactly
+# (os.open with O_CREAT|O_EXCL at mode 0600, writing pid and timestamp; a
+# stale-age bound so a crashed holder cannot wedge this forever; a bounded
+# poll, never an unbounded wait). It does NOT mirror that class's
+# behaviour on contention: _WorktreeLock's acquire() returns False and the
+# caller stands down silently, because autosave is advisory. A lost
+# `defect` write is not advisory, so acquire() here instead RAISES, naming
+# the holder's pid and how long it has held the lock, so the caller
+# refuses visibly, never a silent overwrite and never a silent skip.
+# ---------------------------------------------------------------------------
+
+class _DefectQueueLockRefused(Exception):
+    """Raised by _QueueAppendLock.acquire() when the lock is still held at
+    the wait deadline. Carries the holder's pid and age (both best-effort;
+    "?" / 0 when the lock file could not be read, which can happen if the
+    holder released it in the instant between the last failed open and
+    this read) so the caller's refusal names who to wait for."""
+
+    def __init__(self, holder_pid, age_seconds):
+        self.holder_pid = holder_pid
+        self.age_seconds = age_seconds
+        super(_DefectQueueLockRefused, self).__init__(
+            "the queue append lock is held by pid %s (%d seconds); "
+            "refusing rather than risk losing a concurrent defect write. "
+            "Wait for that process to finish, or investigate whether it "
+            "is still alive." % (holder_pid, age_seconds))
+
+
+class _QueueAppendLock(object):
+    """One lock per queue file (`<queue_path>.lock`), serializing the
+    whole read-append-replace-then-record sequence `defect` runs. See the
+    module comment above this class for why it mirrors, but does not
+    reuse behaviourally, tools/bm_autosave.py's _WorktreeLock."""
+
+    DEFAULT_WAIT = 10
+    STALE_SECONDS = 600
+
+    def __init__(self, queue_path, wait=None):
+        self.path = queue_path + ".lock"
+        self.wait = self.DEFAULT_WAIT if wait is None else wait
+        self.held = False
+
+    def _try_once(self):
+        try:
+            fd = os.open(self.path,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except OSError:
+            return False
+        try:
+            os.write(fd, ("%d %f\n" % (os.getpid(), time.time()))
+                     .encode("utf-8"))
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+        return True
+
+    def _holder(self):
+        """(pid_str, age_seconds), best-effort, for the refusal message."""
+        pid = "?"
+        try:
+            with open(self.path, "r") as handle:
+                parts = handle.read().split()
+            if parts:
+                pid = parts[0]
+        except OSError:
+            pass
+        try:
+            age = time.time() - os.stat(self.path).st_mtime
+        except OSError:
+            age = 0.0
+        return pid, age
+
+    def _clear_if_stale(self):
+        try:
+            age = time.time() - os.stat(self.path).st_mtime
+        except OSError:
+            return
+        if age > self.STALE_SECONDS:
+            try:
+                os.remove(self.path)
+            except OSError:
+                pass
+
+    def acquire(self):
+        """Raises _DefectQueueLockRefused, naming the holder, rather than
+        returning False or waiting forever, if the lock is still held once
+        `self.wait` seconds have passed."""
+        deadline = time.time() + max(self.wait, 0)
+        while True:
+            if self._try_once():
+                self.held = True
+                return
+            self._clear_if_stale()
+            if time.time() >= deadline:
+                pid, age = self._holder()
+                raise _DefectQueueLockRefused(pid, int(age))
+            time.sleep(0.05)
+
+    def release(self):
+        if not self.held:
+            return
+        self.held = False
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+
+
 def _queue_append_defect(queue_path, record_id, release_record, title,
                          files, at_str):
     """(item_id_or_None, error_or_None). Appends ONE item to the queue
@@ -493,59 +613,77 @@ def _run_defect(mod, root, args):
         return 2
     queue_path = values["queue"] or os.path.join(root, _DEFAULT_QUEUE_REL)
 
-    store, open_err = _open_writable_store(mod, root)
-    if store is None:
-        sys.stderr.write("bm_reality defect: %s\n" % open_err)
+    # F1: everything from the release-record check to the reality-row
+    # write below runs under ONE cross-process lock on this queue file, so
+    # a second concurrent `defect` cannot read the same queue this one is
+    # about to append to and replace. See _QueueAppendLock's own module
+    # comment for the mechanism and why it refuses instead of standing
+    # down silently.
+    queue_lock = _QueueAppendLock(queue_path)
+    try:
+        queue_lock.acquire()
+    except _DefectQueueLockRefused as e:
+        sys.stderr.write("bm_reality defect: refused (queue-locked): %s\n"
+                         % e)
         return 1
 
-    # The linked release record must genuinely exist and be 'accepted'
-    # BEFORE the queue is touched: this is exactly what
-    # Store.add_reality_record's own R2 refuses, checked here first (a
-    # read, not a write) so a doomed defect never appends an orphaned
-    # queue item that the reality write would then refuse to attach to.
     try:
-        linked = store.get_reality_record(values["release_record"], raw=True)
-        if linked is None or linked.get("kind") != "accepted":
-            sys.stderr.write(
-                "bm_reality defect: refused (no-accepted-release): "
-                "release-record %r does not name an existing 'accepted' "
-                "reality record\n" % values["release_record"])
-            store.close()
+        store, open_err = _open_writable_store(mod, root)
+        if store is None:
+            sys.stderr.write("bm_reality defect: %s\n" % open_err)
             return 1
 
-        # Generated BEFORE either write, so the queue item's provenance
-        # and the reality row's own primary key are the SAME id (see
-        # _queue_append_defect's own docstring for why).
-        record_id = uuid.uuid4().hex
-
-        item_id, queue_err = _queue_append_defect(
-            queue_path, record_id, values["release_record"],
-            values["title"], values["files"], at_str)
-        if queue_err:
-            # THE WHOLE POINT: the queue append failed, so the reality row
-            # is NOT written. A defect record pointing at a queue item
-            # that does not exist would be worse than no record at all.
-            sys.stderr.write("bm_reality defect: queue append failed, "
-                             "no reality record written: %s\n" % queue_err)
-            return 1
-
+        # The linked release record must genuinely exist and be 'accepted'
+        # BEFORE the queue is touched: this is exactly what
+        # Store.add_reality_record's own R2 refuses, checked here first (a
+        # read, not a write) so a doomed defect never appends an orphaned
+        # queue item that the reality write would then refuse to attach to.
         try:
-            result = store.add_reality_record({
-                "record_id": record_id,
-                "kind": "defect",
-                "links_to": values["release_record"],
-                "intent_ref": item_id,
-                "occurred_at": at_str,
-                "detail": values["title"],
-            })
-        except mod.OwnershipRefused as e:
-            sys.stderr.write(
-                "bm_reality defect: queue item %s was written but the "
-                "reality record was refused (%s): %s\n"
-                % (item_id, e.reason, e))
-            return 1
+            linked = store.get_reality_record(values["release_record"], raw=True)
+            if linked is None or linked.get("kind") != "accepted":
+                sys.stderr.write(
+                    "bm_reality defect: refused (no-accepted-release): "
+                    "release-record %r does not name an existing 'accepted' "
+                    "reality record\n" % values["release_record"])
+                store.close()
+                return 1
+
+            # Generated BEFORE either write, so the queue item's provenance
+            # and the reality row's own primary key are the SAME id (see
+            # _queue_append_defect's own docstring for why).
+            record_id = uuid.uuid4().hex
+
+            item_id, queue_err = _queue_append_defect(
+                queue_path, record_id, values["release_record"],
+                values["title"], values["files"], at_str)
+            if queue_err:
+                # THE WHOLE POINT: the queue append failed, so the reality
+                # row is NOT written. A defect record pointing at a queue
+                # item that does not exist would be worse than no record
+                # at all.
+                sys.stderr.write("bm_reality defect: queue append failed, "
+                                 "no reality record written: %s\n" % queue_err)
+                return 1
+
+            try:
+                result = store.add_reality_record({
+                    "record_id": record_id,
+                    "kind": "defect",
+                    "links_to": values["release_record"],
+                    "intent_ref": item_id,
+                    "occurred_at": at_str,
+                    "detail": values["title"],
+                })
+            except mod.OwnershipRefused as e:
+                sys.stderr.write(
+                    "bm_reality defect: queue item %s was written but the "
+                    "reality record was refused (%s): %s\n"
+                    % (item_id, e.reason, e))
+                return 1
+        finally:
+            store.close()
     finally:
-        store.close()
+        queue_lock.release()
 
     sys.stdout.write(
         "defect recorded: release %s, record %s, queue item %s\n"
