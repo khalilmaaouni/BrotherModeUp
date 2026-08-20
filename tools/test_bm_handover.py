@@ -1225,6 +1225,54 @@ class TestZip(HandoverCase):
         self.assertEqual(first_mtime, os.path.getmtime(zip_path),
                          "an unchanged rerun rewrote the zip file")
 
+    def test_m19_zip_refreshes_a_board_copy_gone_stale_since_skeleton(self):
+        """M19: the pack's board copy is captured once, at skeleton time,
+        and used to sit there unrefreshed. A session that folds a finding
+        into the live board (docs/plan/GANTT.html) AFTER generating the
+        pack, then runs zip, used to archive that stale copy with nothing
+        to say so: cmd_zip only ever read whatever file was already
+        sitting in pack_dir, it never compared it against the live board.
+        zip must pick up whatever the live board says right now, not
+        whatever it said when skeleton ran."""
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        gantt = os.path.join(plan_dir, "GANTT.html")
+        self.write(gantt, "<html>board before the finding landed</html>")
+        self.claim("fence-alpha")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--date", "2026-08-20", "--slot", "boardzip")
+        self.assertEqual(0, code)
+        pack_dir = os.path.join(self.root, "docs", "handover",
+                                "2026-08-20-boardzip")
+        board_in_pack = os.path.join(pack_dir, "GANTT.html")
+        self.assertEqual("<html>board before the finding landed</html>",
+                         self.read(board_in_pack))
+
+        # The live board moves on AFTER the pack was generated: the exact
+        # sequence the queue item describes, a finding folded into the
+        # board, then zip re-run over the same pack.
+        self.write(gantt, "<html>board after the finding landed</html>")
+
+        code, out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code, out)
+
+        self.assertEqual(
+            "<html>board after the finding landed</html>",
+            self.read(board_in_pack),
+            "zip left the pack's own board copy on disk stale even "
+            "though it just archived it")
+
+        zip_path = os.path.join(
+            self.handovers_dir,
+            "BrotherMode-Handover-2026-08-20-boardzip.zip")
+        with zipfile.ZipFile(zip_path) as zf:
+            archived = zf.read(
+                "2026-08-20-boardzip/GANTT.html").decode("utf-8")
+        self.assertEqual(
+            "<html>board after the finding landed</html>", archived,
+            "the zip archived a board copy that does not match the live "
+            "board on disk")
+
 
 # ---------------------------------------------------------------------------
 # V5: detect

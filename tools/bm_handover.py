@@ -1660,6 +1660,23 @@ def cmd_zip(argv):
     if not os.path.isdir(zdir):
         os.makedirs(zdir)
 
+    # M19: the board copy sitting in pack_dir was made ONCE, at skeleton
+    # time (cmd_skeleton's own shutil.copy2 call above), and until now was
+    # never refreshed. A session that folds a finding into the live board
+    # (docs/plan/GANTT.html) AFTER generating the pack, then re-runs zip,
+    # used to archive that stale copy with nothing to say so:
+    # _pack_files_for_zip below only lists whatever is already sitting in
+    # pack_dir, it never compares that file against the live board. Running
+    # the exact same lookup and copy cmd_skeleton already uses, right
+    # before the pack is read for zipping, means the archive can never
+    # hold a board copy older than the one on disk right now. board_abs is
+    # None when the project has no board at all, matching cmd_skeleton's
+    # own "nothing to copy" case; a project with no board never had a
+    # stale-board problem to begin with.
+    board_rel, board_abs = _board_source(root)
+    if board_abs:
+        shutil.copy2(board_abs, os.path.join(pack_dir, board_rel[-1]))
+
     # Report findings F5, F7, R2b: every listed file is routed through the
     # same containment gate (refuses a symlink escaping the project), and
     # a subdirectory is refused loudly rather than silently left out.
