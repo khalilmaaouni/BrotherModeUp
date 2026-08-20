@@ -1419,6 +1419,32 @@
     "tools/test_bm_store.py"
    ],
    "done_check": "root resolution refuses to cross a worktree boundary, or names it: a bm_ tool invoked with cwd inside .claude/worktrees/<name> resolves to that worktree, or exits naming the ambiguity and the BROTHERMODE_ROOT override; a regression test drives a tool from a worktree fixture and fails on the pre-fix walk-up behaviour"
+  },
+  {
+   "id": "M17",
+   "title": "the doctor's fence liveness check proves liveness against a THROWAWAY project's store, never against the project it is run in, so it returned PASS on 2026-08-20 while the installed hook was failing open on every write in this repository: the store was at schema 21 and the installed copy understood at most schema 20, so the fence was not checked at all and the doctor still reported the write-protection check wired and live",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "scripts/doctor.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "the doctor's fence check exercises THIS project's own store and goes RED when the installed hook cannot read it: point the check at a store one schema ahead of the installed copy and observe FAIL rather than PASS, and confirm the pre-fix code passes the same fixture so the test is not asserting something already true"
+  },
+  {
+   "id": "M18",
+   "title": "scripts/migrate_install.py answers only whether a fence hook is WIRED, never whether that wired copy can reach a verdict, so on 2026-08-20 its dry-run printed NOTHING TO DO and it is not stranded about an install whose hook failed open on every write in the repository: wiring was intact and the code behind it was hundreds of commits stale",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 45,
+   "files": [
+    "scripts/migrate_install.py",
+    "tools/test_bm.py"
+   ],
+   "done_check": "migrate_install.py dry-run against an install whose copy cannot read the project's store prints a repair plan naming the version gap instead of NOTHING TO DO; a regression test drives it with a schema-ahead fixture store and fails on the pre-fix wiring-only verdict"
   }
  ]
 }
