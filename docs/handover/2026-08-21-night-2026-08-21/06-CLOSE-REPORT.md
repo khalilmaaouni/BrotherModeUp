@@ -79,6 +79,20 @@ WHERE THE BATON LIES, exactly:
    findable. Queued as M30 with a reconciliation done-check that refuses to offer
    removal while any file reads UNLANDED.
 
+8. THE FINDING THAT OUTRANKS EVERY ITEM ABOVE, and the reason this pack is long. Three
+   separate items recorded as CLOSED turned out to be open tonight, and all three were
+   found BY ACCIDENT rather than by any control: M14 (retired against a hook it does not
+   name), M16 (a brief read a queue entry as a fix), and M9 (found by an audit run in
+   the last hour because the first two made me suspicious). An audit of 14 of the 50
+   items marked done found that one wrongly closed and FOUR more whose done_check no
+   longer means what it says: M28's own title claims a gap was left unfixed when the
+   code shows it closed; M15's done_check states a precondition that is false; O15's
+   names doctor check 9, which today means something different from what it meant when
+   written; M2 names a test class that no longer exists under that name. Queued as M31,
+   whose done-check is a command that re-evaluates every done item and REFUSES to report
+   CONFIRMED for any item it could not actually execute. One in fourteen wrongly closed
+   is not three unlucky items. It is a class.
+
 WHAT ACTUALLY HAPPENED, in one paragraph. Four controls were fixed, each with a
 regression test proven to fail on the pre-fix shape in this checkout rather than in a
 writer's sandbox. Every local control then passed the work: three suites green, four

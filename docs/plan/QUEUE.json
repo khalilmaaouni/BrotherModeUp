@@ -1236,8 +1236,8 @@
   },
   {
    "id": "M9",
-   "title": "the progress-page check reports OWED forever on a page that was deliberately frozen: it compares mtimes and cannot follow the pointer GANTT.html carries to COMMAND-CENTER.html, so every session is told to refresh a retired record",
-   "state": "done",
+   "title": "the progress-page check reports OWED forever on a page that was deliberately frozen: it compares mtimes and cannot follow the pointer GANTT.html carries to COMMAND-CENTER.html, so every session is told to refresh a retired record REOPENED 2026-08-21 by an audit of items marked done. tools/bm_progress_check.py contains ZERO occurrences of successor, pointer, COMMAND-CENTER or frozen, counted directly, while this item's own done_check requires that a page carrying a successor pointer reports the successor's freshness or a NO-DATA naming the pointer, NEVER a bare OWED. Reproduced live: a frozen GANTT.html pointing in its own text at a fresh COMMAND-CENTER.html still produces exit 1 and 'progress page: OWED (stale)'. The commit history is candid that the original symptom stopped reproducing and a DIFFERENT underlying bug was fixed instead, but that reasoning lives only in a commit message: the machine-readable record still carries the original done_check with state done and no note of the substitution. Same shape as M14 and M16. Evidence: docs/evidence/night-2026-08-21-closed-item-audit.md",
+   "state": "queued",
    "stage": "provenance",
    "clock": "agent",
    "forecast_minutes": 45,
@@ -1601,6 +1601,19 @@
     "tools/test_bm_handover.py"
    ],
    "done_check": "a reconciliation command compares each worktree's uncommitted files against the commit it branched from and reports LANDED or UNLANDED per file, refusing to offer removal for any worktree with an UNLANDED file; a regression test drives a fixture worktree in both states. Removal itself stays a founder gate"
+  },
+  {
+   "id": "M31",
+   "title": "done_checks rot silently and nothing notices: an audit of 14 of the 50 items marked done found ONE wrongly closed (M9) and FOUR whose done_check no longer means what it said. M28's own title claims the gap was left unfixed on purpose when the code and a passing test show it was closed. M15's done_check states the precondition with M14 fixed, and M14 is not fixed. O15's done_check names doctor check 9, which today means project store health rather than the CHECKSUMS check O15 was about, now check 11: the pointer silently stopped meaning what it meant when written. M2 names a test class that does not exist verbatim, though the real test exists under another name and passes. Three separate wrong verdicts were found in one night (M9, M14, M16), all three by accident rather than by any control, which is what makes this systemic rather than three unlucky items",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 90,
+   "files": [
+    "tools/bm_idle.py",
+    "tools/test_bm_idle.py"
+   ],
+   "done_check": "a command re-evaluates every done item whose done_check names a runnable check, and reports CONFIRMED, STILL OPEN or CANNOT VERIFY per item, refusing to report CONFIRMED for any item whose done_check it could not execute; a regression test drives a fixture queue holding one wrongly closed item and fails when that item is reported CONFIRMED"
   }
  ]
 }

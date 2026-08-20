@@ -70,6 +70,12 @@ the three as one unit rather than three tickets.
   that branch held the queue entry, per commit 153392e's own message. Zero production
   callers opt into the refusal, and bm_escalate.py cannot opt in at all. Evidence:
   docs/evidence/night-2026-08-21-m16-worktree-escape.md
+- M9 IS OPEN, reopened 2026-08-21. tools/bm_progress_check.py contains zero occurrences
+  of successor, pointer, COMMAND-CENTER or frozen, while M9's done_check requires exactly
+  that behaviour. A different bug was fixed instead and only a commit message says so.
+- DO NOT TRUST A done STATE WITHOUT ITS CHECK. An audit of 14 of 50 done items found one
+  wrongly closed and four whose done_check no longer means what it says. Queued as M31.
+  Evidence: docs/evidence/night-2026-08-21-closed-item-audit.md
 - SEVEN stale worktrees under .claude/worktrees/ hold 25 uncommitted files, 19 of them
   byte identical to main. Do NOT remove any: deletion is the founder's gate. Queued M30.
 - R1 and R2 were deliberately NOT started overnight, on the arithmetic that R1 corrects

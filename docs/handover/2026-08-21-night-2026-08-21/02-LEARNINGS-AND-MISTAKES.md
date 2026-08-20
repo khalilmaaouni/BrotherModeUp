@@ -33,7 +33,15 @@ No structural facts are generated for this page; the store has no concept of a m
    both hooks settles it in seconds, and it should have been the first thing done with
    an inherited decision rather than the last.
 
-6. My own mistakes, named rather than smoothed: I rewrote all 61 lines of a manifest to
+6. Three wrong CLOSED verdicts surfaced in one night, and not one was found by a
+   control. M14 by a routine queue listing, M16 by the same listing, M9 by an audit run
+   only because the first two made me suspicious. An audit of 14 of the 50 done items
+   then found four more whose done_check no longer means what it said. The lesson is not
+   that these three were unlucky. It is that a `done` state is a claim with no expiry and
+   nothing re-evaluates it, so the queue's own credibility decays quietly while every
+   number in it still looks precise. M31 exists to make that mechanical.
+
+7. My own mistakes, named rather than smoothed: I rewrote all 61 lines of a manifest to
    change one number, and had to revert and redo it as two lines. I wrote an evidence
    file outside my declared fence and the scope hook caught me. I dispatched an agent
    whose only deliverable was a path I had claimed in neither registry. I reflexively
