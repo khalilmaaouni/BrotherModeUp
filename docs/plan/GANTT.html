@@ -146,7 +146,7 @@ a:focus-visible,li:focus-visible{outline:2px solid var(--bm-accent);outline-offs
 
 <p class="eyebrow">BrotherMode and BrotherSBE // the 2026-08-20 day run</p>
 <h1>The day the chain gets its passport</h1>
-<p class="stamp">Refreshed 2026-08-20 13:45 JST by the day-run session (bm1-2bd79386) at its close. BrotherMode main at <code>9a8c7dd</code>, pushed and verified, FULL GATE ALL GREEN: 3424 tests across 41 suites, quoted in the ledger. Lanes A1 to A4 are CLOSED with the passport seam live in both repos. This session hands over now: A5, A6 with the 3.3.2 cut, and your two gates (the tag, the install swap) carry to the successor via the day-run-close pack, whose prompt is ready to paste. Grant window: 10,000,000 until 23:00 JST, roughly 3.3M consumed across this session and its workers.<br>
+<p class="stamp">Refreshed 2026-08-20 15:40 JST by the day-run CLOSING session (bm1-0a17e1d9), mid-run. BrotherMode main at <code>61d0221</code>, pushed and verified three ways, FULL GATE ALL GREEN: 3450 tests across 42 suites, 9 skipped, 485.0s wall, exit 0. A5 is CLOSED: the chain now records what happened after a release, and a defect found later turns back into new work rather than a note. A6, the 3.3.2 cut, is being prepared to your tag gate as this page is written. Grant window: 10,000,000 until 23:00 JST, roughly 4.2M consumed across both sessions and their workers.<br>
 TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions.</p>
 
 <div class="northstar">
@@ -158,19 +158,19 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <div class="strip">
   <div class="card now">
     <span class="k">Now</span>
-    <p><span class="big">A1 to A4 shipped</span>Four pushed trains, final gate ALL GREEN on <code>9a8c7dd</code>. Trust surface clean, passport producer live with the sibling carrying fields 2 and 5, every open complaint closed with a pre-fix-failing test, queue at 0 no-stage items. The gate even caught and corrected an overreach in the M2 guard before push. Session closing; successor prompt ready.</p>
+    <p><span class="big">A1 to A5 shipped</span>Five pushed trains, final gate ALL GREEN on <code>61d0221</code>: 3450 tests across 42 suites. A5 closed the chain's blind half. The record refuses an anonymous acceptance, an incident that links back to nothing, and a defect that opens no new work; all four refusals were fired by hand in a sandbox rather than taken on the builder's word, and the return edge was proven end to end (a defect wrote a queue item and the depth check read it back at 49 where it had been 48). A6, the 3.3.2 cut, is in flight now.</p>
   </div>
   <div class="card you">
     <span class="k">Waiting on you</span>
-    <p><span class="big">1 now, 1 later</span>NOW: the install swap. The repair is scripted, tested against fixture homes, and double-gated (scripts/migrate_install.py, dry-run by default); one yes applies it at the next quiet session boundary. LATER: the 3.3.2 tag, once the successor session runs A6 to the cut.</p>
+    <p><span class="big">2 now</span>NOW, THE TAG: you asked for the cut prepared to your gate and no further, and that is what lands. Two commands are yours alone: <code>git tag -a v3.3.2</code> and <code>git push origin v3.3.2</code>. Nothing lands on main after the release-cut commit until you run them. NOW, THE INSTALL SWAP: still scripted, tested against fixture homes, dry-run by default; one yes applies it at a quiet boundary. You already answered the third gate today: the public-install smoke runs under a before-and-after snapshot of your real plugin scope.</p>
   </div>
   <div class="card risk">
     <span class="k">Risk watch</span>
-    <p><span class="big">Install</span>Top blocker class, unchanged: this machine runs a stranded pre-rewrite copy of BrotherMode and the one-writer hook is not wired here. Also watched: the sibling tree must show free in its own detect before Lane B opens there.</p>
+    <p><span class="big">Two registries</span>NEW today and measured, not reasoned: the assurance product's fence hook refused this session out of its own fence, because it compares the raw harness session id against the label BrotherMode writes, and the two formats can never match. Its own code calls that a false MISS and says it is the outcome it does not want. M12 is therefore NOT closed, in the opposite direction from the half that was fixed. Unchanged: this machine runs a stranded pre-rewrite copy and the one-writer hook is not wired here.</p>
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
-    <p><span class="big">2 to 4 hours</span>Remaining work for the successor, with the 2.24x correction (14 judged samples): A5 the smallest verified-reality record, 45 to 100 minutes; A6 the 3.3.2 cut to your tag gate with its codex debate, 60 to 130 minutes; board and close ceremony, 30 to 60. Fits the window to 23:00 JST with roughly 6.7M of the grant unspent.</p>
+    <p><span class="big">1 to 2 hours</span>Remaining, with the 2.24x correction (14 judged samples): A6 the cut plus its codex debate and the public-install smoke, 40 to 90 minutes; the second full gate on the cut, 8 to 9 minutes measured twice today; board and close ceremony, 30 to 50. A5 came in at about 80 minutes against a 45 to 100 estimate. Comfortable inside the window to 23:00 JST with roughly 5.8M of the grant unspent.</p>
   </div>
 </div>
 
@@ -186,10 +186,10 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 <tr><td class="lbl"><span class="cnt">8/8</span>A3 the complaint fixes, M12 registry mismatch added</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
 <tr><td class="lbl"><span class="cnt">1/1</span>A4 every backlog item names its stage</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
 <tr><td class="lbl"><span class="cnt">1/1</span>Gate catch and fix: M2 guard learns partial delivery</td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>A5 smallest after-release record (successor session)</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/1</span>A6 close: 3.3.2 prepared to the tag gate, its debate (successor)</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/3</span>Lane B in the sibling tree: fixture handshake in flight there</td><td></td><td><div class="bar done"></div></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/2</span>Your two gates: the install swap (ready now), the tag (at the cut)</td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/1</span>A5 smallest after-release record, plus the four refusals made readable</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>A6 close: 3.3.2 prepared to the tag gate, its debate, the install smoke</td><td></td><td></td><td></td><td></td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">3/3</span>Lane B handshake confirmed: identical fixture bytes both repos, sibling closed</td><td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">1/3</span>Your gates: smoke answered, the tag and the install swap still yours</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td></tr>
 </tbody>
 </table>
 <p class="key"><span><i class="bar done"></i>done, check quoted</span><span><i class="bar sched"></i>scheduled, running now</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>waits for your hand</span></p>
@@ -248,6 +248,16 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 </div>
 
 <div class="alert">
+  <h4>The two one-writer registries still cannot see each other, and today one of them locked me out of my own work</h4>
+  <dl>
+    <dt>What</dt><dd>This session claimed the progress page in both registries, correctly, and the assurance product's fence hook then refused the write anyway. Its reason, quoted: this session "is not the writer for that path". It was. The hook compares the raw session id the harness hands it against the shortened label BrotherMode writes into its own registry, and those two formats can never match, so every BrotherMode claim looks foreign to it. Its own source calls this outcome a false miss and says it is the one direction it does not want to fail in.</dd>
+    <dt>Why</dt><dd>This matters more than one blocked edit. A one-writer control that refuses the rightful owner teaches people to switch it off, and a control people switch off protects nothing. It also means the half of M12 that was closed this morning was the other half: the assurance side can now read a BrotherMode fence line, but it still cannot recognise who owns it.</dd>
+    <dt>Action</dt><dd>I used the hook's own documented identity override, which is the supported way to tell it which identity to compare against, never its off switch, and said so in the open. The real repair is one of two: BrotherMode writes both identifiers on the fence line, or the assurance hook learns to derive the label the way BrotherMode does. That is a queued item, not a thing to patch in the middle of a release cut.</dd>
+    <dt>When</dt><dd>Named in tonight's pack as the first item of the next session, ahead of new feature work.</dd>
+  </dl>
+</div>
+
+<div class="alert">
   <h4>The trust product's own enforcement is not running on the machine that builds it</h4>
   <dl>
     <dt>What</dt><dd>No fence hook is wired in this machine's settings, so "only one worker edits a file at a time" is convention here, not mechanism. And the copy Claude Code loads is a stranded pre-rewrite clone: disjoint history, dead upstream, confirmed by command in the mandate audit.</dd>
@@ -302,7 +312,7 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 </div>
 
 <div class="phase">
-<h3>Phase 1, the lanes in this repository<span class="chip">18/20 ticked</span></h3>
+<h3>Phase 1, the lanes in this repository<span class="chip">19/20 ticked</span></h3>
 <ul class="ledger">
   <li class="tick"><span class="t">A1 trust surface: the stale release line, the real M11 fix, the stranded-install detector, honest degrade messages</span>
     <span class="ev">Re-run by the orchestrator on the merged tree, then pushed as 21d1151 (HEAD equals upstream verified): test_bm_docs Ran 237 OK skipped=5 (new pinning test red on the reverted line, quoted by the builder); test_bm_fence_hook Ran 119 OK (QueryVerb pins query verdict equal to decide() on four cases); doctor "[13/14] the installed public tag matches the public origin: PASS" and forced no-network prints NO-DATA; test_bm_toolkit Ran 41 OK and grep for the two false phrases exits 1. Remaining rc.9 mentions sit under an explicit history marker; the live claim is test-pinned to PUBLIC_INSTALL_TAG.</span></li>
@@ -314,27 +324,27 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
     <span class="ev">36 items stamped with the chain stage they served; the Azure item O22 REMOVED from the queue entirely per the founder's 2026-08-16 Azure-is-out law (not parked: the law says do not carry it; flip is him naming an Azure client). Check after the edit: no-stage count 0; bm_idle depth line "DEPTH 48 min_depth=5 blocked=3 in_flight=0 done=44", every blocked item (O4, G2, M1 live-swap half) staged and named.</span></li>
   <li class="tick"><span class="t">The gate's catch, fixed before push: the M2 guard also refused the legitimate explicit-partial delivery</span>
     <span class="ev">Gate 3 honestly red: test_brothermode_cli test_deliver_partial_writes_the_packet. Fix: an explicit --partial proceeds and prints its holes on stderr (never silently clean); companion assertion pinned in the M2 regression test. Re-runs: test_bm_project Ran 69 OK, test_brothermode_cli Ran 85 OK. Final gate on 9a8c7dd: "test_all: 3424 tests across 41 suites, 9 skipped, 731.2s wall. ALL GREEN"; pushed, HEAD equals upstream.</span></li>
-  <li class="open"><span class="t">A5 the smallest after-release record, carried to the successor session</span>
-    <span class="ev">check: round-trip test green; a defect entered as a defect creates a new intent row with provenance.</span></li>
-  <li class="open"><span class="t">A6 close: release 3.3.2 prepared exactly to the tag gate, codex debate on the cut, carried to the successor session</span>
-    <span class="ev">checks: fresh-clone integrity green at the cut; the runbook stops at the tag step; the close report names FINISHED or UNFINISHED in its first line.</span></li>
+  <li class="tick"><span class="t">A5 the smallest after-release record, and the four new refusals taught to speak to a person</span>
+    <span class="ev">tools/bm_reality.py plus its suite, store schema 20 to 21, one insert-only table. Orchestrator re-ran every check on the merged tree rather than trusting the builder: test_bm_reality Ran 26 OK; test_bm_store Ran 1116 OK; test_bm_effects Ran 10 OK; test_bm Ran 304 OK; test_bm_docs Ran 237 OK; test_bm_visual Ran 84 OK. All four refusals fired by hand in a sandbox store, each returning a named reason: unaccountable-acceptance, no-accepted-release, defect-without-intent, bad-reality-kind. Return edge proven end to end, not asserted: a defect wrote queue item RR-4caaf606 at stage intent carrying its provenance, and bm_idle read the queue back at "OK: depth 49" where the real queue reads 48. Insert-only proven mechanically: the store's public surface for this table is add, get and list, with no update and no delete. Full gate on 61d0221: "test_all: 3450 tests across 42 suites, 9 skipped, 485.0s wall. ALL GREEN", exit 0; pushed, HEAD equals upstream equals ls-remote.</span></li>
+  <li class="open"><span class="t">A6 close: release 3.3.2 prepared exactly to the tag gate, codex debate on the cut, public-install smoke under a snapshot</span>
+    <span class="ev">checks: VERSION, CHANGELOG, explainer and all seven install pins moved together with test_bm_docs green; fresh-clone integrity green at the cut; the public-install smoke reads PASSED and the before-and-after snapshot of your real plugin scope is reported either way; a second full gate green on the cut commit; the runbook stops at the tag step and nothing lands after it; the close report names FINISHED or UNFINISHED in its first line.</span></li>
 </ul>
 </div>
 
 <div class="phase">
-<h3>Phase 2, the sibling tree, opens on its own detect<span class="chip">0/3 open</span></h3>
+<h3>Phase 2, the sibling tree, which ran its own plan instead<span class="chip">1/3, and the other two were never this run's to do</span></h3>
 <ul class="ledger">
   <li class="open"><span class="t">B1 acceptance record: who accepted, when, against which passport and which assurance result; refuses hollow</span>
     <span class="ev">check: acceptance without an accountable name is refused; a recorded one round-trips; both quoted from the new test.</span></li>
-  <li class="open"><span class="t">B2 passport handshake: A2's fixture consumed, fields 2 and 5 go from no-data to carried</span>
-    <span class="ev">check: both suites quote the same fixture hash; field 4 renders in the decision packet as the attention list.</span></li>
+  <li class="tick"><span class="t">B2 passport handshake: the same fixture bytes now sit in both repositories</span>
+    <span class="ev">Confirmed by this session rather than reported: sha256 of the fixture is e6d68b7622379d5c5c33beb567e1f1901850409cb3daaa9a45cb2825bba377e8 in this repository and byte for byte the same file in the sibling, matching the value you pinned in the launch prompt. The sibling session has closed (its tracked tree is clean at its own baton-pack commit), so no writer conflict exists and nothing in this run needed to open that tree.</span></li>
   <li class="open"><span class="t">B3 one amber to green by that repo's own plan, choice recorded as a decision</span>
     <span class="ev">check: the chosen concern's new test quoted; the CI-id spoofability stays disclosed, never silently patched.</span></li>
 </ul>
 </div>
 
 <div class="phase">
-<h3>Phase 3, yours<span class="chip">0/2, waits for your hand</span></h3>
+<h3>Phase 3, yours<span class="chip">1/3 answered, 2 wait for your hand</span></h3>
 <ul class="ledger">
   <li class="wall"><span class="t">The 3.3.2 tag, when the cut is reached</span>
     <span class="ev">Founder-gated by the runbook itself; the exact command lands in front of you at the cut.</span></li>
@@ -373,7 +383,7 @@ TICK CONTRACT: a box ticks only when its done-check ran after the last edit and 
 
 <footer>
   <p class="contract">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions. A green from a script written here is worth nothing until somebody has tried to make it lie.</p>
-  <p>Refreshed 2026-08-20 by the day-run session (bm1-2bd79386), BrotherMode at <code>b55e917</code>. This page names no client, no company and no reviewer. Roles only.</p>
+  <p>Refreshed 2026-08-20 15:45 JST by the day-run closing session (bm1-0a17e1d9), BrotherMode at <code>61d0221</code>. This page names no client, no company and no reviewer. Roles only.</p>
 </footer>
 
 </div>
