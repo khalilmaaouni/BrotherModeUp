@@ -1445,6 +1445,19 @@
     "tools/test_bm.py"
    ],
    "done_check": "migrate_install.py dry-run against an install whose copy cannot read the project's store prints a repair plan naming the version gap instead of NOTHING TO DO; a regression test drives it with a schema-ahead fixture store and fails on the pre-fix wiring-only verdict"
+  },
+  {
+   "id": "M19",
+   "title": "the handover pack's board copy is captured at skeleton time and never refreshed, so `zip` re-archives a stale board: measured 2026-08-20 when a session generated its pack, then folded that night's finding into docs/plan/GANTT.html, re-ran zip, and shipped a board copy whose sha256 differed from the live board. This is the SAME defect the ceremony session fixed one layer up that evening (the pack was copying a COMMAND-CENTER.html three days stale) reappearing one layer down, and it is silent: nothing compares the two files",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 30,
+   "files": [
+    "tools/bm_handover.py",
+    "tools/test_bm_handover.py"
+   ],
+   "done_check": "zip refreshes the board copy from the live board, or verify-close FAILS naming the drift: edit docs/plan/GANTT.html after skeleton, run zip, and confirm the archived copy's sha256 equals the live board's; a regression test fails on the pre-fix capture-once behaviour"
   }
  ]
 }
