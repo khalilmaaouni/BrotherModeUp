@@ -24,7 +24,16 @@ No structural facts are generated for this page; the store has no concept of a m
    because this estate has a recorded case of a vivid review reaching the founder inside
    an hour that six later attempts could not reproduce. This time it reproduced eight of
    eight. The discipline is what makes either answer trustworthy.
-5. My own mistakes, named rather than smoothed: I rewrote all 61 lines of a manifest to
+5. A defect is retired against the component it NAMES, never against the component
+   that was recently repaired. M14 named sbe_fence_hook.py; an earlier session probed
+   bm_fence_hook.py, found it clean because it had just been fixed, and retired M14.
+   I then copied that retirement into this pack as a settled decision without re-testing
+   it, which is how a wrong verdict becomes durable. The vault already carries this
+   failure under refuting-the-component-that-was-blamed. One identical payload sent to
+   both hooks settles it in seconds, and it should have been the first thing done with
+   an inherited decision rather than the last.
+
+6. My own mistakes, named rather than smoothed: I rewrote all 61 lines of a manifest to
    change one number, and had to revert and redo it as two lines. I wrote an evidence
    file outside my declared fence and the scope hook caught me. I dispatched an agent
    whose only deliverable was a path I had claimed in neither registry. I reflexively

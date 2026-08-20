@@ -45,7 +45,17 @@ the three as one unit rather than three tickets.
   measured with a positive control, a foreign session DENIED against an active record
   and ALLOWED against a parked one at the same moment, on both hook copies, with zero
   fail-open warnings across eight calls. Do not reopen without evidence of that quality.
-- M14 does not reproduce on current code.
+- M14 REPRODUCES and is OPEN. It was RETIRED by an earlier session on evidence about
+  the WRONG HOOK, and this pack originally repeated that retirement without re-testing
+  it, which was this session's own error. M14 names sbe_fence_hook.py, the BrotherSBE
+  plugin's hook. The retirement evidence is entirely about bm_fence_hook.py, a different
+  plugin's hook, and concerns a schema mismatch repaired by pointing an install clone at
+  origin/main. Measured 2026-08-21 with one identical payload sent to both: sbe_fence_hook
+  emitted 34 warning lines, each reading that STATE.md carries a live fence line with no
+  readable files scope so the hook did NOT enforce it; bm_fence_hook emitted one line and
+  never parses STATE.md text at all. It is WORSE than first reported, 34 lines per write
+  rather than six, spanning every historical Wave section. Full evidence:
+  docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md
 - The installed clone was REPAIRED during the 2026-08-20 day run. Its bm_fence_hook.py
   and bm_store.py are byte identical to this checkout and both sit at schema 21. The
   night prompt's claim that it is 25 commits behind at schema 20 was true earlier and is

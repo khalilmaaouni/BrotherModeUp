@@ -48,6 +48,16 @@ WHERE THE BATON LIES, exactly:
    hours against a hard 06:45 stop. Half-migrated store work at 06:30 is the thing you
    warned about for R2, and the same arithmetic applies to R1.
 
+5. M14 IS OPEN, not retired, and this pack said otherwise until 04:2x. An earlier
+   session retired it on evidence about a DIFFERENT HOOK, and I repeated that
+   retirement in this pack without re-testing it. Measured tonight with one identical
+   payload sent to both hooks: sbe_fence_hook.py, which is the hook M14 actually names,
+   emitted 34 warning lines saying it did NOT enforce a fence it could not read;
+   bm_fence_hook.py, which is what the retirement tested, emitted one line and never
+   parses STATE.md at all. M14 is worse than first reported, 34 warnings per write
+   rather than six. Nothing is fixed; the queue entry is corrected and the evidence is
+   at docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md.
+
 WHAT ACTUALLY HAPPENED, in one paragraph. Four controls were fixed, each with a
 regression test proven to fail on the pre-fix shape in this checkout rather than in a
 writer's sandbox. Every local control then passed the work: three suites green, four
