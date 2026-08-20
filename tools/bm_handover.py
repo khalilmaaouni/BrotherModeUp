@@ -1324,8 +1324,28 @@ def cmd_skeleton(argv):
         text = render_page(name, ctx, existing_region)
         bs.write_generated_document(path, text)
         written.append(name)
+    # Same defect the outside review found in cmd_zip's own board copy
+    # (see cmd_zip), reachable here too: skeleton re-run over an EXISTING
+    # pack_dir is ordinary, not exotic, so this destination is exactly as
+    # attacker-reachable as cmd_zip's was. Same guard, same shape: refuse
+    # a symlink destination with os.path.islink BEFORE any write (never
+    # os.path.exists, which follows the link and answers about the
+    # target), then land the copy through a temp name plus os.replace so
+    # even a symlink raced into place after the check cannot be written
+    # through, matching cmd_zip's fix exactly.
     if board_abs:
-        shutil.copy2(board_abs, os.path.join(pack_dir, board_rel[-1]))
+        board_dest = os.path.join(pack_dir, board_rel[-1])
+        if os.path.islink(board_dest):
+            raise bs.OwnershipRefused(
+                "path-escape",
+                "%s is a symlink (resolving to %s); refusing to write "
+                "the live board's content through it, before any write, "
+                "the same refusal _safe_pack_file already gives a pack "
+                "FILE that is a symlink escaping the project"
+                % (board_dest, os.path.realpath(board_dest)))
+        board_tmp = board_dest + ".tmp-%d" % os.getpid()
+        shutil.copy2(board_abs, board_tmp)
+        os.replace(board_tmp, board_dest)
     rel = os.path.relpath(pack_dir, root)
     _out("wrote pack %s" % rel)
     _out("  %d file(s): %s" % (len(written), ", ".join(written)))
@@ -1570,6 +1590,37 @@ def cmd_verify_close(argv):
             % (len(untracked), ", ".join(untracked[:5]), pack_dir))
         return FAIL
 
+    # Check 6b: every TRACKED pack file's on disk content still matches
+    # what git staged for it. An outside review of the M19 board refresh
+    # fix (see cmd_zip) reproduced this by executed command: skeleton
+    # wrote board A into the pack, the pack was committed, the live board
+    # was edited to B, zip ran again. `git diff --stat HEAD` then showed
+    # the pack's GANTT.html modified, `git show HEAD:<pack>/GANTT.html`
+    # still read board A, the working copy read board B, and this verb
+    # returned PASS anyway: check 6 above only asks whether a path is
+    # tracked AT ALL, which an edited-after-commit file still is. The
+    # durable, committed record held the stale board while every check
+    # reported healthy. This is the check that makes that impossible:
+    # dirty, not merely untracked, fails too.
+    dirty = _pack_paths_dirty(root, pack_dir)
+    if dirty is NOT_A_GIT_REPO:
+        dirty = []
+    if dirty is None:
+        _out_scrubbed(
+            "NO-DATA: the git index could not be read, so whether the "
+            "pack's tracked files still match what was committed cannot "
+            "be established. That is not a pass: run `git status` "
+            "yourself before trusting this pack to survive.")
+        return NODATA
+    if dirty:
+        _out_scrubbed(
+            "FAIL: %d pack file(s) are tracked by git but the working "
+            "tree no longer matches what git has staged for them: %s. "
+            "The committed record is stale. Run `git add %s` and commit "
+            "again before closing."
+            % (len(dirty), ", ".join(dirty[:5]), pack_dir))
+        return FAIL
+
     _out_scrubbed("PASS: %s is ready to close." % pack_dir)
     return PASS
 
@@ -1608,6 +1659,130 @@ def _pack_paths_not_in_git(root, pack_dir):
         if rel not in tracked:
             missing.append(rel)
     return missing
+
+
+def _git_blob_sha1(path):
+    """The sha1 git would assign PATH's bytes on disk right now, computed
+    exactly as `git hash-object` does (a literal 'blob <size>\\0' header
+    then the raw content), so it can be compared straight against the
+    sha1 _git_index_blob_shas reads out of the index, without ever
+    running git."""
+    with open(path, "rb") as fh:
+        content = fh.read()
+    header = b"blob %d\x00" % len(content)
+    return hashlib.sha1(header + content).digest()
+
+
+def _git_index_blob_shas(index_path):
+    """{posix path: 20 byte blob sha1} for every entry in a git index, or
+    None for could not tell (never an empty dict standing in for that,
+    matching bs._git_index_tracked_paths, which this closely mirrors). A
+    MISSING index returns an empty dict: nothing is staged, so nothing can
+    be dirty against it.
+
+    A close copy of bs._git_index_tracked_paths's own parser (git's
+    Documentation/gitformat-index.txt), kept in THIS file rather than
+    grown as a new public function on bm_store.py: the write fence for
+    this fix covers only tools/bm_handover.py. The entry layout walked is
+    identical; this copy additionally keeps the 20 byte sha1 sitting at
+    bytes 40 through 60 of each entry's fixed stat block instead of
+    throwing it away, because _pack_paths_dirty below needs to compare it
+    against the working tree, a question _git_index_tracked_paths is
+    never asked and does not answer."""
+    try:
+        with open(index_path, "rb") as f:
+            data = f.read()
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] != b"DIRC":
+        return None
+    version = int.from_bytes(data[4:8], "big")
+    count = int.from_bytes(data[8:12], "big")
+    if version not in (2, 3, 4):
+        return None
+    if count > max(len(data) - 12, 0) // 8:
+        return None
+    pos = 12
+    prev = b""
+    shas = {}
+    for _ in range(count):
+        start = pos
+        if start + 62 > len(data):
+            return None
+        sha1 = data[start + 40:start + 60]
+        flags = int.from_bytes(data[start + 60:start + 62], "big")
+        pos = start + 62
+        if version >= 3 and (flags & 0x4000):
+            if pos + 2 > len(data):
+                return None
+            pos += 2
+        if version == 4:
+            strip, pos = bs._git_decode_varint(data, pos)
+            if strip is None or strip > len(prev):
+                return None
+            end = data.find(b"\x00", pos)
+            if end < 0:
+                return None
+            name = prev[:len(prev) - strip] + data[pos:end]
+            pos = end + 1
+        else:
+            name_len = flags & 0x0FFF
+            if name_len == 0x0FFF:
+                end = data.find(b"\x00", pos)
+                if end < 0:
+                    return None
+                name = data[pos:end]
+            else:
+                if pos + name_len > len(data):
+                    return None
+                name = data[pos:pos + name_len]
+            pos += len(name)
+            pos += 8 - ((pos - start) % 8)
+            if pos > len(data):
+                return None
+        prev = name
+        shas[name.decode("utf-8", "replace")] = sha1
+    return shas
+
+
+def _pack_paths_dirty(root, pack_dir):
+    """Pack files git already TRACKS whose on disk content right now does
+    not match the blob sha1 staged for them, as a sorted list of relative
+    paths, or None for could not tell. Mirrors _pack_paths_not_in_git's
+    three way answer (NOT_A_GIT_REPO, None, or a list) for the same
+    reason: could not tell must never be folded silently into nothing
+    wrong.
+
+    Defect found by an outside review of the M19 board refresh fix (see
+    cmd_zip), reproduced by executed command: cmd_zip's own re copy of
+    the live board can rewrite a pack file that is ALREADY COMMITTED, and
+    verify-close's existing check 6 (_pack_paths_not_in_git) only asks
+    whether a path is tracked AT ALL, which a file edited after its own
+    commit still is. A pack whose durable, committed record read one
+    board while the working tree read another sailed through as PASS.
+    This asks the question check 6 does not: not "is it tracked", but
+    "does the working tree still match what was staged"."""
+    gitdir = os.path.join(root, ".git")
+    index_path = os.path.join(gitdir, "index")
+    if not os.path.isdir(gitdir):
+        return NOT_A_GIT_REPO
+    shas = _git_index_blob_shas(index_path)
+    if shas is None:
+        return None
+    dirty = []
+    for name in sorted(os.listdir(pack_dir)):
+        full = os.path.join(pack_dir, name)
+        if not os.path.isfile(full):
+            continue
+        rel = os.path.relpath(full, root).replace(os.sep, "/")
+        staged = shas.get(rel)
+        if staged is None:
+            continue
+        if _git_blob_sha1(full) != staged:
+            dirty.append(rel)
+    return dirty
 
 
 def _open_forecast_note(root):
@@ -1673,9 +1848,60 @@ def cmd_zip(argv):
     # None when the project has no board at all, matching cmd_skeleton's
     # own "nothing to copy" case; a project with no board never had a
     # stale-board problem to begin with.
+    #
+    # Two defects an outside review found IN this M19 fix, both reproduced
+    # by executed command, not argued.
+    #
+    # One: shutil.copy2 opens its DESTINATION for writing and follows a
+    # symlink placed there, so a pack_dir/GANTT.html made into a symlink
+    # pointing outside the project had its TARGET overwritten with the
+    # live board's bytes before _pack_files_for_zip below ever got a turn
+    # to refuse it as a containment escape; the refusal fired, but only
+    # after the damage was already done. The check below runs BEFORE any
+    # write and uses os.path.islink, never os.path.exists (which follows
+    # the link and answers about the target, not about board_dest itself).
+    # The write itself then lands through a temp name plus os.replace
+    # rather than shutil.copy2 straight onto board_dest: os.replace
+    # repoints the DIRECTORY ENTRY rather than opening and following
+    # whatever it currently names, the same shape this function already
+    # uses for zip_path below, so even a symlink raced into place between
+    # the check and the write cannot turn it into a write through that
+    # link.
+    #
+    # Two: this copy can rewrite a pack file that is ALREADY COMMITTED,
+    # and nothing said so: a durable committed record could hold a stale
+    # board forever while zip kept reporting success. Naming it here,
+    # whenever the refresh actually changes the bytes, is the courtesy
+    # half of that fix; verify-close's own new check 6b is the refusal
+    # half that makes the silence impossible to rely on.
     board_rel, board_abs = _board_source(root)
     if board_abs:
-        shutil.copy2(board_abs, os.path.join(pack_dir, board_rel[-1]))
+        board_dest = os.path.join(pack_dir, board_rel[-1])
+        if os.path.islink(board_dest):
+            raise bs.OwnershipRefused(
+                "path-escape",
+                "%s is a symlink (resolving to %s); refusing to write "
+                "the live board's content through it, before any write, "
+                "the same refusal _safe_pack_file already gives a pack "
+                "FILE that is a symlink escaping the project"
+                % (board_dest, os.path.realpath(board_dest)))
+        old_board = None
+        if os.path.isfile(board_dest):
+            with open(board_dest, "rb") as fh:
+                old_board = fh.read()
+        board_tmp = board_dest + ".tmp-%d" % os.getpid()
+        shutil.copy2(board_abs, board_tmp)
+        os.replace(board_tmp, board_dest)
+        if old_board is not None:
+            with open(board_dest, "rb") as fh:
+                new_board = fh.read()
+            if old_board != new_board:
+                _out(
+                    "refreshed the pack's board copy (%s) from the live "
+                    "board; if this pack is already committed, it is now "
+                    "DIRTY and must be added and committed again, or `%s "
+                    "verify-close` will refuse it"
+                    % (board_rel[-1], _inv()))
 
     # Report findings F5, F7, R2b: every listed file is routed through the
     # same containment gate (refuses a symlink escaping the project), and

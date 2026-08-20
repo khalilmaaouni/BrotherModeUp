@@ -177,6 +177,47 @@ class HandoverCase(unittest.TestCase):
                     path, "Filled in by the test suite: nothing left to "
                           "say about %s." % name)
 
+    def _real_git_repo(self, add_paths=()):
+        """A REAL git repository at self.root, with `add_paths` staged.
+
+        A real index rather than a hand-built one, deliberately: the check
+        under test parses git's own binary index format in pure Python, and
+        a fixture that fakes that format tests the fixture. The first draft
+        of this test did fake it, the parser correctly refused to read it,
+        and the test failed for a reason that had nothing to do with the
+        behaviour it was written to pin.
+
+        Lives on the shared base class, not just TestVerifyClose, because
+        TestZip's own defect two regression test (M19 outside review) needs
+        a real committed pack too: cmd_zip's board refresh can go stale
+        against a commit exactly as easily as verify-close's untracked
+        check can be defeated by one, and both need the real index to
+        prove it."""
+        env = dict(os.environ)
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["HOME"] = self.tmp
+        def git(*args):
+            return subprocess.run(("git",) + args, cwd=self.root, env=env,
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=30)
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+        # The store refuses to open inside a git repository that does not
+        # ignore .brothermode, because the raw store carries founder text in
+        # cleartext and would be one `git add -A` from being committed. That
+        # refusal is correct and this fixture satisfies it the way the real
+        # product does, by writing the exclude rule, rather than by setting
+        # the skip flag and testing a shape no user runs.
+        exclude = os.path.join(self.root, ".git", "info", "exclude")
+        if not os.path.isdir(os.path.dirname(exclude)):
+            os.makedirs(os.path.dirname(exclude))
+        with io.open(exclude, "a", encoding="utf-8") as fh:
+            fh.write("\n.brothermode\n")
+        for rel in add_paths:
+            git("add", rel)
+        return git
+
 
 # ---------------------------------------------------------------------------
 # V1 + V2: skeleton
@@ -294,6 +335,60 @@ class TestSkeleton(HandoverCase):
             regenerated.count(bh.FILL_BY_HAND), len(bh.PROMPT_SLOTS) - 1,
             "filling one slot changed how many of the other slots still "
             "carry their own default text")
+
+    def test_m19_defect_one_skeleton_refuses_a_destination_symlink_too(
+            self):
+        """Orchestrator follow-up to the M19 outside review: the same
+        unguarded shutil.copy2 shape cmd_zip had also lived in
+        cmd_skeleton's own board copy, and it is just as reachable, since
+        re-running skeleton over an EXISTING pack directory is ordinary,
+        not exotic (test_v2 above does exactly that, to prove human text
+        survives regeneration). Plant a symlink at the skeleton
+        destination pointing at an external sentinel file, then re-run
+        skeleton over the same pack, the same technique
+        test_m19_defect_one_zip_refuses_a_destination_symlink_before_write
+        (TestZip) uses against cmd_zip.
+
+        Asserting only that an exception was raised would have PASSED
+        against the broken code too, since the broken code also raised,
+        just too late. The assertion that actually pins the fix is the
+        external file's content, unchanged."""
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        gantt = os.path.join(plan_dir, "GANTT.html")
+        self.write(gantt, "<html>the live board</html>")
+        self.claim("fence-alpha")
+        out_dir = os.path.join(self.root, "docs", "handover", "pack1")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertEqual(0, code)
+        board_in_pack = os.path.join(out_dir, "GANTT.html")
+        self.assertTrue(os.path.isfile(board_in_pack))
+
+        outside = os.path.join(self.tmp, "external-board-skeleton.html")
+        sentinel = "EXTERNAL FILE BEFORE ANYTHING RAN. DO NOT TOUCH."
+        self.write(outside, sentinel)
+        os.remove(board_in_pack)
+        os.symlink(outside, board_in_pack)
+
+        # A second record forces a real regeneration (the same nudge
+        # test_v2 above uses), and the board copy step runs again over the
+        # symlink now sitting where GANTT.html used to be.
+        self.claim("fence-beta")
+        code, out, err = self.run_cli(
+            "skeleton", "--out", "docs/handover/pack1", "--date",
+            "2026-08-11", "--slot", "pack1")
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("symlink", (out + err).lower(),
+                      "expected the containment refusal's own message, "
+                      "naming the symlink, not some other failure")
+
+        self.assertEqual(
+            sentinel, self.read(outside),
+            "cmd_skeleton wrote through the destination symlink before "
+            "refusing: the external file was overwritten with the live "
+            "board's HTML")
 
 
 # ---------------------------------------------------------------------------
@@ -829,40 +924,6 @@ class TestVerifyClose(HandoverCase):
         os.utime(ref, (commit_mtime, commit_mtime))
         return ref
 
-    def _real_git_repo(self, add_paths=()):
-        """A REAL git repository at self.root, with `add_paths` staged.
-
-        A real index rather than a hand-built one, deliberately: the check
-        under test parses git's own binary index format in pure Python, and
-        a fixture that fakes that format tests the fixture. The first draft
-        of this test did fake it, the parser correctly refused to read it,
-        and the test failed for a reason that had nothing to do with the
-        behaviour it was written to pin."""
-        env = dict(os.environ)
-        env["GIT_CONFIG_NOSYSTEM"] = "1"
-        env["HOME"] = self.tmp
-        def git(*args):
-            return subprocess.run(("git",) + args, cwd=self.root, env=env,
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, timeout=30)
-        git("init", "-q")
-        git("config", "user.email", "t@example.com")
-        git("config", "user.name", "t")
-        # The store refuses to open inside a git repository that does not
-        # ignore .brothermode, because the raw store carries founder text in
-        # cleartext and would be one `git add -A` from being committed. That
-        # refusal is correct and this fixture satisfies it the way the real
-        # product does, by writing the exclude rule, rather than by setting
-        # the skip flag and testing a shape no user runs.
-        exclude = os.path.join(self.root, ".git", "info", "exclude")
-        if not os.path.isdir(os.path.dirname(exclude)):
-            os.makedirs(os.path.dirname(exclude))
-        with io.open(exclude, "a", encoding="utf-8") as fh:
-            fh.write("\n.brothermode\n")
-        for rel in add_paths:
-            git("add", rel)
-        return git
-
     def test_verify_close_refuses_a_session_id_the_store_never_saw(self):
         """An independent audit defeated the ownership check with
         `--session audit-fake-session`. A session id the store has never seen
@@ -1272,6 +1333,101 @@ class TestZip(HandoverCase):
             "<html>board after the finding landed</html>", archived,
             "the zip archived a board copy that does not match the live "
             "board on disk")
+
+    def test_m19_defect_one_zip_refuses_a_destination_symlink_before_write(
+            self):
+        """Outside review of the M19 fix above, reproduced by executed
+        command: pack_dir/GANTT.html was made a symlink pointing at a file
+        OUTSIDE the project. cmd_zip's re copy of the live board followed
+        it: shutil.copy2 opens its destination for writing and does not
+        care that the name is a symlink, so the external file's content
+        was already overwritten with the live board's HTML by the time the
+        containment gate in _pack_files_for_zip got a turn to refuse it.
+
+        Asserting only that an exception was raised would have PASSED
+        against the broken code too, since the broken code also raised,
+        just too late. The assertion that actually pins the fix is the
+        external file's content, unchanged."""
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        gantt = os.path.join(plan_dir, "GANTT.html")
+        self.write(gantt, "<html>the live board</html>")
+        self.claim("fence-alpha")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--date", "2026-08-20", "--slot", "symlinkzip")
+        self.assertEqual(0, code)
+        pack_dir = os.path.join(self.root, "docs", "handover",
+                                "2026-08-20-symlinkzip")
+        board_in_pack = os.path.join(pack_dir, "GANTT.html")
+
+        outside = os.path.join(self.tmp, "external-board.html")
+        sentinel = "EXTERNAL FILE BEFORE ANYTHING RAN. DO NOT TOUCH."
+        self.write(outside, sentinel)
+        os.remove(board_in_pack)
+        os.symlink(outside, board_in_pack)
+
+        code, out, err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertNotEqual(0, code, "stdout=%r stderr=%r" % (out, err))
+        self.assertIn("symlink", (out + err).lower(),
+                      "expected the containment refusal's own message, "
+                      "naming the symlink, not some other failure")
+
+        self.assertEqual(
+            sentinel, self.read(outside),
+            "cmd_zip wrote through the destination symlink before "
+            "refusing: the external file was overwritten with the live "
+            "board's HTML")
+
+    def test_m19_defect_two_a_committed_pack_going_stale_is_catchable(self):
+        """Outside review of the M19 fix above, reproduced by executed
+        command: skeleton wrote board A into the pack, the pack was
+        committed, the live board was edited to B, zip ran again.
+        Afterwards `git diff --stat HEAD` showed the pack's GANTT.html
+        modified, `git show HEAD:<pack>/GANTT.html` still read board A,
+        the working copy read board B, and verify-close returned PASS
+        anyway: the durable committed record held the stale board while
+        every check reported healthy.
+
+        zip must say plainly that it just made the pack dirty, and
+        verify-close must refuse to certify a pack whose tracked files no
+        longer match what git staged for them."""
+        plan_dir = os.path.join(self.root, "docs", "plan")
+        os.makedirs(plan_dir)
+        gantt = os.path.join(plan_dir, "GANTT.html")
+        self.write(gantt, "<html>BOARD A</html>")
+        rec = self.claim("fence-alpha", session_id="closing-session")
+        code, _out, _err = self.run_cli(
+            "skeleton", "--date", "2026-08-20", "--slot", "dirtyzip")
+        self.assertEqual(0, code)
+        pack_dir = os.path.join(self.root, "docs", "handover",
+                                "2026-08-20-dirtyzip")
+        self.fill_pack(pack_dir)
+        code, _out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code)
+
+        rel = os.path.relpath(pack_dir, self.root)
+        git = self._real_git_repo(add_paths=(rel,))
+        git("commit", "-q", "-m", "pack committed with board A")
+
+        # The live board moves on AFTER the pack was committed: the exact
+        # sequence the outside review describes.
+        self.write(gantt, "<html>BOARD B</html>")
+        code, out, _err = self.run_cli("zip", "--pack", pack_dir)
+        self.assertEqual(0, code, out)
+        self.assertIn(
+            "dirty", out.lower(),
+            "zip refreshed a committed pack's board copy and said "
+            "nothing about it: " + out)
+
+        self.park(rec, session_id="closing-session")
+        code, out, _err = self.run_cli(
+            "verify-close", "--pack", pack_dir, "--session", "closing-session")
+        self.assertNotEqual(
+            0, code,
+            "verify-close PASSed on a pack whose committed record still "
+            "reads BOARD A while the working tree reads BOARD B: " + out)
+        self.assertIn("FAIL", out)
+        self.assertIn("GANTT.html", out)
 
 
 # ---------------------------------------------------------------------------

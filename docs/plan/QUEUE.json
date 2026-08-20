@@ -1397,7 +1397,7 @@
   {
    "id": "M15",
    "title": "NOT ESTABLISHED, kept as an open question rather than a claim: whether the installed fence hook treats a PARKED store record as live. The day-run first session reports parking day-run-step1-board before this session was refused on docs/plan/GANTT.html by that same fence, which would make it a second defect beside the prefix-match one, but the attempt to measure it directly was swamped by M14's fail-open warnings and returned ALLOW for both a parked-only path and an actively fenced one, so nothing was established in either direction",
-   "state": "queued",
+   "state": "done",
    "stage": "provenance",
    "clock": "agent",
    "forecast_minutes": 45,
@@ -1423,7 +1423,7 @@
   {
    "id": "M17",
    "title": "the doctor's fence liveness check proves liveness against a THROWAWAY project's store, never against the project it is run in, so it returned PASS on 2026-08-20 while the installed hook was failing open on every write in this repository: the store was at schema 21 and the installed copy understood at most schema 20, so the fence was not checked at all and the doctor still reported the write-protection check wired and live",
-   "state": "queued",
+   "state": "done",
    "stage": "evidence-integrity",
    "clock": "agent",
    "forecast_minutes": 60,
@@ -1449,7 +1449,7 @@
   {
    "id": "M19",
    "title": "the handover pack's board copy is captured at skeleton time and never refreshed, so `zip` re-archives a stale board: measured 2026-08-20 when a session generated its pack, then folded that night's finding into docs/plan/GANTT.html, re-ran zip, and shipped a board copy whose sha256 differed from the live board. This is the SAME defect the ceremony session fixed one layer up that evening (the pack was copying a COMMAND-CENTER.html three days stale) reappearing one layer down, and it is silent: nothing compares the two files",
-   "state": "queued",
+   "state": "done",
    "stage": "evidence-integrity",
    "clock": "agent",
    "forecast_minutes": 30,
@@ -1549,6 +1549,19 @@
     "tools/test_bm.py"
    ],
    "done_check": "each test drives a real store the wired copy genuinely cannot open, and fails when the code is changed to compare source constants only"
+  },
+  {
+   "id": "M27",
+   "title": "the reviewed write-site inventory cannot see two write shapes, so a site can enter a scanned file without ever being reviewed: its mode regex is open\\([^)]*[\"']w[\"'] which matches a bare w and NOT wb, and the compensating .write( pattern does not match .writelines( or shutil.copyfileobj(. Verified 2026-08-21 by running the two patterns directly: open(p, \"wb\") returns False, fh.writelines(lines) returns False, shutil.copyfileobj(src, fh) returns False. NOT currently a live hole in this repository: the one binary open in tools/bm_handover.py is followed on the next line by fh.write(data), which IS matched, so that site is counted. Found while fixing the M19 defects, by the writer that had to touch the inventory twice",
+   "state": "queued",
+   "stage": "evidence-integrity",
+   "clock": "agent",
+   "forecast_minutes": 30,
+   "files": [
+    "tools/test_bm.py",
+    "tools/write_sites.json"
+   ],
+   "done_check": "a file planted with open(p, \"wb\") plus writelines, and one with shutil.copyfileobj, are both counted by the scanner; the regression test fails on the pre-fix patterns"
   }
  ]
 }
