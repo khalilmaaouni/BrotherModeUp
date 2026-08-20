@@ -22,5 +22,9 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
    tuple. That is the third blind spot in the same inventory found in one night, and
    all three were found by whoever happened to be working inside it rather than by an
    audit of it. The question is whether a list of patterns can answer this at all.
-5. R1, then R2, awake, with the clock to finish them.
+5. M16 and M30 together, because they are the same surface: worktrees escape their own
+   root by default, and nothing reconciles what they leave behind. Fixing M16 without
+   M30 leaves 25 orphaned files; fixing M30 without M16 builds a reconciler on top of a
+   root resolver that lies about which tree it is in.
+6. R1, then R2, awake, with the clock to finish them.
 <!-- bm-human:end -->

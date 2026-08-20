@@ -1409,7 +1409,7 @@
   },
   {
    "id": "M16",
-   "title": "a bm_ tool run from inside a git worktree walks UP and finds the MAIN checkout's .brothermode marker, so it reads and writes the shared project instead of the worktree: measured 2026-08-20 when a worktree agent's skeleton run wrote a real handover pack into the main checkout, outside its own sandbox, and could not clean it up afterwards. Worktree isolation is the control that lets parallel writers exist at all, and root resolution silently escapes it unless BROTHERMODE_ROOT is set by hand",
+   "title": "a bm_ tool run from inside a git worktree walks UP and finds the MAIN checkout's .brothermode marker, so it reads and writes the shared project instead of the worktree: measured 2026-08-20 when a worktree agent's skeleton run wrote a real handover pack into the main checkout, outside its own sandbox, and could not clean it up afterwards. Worktree isolation is the control that lets parallel writers exist at all, and root resolution silently escapes it unless BROTHERMODE_ROOT is set by hand MEASURED AND CONFIRMED OPEN 2026-08-21, after the run brief stated a merged branch held M16 while the queue said queued. The contradiction resolves cleanly and the queue was right: commit 153392e's own message reads 'the worktree escape queued as M16', so that branch carried the QUEUE ENTRY, not a fix, and neither commit mentioning M16 touches bm_store.py or bm_fence_hook.py. Reproduced on a throwaway nested clone: with BROTHERMODE_ROOT unset, bm_store init inside the worktree printed 'root resolved via marker' and initialised the MAIN checkout's store; with it set, 'root resolved via env' and the worktree's own. CALLER INVENTORY, counted by hand: 0 production callers in tools/ and scripts/ pass refuse_past_git_boundary=True, and the only 5 call sites that do live in tools/test_bm_store.py, wired to nothing. tools/bm_escalate.py carries a separate reimplementation of the same walk with no such parameter, so it cannot opt in even in principle. Nesting is what triggers it: a sibling-layout worktree did NOT reproduce, and this project's own agent worktrees live at .claude/worktrees/<name>, nested. Evidence: docs/evidence/night-2026-08-21-m16-worktree-escape.md",
    "state": "queued",
    "stage": "provenance",
    "clock": "agent",
@@ -1588,6 +1588,19 @@
     "tools/write_sites.json"
    ],
    "done_check": "a planted file calling json.dump into a handle it did not open is counted by the scanner; the regression test fails on the current nine patterns. Consider whether the honest fix is a pattern list at all, or a check that every file-handle-taking call in the scanned tree is enumerated"
+  },
+  {
+   "id": "M30",
+   "title": "worktrees accumulate with uncommitted deltas and nothing reconciles them: measured 2026-08-21, this repository carries SEVEN stale worktrees under .claude/worktrees/ left by earlier agent sessions, and every one holds uncommitted changes, 25 files in total. Compared byte for byte against origin/main, 19 of the 25 are IDENTICAL and therefore landed by the ordinary route, leaving the worktree as residue; 6 are not identical (agent-a3959916: tools/bm_handover.py and tools/test_bm_handover.py; agent-a8eac56a: pyproject.toml, tools/bm_store.py, tools/write_sites.json; agent-ac527406: CHANGELOG.md), and for four of those main simply moved past them, three by the session that measured this. PO-3 works on the way IN (a worktree agent returns a delta, the orchestrator integrates, re-gates and commits) and has no counterpart on the way OUT. Compounding factor: these worktrees are NESTED, which is the exact layout M16 proves makes a bm_ tool write into the main checkout instead of the worktree",
+   "state": "queued",
+   "stage": "provenance",
+   "clock": "agent",
+   "forecast_minutes": 60,
+   "files": [
+    "tools/bm_handover.py",
+    "tools/test_bm_handover.py"
+   ],
+   "done_check": "a reconciliation command compares each worktree's uncommitted files against the commit it branched from and reports LANDED or UNLANDED per file, refusing to offer removal for any worktree with an UNLANDED file; a regression test drives a fixture worktree in both states. Removal itself stays a founder gate"
   }
  ]
 }

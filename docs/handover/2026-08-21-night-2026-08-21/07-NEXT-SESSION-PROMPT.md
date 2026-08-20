@@ -66,6 +66,12 @@ the three as one unit rather than three tickets.
   findings were REPRODUCED by executed fixture, none refuted. Verbatim text at
   docs/evidence/codex/night-2026-08-21-control-integrity.md. Do not re-litigate them;
   the reproductions are attached to the queue items.
+- M16 IS OPEN and REPRODUCES by default. The run brief said a merged branch held it;
+  that branch held the queue entry, per commit 153392e's own message. Zero production
+  callers opt into the refusal, and bm_escalate.py cannot opt in at all. Evidence:
+  docs/evidence/night-2026-08-21-m16-worktree-escape.md
+- SEVEN stale worktrees under .claude/worktrees/ hold 25 uncommitted files, 19 of them
+  byte identical to main. Do NOT remove any: deletion is the founder's gate. Queued M30.
 - R1 and R2 were deliberately NOT started overnight, on the arithmetic that R1 corrects
   to between 2 and 4.5 hours against a hard 06:45 stop.
 <!-- bm-human:end -->

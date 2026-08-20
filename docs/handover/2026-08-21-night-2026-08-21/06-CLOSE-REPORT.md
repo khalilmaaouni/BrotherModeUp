@@ -58,6 +58,27 @@ WHERE THE BATON LIES, exactly:
    rather than six. Nothing is fixed; the queue entry is corrected and the evidence is
    at docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md.
 
+6. M16 IS OPEN too, and the same brief said a merged branch held it. Commit 153392e's
+   own message reads "the worktree escape queued as M16", so that branch carried the
+   QUEUE ENTRY and not a fix. Reproduced on a throwaway nested clone: with
+   BROTHERMODE_ROOT unset a tool inside the worktree resolved to the MAIN checkout's
+   store, with it set it resolved to the worktree's own. Counted by hand: ZERO
+   production callers pass refuse_past_git_boundary=True, the only five that do are in
+   a test file wired to nothing, and tools/bm_escalate.py reimplements the same walk
+   with no such parameter so it cannot opt in at all.
+
+7. SEVEN STALE WORKTREES hold 25 uncommitted files, and this is the one I would look at
+   first, because it is where the two findings above meet. They sit at
+   .claude/worktrees/, NESTED under the main checkout, which is exactly the layout M16
+   proves makes a tool write into the main store instead of its own. Measured byte for
+   byte against main: 19 of the 25 files are IDENTICAL and therefore landed by the
+   ordinary route; 6 are not, and for four of those main simply moved past them, three
+   by this session tonight. CHANGELOG.md and pyproject.toml are the two where that
+   explanation is weakest. NOTHING WAS TOUCHED: removing a worktree is deletion and
+   deletion is your gate, and moving them would break the registry that makes them
+   findable. Queued as M30 with a reconciliation done-check that refuses to offer
+   removal while any file reads UNLANDED.
+
 WHAT ACTUALLY HAPPENED, in one paragraph. Four controls were fixed, each with a
 regression test proven to fail on the pre-fix shape in this checkout rather than in a
 writer's sandbox. Every local control then passed the work: three suites green, four
