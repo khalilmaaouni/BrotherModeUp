@@ -137,6 +137,11 @@ py-modules = [
     "bm_forecast",
     "bm_idle",
     "bm_toolkit",
+    # 2026-08-20, A5: the smallest verified-reality record. No console
+    # script, matching bm_passport (its own closest structural sibling,
+    # a tool this loop reads as its style template): both are invoked as
+    # `python3 <path>/bm_reality.py <verb>`, never a bare `bm-reality`.
+    "bm_reality",
     # 2026-08-17, the two-host law and the Windows hook port. All three
     # arrived because the packaging gate REFUSED them, which is the whole
     # reason that list is checked rather than trusted: bm_bbstatus is the

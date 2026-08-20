@@ -571,6 +571,28 @@ REGISTRY = {
         "list": PURE_READ,
     },
 
+    # -- bm_reality.py --------------------------------------------------
+    # A5, the smallest verified-reality record (docs/NORTH-STAR-CHAIN.md's
+    # own terminal stage). A bare main(argv), no `cmd_` functions, same
+    # dispatch shape as bm_idle.py just above (its own structural
+    # template) and bm_stall.py just below, so mechanical discovery finds
+    # nothing here and this entry is hand-declared rather than caught by
+    # TestCompleteness. `accept`, `enter` and `defect` each open a
+    # writable bm_store.Store and append exactly one reality_records row;
+    # `defect` also regenerates docs/plan/QUEUE.json first (a
+    # project_write in its own right, folded into its ledger_write
+    # declaration the same way a composite bm_project.py command is,
+    # rather than invented as a sixth class for one verb). `show` opens
+    # ONLY bm_store.ReadOnlyStore and writes nothing, including under
+    # --help: tools/test_bm_effects.py's own purity suite runs it in a
+    # sandbox and proves that, rather than trusting this comment.
+    "bm_reality.py": {
+        "accept": LEDGER_WRITE,
+        "enter": LEDGER_WRITE,
+        "defect": LEDGER_WRITE,
+        "show": PURE_READ,
+    },
+
     # -- bm_stall.py ----------------------------------------------------
     # Loop SD (docs/plan/PROGRAM-PLAN-2026-08-10.md, section "Loop SD"):
     # the active stall/dead-owner/orphan sweep. Its own module docstring

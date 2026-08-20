@@ -218,6 +218,19 @@ SUITES = (
     # assurance file and showing the output does not move. Reaching across
     # the seam to fill a field is the failure the seam exists to prevent.
     "test_bm_passport.py",
+    # The smallest verified-reality record, added 2026-08-20 (A5), sitting
+    # right after the passport suite above because bm_passport.py is this
+    # tool's own structural template. The north-star chain
+    # (docs/NORTH-STAR-CHAIN.md) ends in a stage named verified-reality
+    # that nothing wrote a row for before this suite existed. Its load
+    # bearing tests are the three refusals (an anonymous acceptance, a
+    # record that links back to nothing, a defect that creates no new
+    # intent) and the return edge end to end: a defect must append new
+    # queued intent to docs/plan/QUEUE.json AND fail to write its reality
+    # row at all if that queue append fails, never one without the other.
+    # NO APOSTROPHE ANYWHERE IN THIS COMMENT, ON PURPOSE (see the
+    # file-level note above).
+    "test_bm_reality.py",
     # The first Toolkit verb, added 2026-08-12. bm_toolkit.py inventories
     # every capability the runtime can see: marketplaces, plugins and their
     # versions, hook events, skills, MCP servers and settings layers. The

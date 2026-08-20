@@ -78,7 +78,7 @@ import sys
 import unicodedata
 import uuid
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 STORE_DIRNAME = ".brothermode"
 STORE_FILENAME = "store.sqlite3"
 MAX_ACTIVE_PERSISTENT = 3
@@ -2230,13 +2230,29 @@ _TABLES_CAPABILITY = ("capability_receipts",)
 
 _TABLES_V20 = _TABLES_V19 + _TABLES_CAPABILITY
 
+# Schema 21 (A5, the smallest verified-reality record, docs/NORTH-STAR-
+# CHAIN.md's own terminal stage plus H4's return edge from a defect back to
+# new intent). ONE new table: reality_records, insert only, the record of
+# what actually happened to a release after it shipped (accepted, reopened,
+# rolled back, an incident, or a defect that creates new queued intent).
+# Its own tuple for the same reason every schema above got one: a healthy
+# schema-20 store must be checked against schema 20's table list, or the
+# version check never runs and a store whose only fault is predating this
+# upgrade gets quarantined. The DDL text itself (_REALITY_DDL) is defined
+# further down, after _split_ddl exists; this tuple only needs the table
+# NAME, which costs nothing to name this early.
+_TABLES_REALITY = ("reality_records",)
+
+_TABLES_V21 = _TABLES_V20 + _TABLES_REALITY
+
 _TABLES_BY_VERSION = {1: _TABLES_V1, 2: _TABLES_V2, 3: _TABLES_V3,
                       4: _TABLES_V4, 5: _TABLES_V5, 6: _TABLES_V6,
                       7: _TABLES_V7, 8: _TABLES_V8, 9: _TABLES_V9,
                       10: _TABLES_V10, 11: _TABLES_V11, 12: _TABLES_V12,
                       13: _TABLES_V13, 14: _TABLES_V14, 15: _TABLES_V15,
                       16: _TABLES_V16, 17: _TABLES_V17,
-                      18: _TABLES_V18, 19: _TABLES_V19, 20: _TABLES_V20}
+                      18: _TABLES_V18, 19: _TABLES_V19, 20: _TABLES_V20,
+                      21: _TABLES_V21}
 
 _TABLES = _TABLES_BY_VERSION[SCHEMA_VERSION]
 
@@ -3631,6 +3647,85 @@ _CAPABILITY_RECEIPT_VERIFIED_REQUIRED = ("executor_identity",
 _CAPABILITY_RECEIPT_LIST_FIELDS = ("inputs", "permissions_declared",
                                    "changed_artifacts", "omissions")
 
+# Schema 21 (A5, the smallest verified-reality record). Beside the
+# capability-receipts block for the same reason every schema addition sits
+# beside the one before it: one place to read the whole DDL history in
+# order.
+#
+# INSERT ONLY, same discipline as insights, views and capability_receipts:
+# nothing in this store ever UPDATEs or DELETEs a reality_records row,
+# because a record of what actually happened after a release must not be
+# quietly rewritten by a later, more flattering judgement. Project purge
+# may still remove WHOLE rows (Store.purge_project makes no exception for
+# this table, and needs none: see project_id's own comment below), but no
+# service method here ever edits one.
+#
+# kind carries a CHECK constraint (the same discipline verification_state
+# already follows on capability_receipts) naming the five honest states
+# the north-star chain's return edge can be in: 'accepted' (a human took a
+# release), 'reopened' or 'rolled-back' or 'incident' (something happened
+# to an already-accepted release), and 'defect' (an incident with a name
+# and a new queued intent, H4's own return edge). Store.add_reality_record
+# refuses an unrecognised kind BEFORE the INSERT ever reaches this
+# constraint, so the raised error names the field and lists the five
+# values rather than surfacing a bare sqlite3.IntegrityError.
+#
+# release_id and links_to carry NO REFERENCES clause on purpose, even
+# though release_id for every kind but 'accepted' is, in practice, always
+# copied off an existing accepted row (see add_reality_record's own R2).
+# A hand-typed FK would enforce that copy is correct at the SQL layer for
+# free, but it would also mean a released tag this project stops tracking
+# (a rolled-back release nobody points a project at any more) could never
+# be named by a later incident row, which is precisely the audit trail
+# this table exists to keep. The Python-level check does the same job
+# without that cost: see add_reality_record's own R2.
+#
+# project_id carries NO FOREIGN KEY, deliberately mirroring `attribution`
+# rather than `capability_receipts`: an audit trail of what happened after
+# a release must outlive the project row it describes, so Store.
+# purge_project (which DOES delete every capability_receipts row for a
+# purged project, because that table's own FK forces it to) makes no
+# corresponding change here, and a reality record survives the project
+# that shipped the release it describes, exactly like every attribution
+# row already does.
+_REALITY_DDL = """
+CREATE TABLE IF NOT EXISTS reality_records (
+  record_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN (
+    'accepted','reopened','rolled-back','incident','defect')),
+  release_id TEXT NOT NULL,
+  passport_sha256 TEXT NOT NULL DEFAULT '',
+  accountable TEXT NOT NULL DEFAULT '',
+  occurred_at TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  links_to TEXT NOT NULL DEFAULT '',
+  intent_ref TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  project_id TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT ''
+);
+"""
+
+# Two indexes: one for "every reality record this release has", the read
+# `bm_reality.py show --release` always does, and one for "everything
+# linked back to this accepted record", the read the same command does a
+# second time to gather what happened to it.
+_REALITY_INDEX_DDL = """
+CREATE INDEX IF NOT EXISTS reality_records_release_idx
+  ON reality_records(release_id);
+CREATE INDEX IF NOT EXISTS reality_records_links_to_idx
+  ON reality_records(links_to);
+"""
+
+_REALITY_DDL_STATEMENTS = _split_ddl(_REALITY_DDL)
+_REALITY_INDEX_STATEMENTS = _split_ddl(_REALITY_INDEX_DDL)
+
+# The five honest values reality_records.kind may hold, read by
+# Store.add_reality_record to refuse a bad value before the INSERT ever
+# reaches the table's own CHECK constraint, the same discipline
+# _VERIFICATION_STATES already follows for capability_receipts.
+_REALITY_KINDS = ("accepted", "reopened", "rolled-back", "incident", "defect")
+
 # The closed sets record_view refuses against, and the caller-settable
 # keys of its dict argument. Same discipline and same reason as
 # INSIGHT_KINDS and INSIGHT_FIELDS below: no CHECK constraint in the DDL,
@@ -4896,6 +4991,40 @@ def _migrate_19_to_20(conn):
         conn.execute("ALTER TABLE evidence ADD COLUMN %s %s" % (name, decl))
 
 
+def _migrate_20_to_21(conn):
+    """Schema 20 to 21 (A5, the smallest verified-reality record,
+    docs/NORTH-STAR-CHAIN.md's own terminal stage plus H4's return edge).
+    ONE new table (reality_records). ADDITIVE ONLY: no existing table
+    gains, loses or changes a column, and no existing index is dropped or
+    redefined.
+
+    Follows _migrate_19_to_20's own contract exactly: every statement in
+    _REALITY_DDL_STATEMENTS and _REALITY_INDEX_STATEMENTS is CREATE TABLE
+    IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, safe whether this runs
+    against a genuinely old schema-20 store or, via _ensure_schema,
+    against a brand new one that already has the table.
+
+    Same contract as every migration before it: it runs inside the
+    caller's BEGIN EXCLUSIVE, so it must never commit, roll back, or open
+    a transaction of its own; that is also why it walks _split_ddl's
+    statement list instead of calling executescript, whose implicit
+    COMMIT would end the caller's transaction underneath it.
+
+    What this deliberately does NOT do: it does not backfill a reality
+    record for a release this project already shipped before this table
+    existed. There is no prior judgement anywhere to backfill FROM, the
+    same reasoning _migrate_19_to_20 states for capability receipts: a
+    reality record attests that a human accepted a release AT THE TIME,
+    never a claim invented after the fact. Every project that predates
+    schema 21 therefore has an empty reality_records table, honestly
+    reporting that nothing was recorded rather than inventing an
+    acceptance nobody performed."""
+    for statement in _REALITY_DDL_STATEMENTS:
+        conn.execute(statement)
+    for statement in _REALITY_INDEX_STATEMENTS:
+        conn.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_1_to_2,
     2: _migrate_2_to_3,
@@ -4916,6 +5045,7 @@ _MIGRATIONS = {
     17: _migrate_17_to_18,
     18: _migrate_18_to_19,
     19: _migrate_19_to_20,
+    20: _migrate_20_to_21,
 }
 
 # GATE C (fix-round 6, 2026-07-26): DEFAULT-DENY. dump() used to redact an
@@ -5771,6 +5901,29 @@ _DUMP_SAFE_COLUMNS = frozenset((
     ("capability_receipts", "task_id"),
     ("capability_receipts", "verification_state"),
     ("capability_receipts", "created_at"),
+    # Schema 21 (A5, the smallest verified-reality record). Identifiers,
+    # the one true enum (kind carries a real CHECK constraint, exactly the
+    # reasoning verification_state is on this list for), the hash-shaped
+    # passport_sha256 (safe for the same reason autosave_receipts.
+    # snapshot_sha and .tree_sha already are: a git-shaped or sha256-shaped
+    # identifier, not prose), and two timestamps.
+    #
+    # DELIBERATELY ABSENT, and therefore withheld under the default
+    # raw=False export: release_id, accountable, detail and session_id.
+    # release_id is free text a caller supplies (a tag, a version plus a
+    # commit); accountable is a person's name, the same reason
+    # attribution.actor_name is absent from this list; detail is founder
+    # or model-typed prose; session_id is this codebase's own generated
+    # identifier in the ordinary case but, like attribution.session_id
+    # before the F1 fix, not worth shape-gating here for a table whose
+    # whole readable surface (bm_reality.py show) already opens the store
+    # with raw=True, the same choice bm_view.py's own render functions
+    # make for every table they read.
+    ("reality_records", "record_id"), ("reality_records", "kind"),
+    ("reality_records", "project_id"), ("reality_records", "occurred_at"),
+    ("reality_records", "recorded_at"), ("reality_records", "links_to"),
+    ("reality_records", "intent_ref"),
+    ("reality_records", "passport_sha256"),
 ))
 
 
@@ -7002,6 +7155,12 @@ class Store(object):
             # is safe on a store that was just created with the receipts
             # table and the evidence column already present.
             _migrate_19_to_20(self.conn)
+        if SCHEMA_VERSION >= 21:
+            # Same rule again. Every statement in _migrate_20_to_21 is
+            # CREATE TABLE IF NOT EXISTS or CREATE INDEX IF NOT EXISTS, so
+            # this call is safe on a store that was just created with the
+            # reality_records table already present.
+            _migrate_20_to_21(self.conn)
         self.conn.execute(
             "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),))
@@ -12938,6 +13097,127 @@ class Store(object):
                                      evidence_ref=receipt_dict["receipt_id"])
         return receipt_dict["receipt_id"]
 
+    def add_reality_record(self, record_dict):
+        """Append ONE row to reality_records (A5, the smallest honest
+        record of what actually happened after a release, docs/NORTH-STAR-
+        CHAIN.md's own terminal stage), INSERT ONLY: nothing here ever
+        UPDATEs or DELETEs a row, because the whole point of this table is
+        that a later, more flattering judgement cannot quietly rewrite
+        what was recorded at the time. Returns {'record_id', 'kind',
+        'release_id'}.
+
+        `record_dict` accepts: kind (required), release_id,
+        passport_sha256, accountable, occurred_at, links_to, intent_ref,
+        detail, project_id, session_id, and an OPTIONAL record_id. Every
+        caller but one leaves record_id out and gets a fresh
+        uuid.uuid4().hex, generated here, the same choice record_view and
+        record_insight already make for their own primary keys. The one
+        exception is bm_reality.py's `defect` verb: it must write this
+        row's own id into a docs/plan/QUEUE.json item's provenance field
+        BEFORE this row exists (see that command's own docstring for why
+        the write order runs queue-first), so it generates the id itself
+        and passes it through here as record_id, which this method uses
+        verbatim instead of minting a second one.
+
+        THREE REFUSALS, the whole reason this table exists rather than a
+        plain JSON log a founder could hand-edit into looking better than
+        it was, each an OwnershipRefused with a kebab-case reason code,
+        each refusing with NOTHING written:
+
+          unrecognised kind      any value outside _REALITY_KINDS is
+                                 refused before anything else runs,
+                                 naming all five ('bad-reality-kind')
+          R1  'unaccountable-acceptance'
+                                 kind 'accepted' with an empty accountable
+                                 or an empty release_id: nobody accepts a
+                                 release anonymously
+          R2  'no-accepted-release'
+                                 kind 'reopened', 'rolled-back',
+                                 'incident' or 'defect' whose links_to does
+                                 not name an EXISTING 'accepted' row: an
+                                 incident that links back to nothing
+                                 cannot be audited. release_id for these
+                                 four kinds is NEVER taken from the
+                                 caller: it is read off the linked
+                                 accepted row inside THIS transaction, so
+                                 a reopened/incident/defect record can
+                                 never claim a release identity that
+                                 disagrees with the release it names.
+          R3  'defect-without-intent'
+                                 kind 'defect' with an empty intent_ref:
+                                 this is the north-star chain's return
+                                 edge (H4), and a defect that creates no
+                                 new intent leaves the loop open
+
+        project_id carries no existence check and no foreign key (see
+        _REALITY_DDL's own comment): this table's whole purpose is to
+        outlive the project row it describes, so a project that no longer
+        exists, or never did, is exactly as legal a value as a real one.
+
+        No attribution event is written for this row. Every other write
+        method in this store pairs its own table with an attribution
+        event because the entity table records WHAT changed and
+        attribution records WHO changed it and WHY; reality_records
+        already carries both (accountable, occurred_at, detail) on the
+        row itself, so a second ledger entry about the act of writing an
+        audit row would be a duplicate ledger with no reader."""
+        kind = record_dict.get("kind")
+        if kind not in _REALITY_KINDS:
+            raise OwnershipRefused(
+                "bad-reality-kind",
+                "kind must be one of %s, got %r"
+                % (" | ".join(_REALITY_KINDS), kind))
+        record_id = record_dict.get("record_id") or uuid.uuid4().hex
+        recorded_at = now_iso()
+        occurred_at = (record_dict.get("occurred_at") or "").strip() or recorded_at
+        accountable = (record_dict.get("accountable") or "").strip()
+        passport_sha256 = (record_dict.get("passport_sha256") or "").strip()
+        detail = record_dict.get("detail") or ""
+        project_id = record_dict.get("project_id") or ""
+        session_id = record_dict.get("session_id") or ""
+        with self._transaction():
+            if kind == "accepted":
+                release_id = (record_dict.get("release_id") or "").strip()
+                if not release_id or not accountable:
+                    raise OwnershipRefused(
+                        "unaccountable-acceptance",
+                        "an accepted release must carry a non-empty "
+                        "release_id and a non-empty accountable name; "
+                        "nobody accepts a release anonymously")
+                links_to = ""
+                intent_ref = ""
+            else:
+                links_to = (record_dict.get("links_to") or "").strip()
+                linked = None
+                if links_to:
+                    linked = _exec(
+                        self, "SELECT release_id, kind FROM reality_records "
+                        "WHERE record_id=?", (links_to,)).fetchone()
+                if linked is None or linked["kind"] != "accepted":
+                    raise OwnershipRefused(
+                        "no-accepted-release",
+                        "links_to %r does not name an existing 'accepted' "
+                        "reality record; a %r record cannot be audited "
+                        "without one" % (links_to, kind))
+                release_id = linked["release_id"]
+                intent_ref = (record_dict.get("intent_ref") or "").strip()
+                if kind == "defect" and not intent_ref:
+                    raise OwnershipRefused(
+                        "defect-without-intent",
+                        "a defect must carry intent_ref (the queue item "
+                        "id it created); a defect that creates no new "
+                        "intent leaves the north-star chain's return "
+                        "edge (H4) open")
+            _exec(self,
+                  "INSERT INTO reality_records (record_id, kind, "
+                  "release_id, passport_sha256, accountable, occurred_at, "
+                  "recorded_at, links_to, intent_ref, detail, project_id, "
+                  "session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (record_id, kind, release_id, passport_sha256,
+                   accountable, occurred_at, recorded_at, links_to,
+                   intent_ref, detail, project_id, session_id))
+        return {"record_id": record_id, "kind": kind, "release_id": release_id}
+
     def create_task(self, task_dict, actor):
         """Create ONE task, mirror its depends_on list into the
         dependencies table (the queryable truth; the tasks.depends_on
@@ -13819,6 +14099,41 @@ class Store(object):
         return [_export_row(self.conn, "capability_receipts", dict(r),
                              _CAPABILITY_RECEIPT_LIST_FIELDS, raw=raw)
                 for r in rows]
+
+    def list_reality_records(self, release_id=None, links_to=None,
+                             raw=False):
+        """Every reality_records row, newest first (recorded_at DESC,
+        record_id tie break, the same order list_attribution and
+        list_views already use for their own append-only history).
+        `release_id` and `links_to` each narrow the read by exact match,
+        both optional, both combinable: bm_reality.py's `show` verb uses
+        `release_id` to find the accepted row(s) for a release and
+        `links_to` to gather everything recorded against one of them, in
+        two separate calls, never one query trying to do both jobs at
+        once."""
+        clauses = []
+        params = []
+        if release_id is not None:
+            clauses.append("release_id=?")
+            params.append(release_id)
+        if links_to is not None:
+            clauses.append("links_to=?")
+            params.append(links_to)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = _exec(self,
+            "SELECT * FROM reality_records%s "
+            "ORDER BY recorded_at DESC, record_id DESC" % where,
+            tuple(params)).fetchall()
+        return [_export_row(self.conn, "reality_records", dict(r), raw=raw)
+                for r in rows]
+
+    def get_reality_record(self, record_id, raw=False):
+        """ONE reality_records row by id, or None if no such record."""
+        row = _exec(self, "SELECT * FROM reality_records WHERE "
+                    "record_id=?", (record_id,)).fetchone()
+        if row is None:
+            return None
+        return _export_row(self.conn, "reality_records", dict(row), raw=raw)
 
     def list_alerts(self, resolved=None, raw=False):
         """Every alert, newest first (created_at DESC, alert_id tie
@@ -17531,6 +17846,22 @@ class ReadOnlyStore(object):
         return Store.list_capability_receipts(
             self, project_id, task_id=task_id,
             capability_name=capability_name, raw=raw)
+
+    # -- A5: the smallest verified-reality record (read-only surface) -----
+    # Same reuse, same reason as every D-2 accessor above: each of these
+    # only ever SELECTs through _exec and redacts through _export_row, so
+    # Store's implementation works unchanged against a read-only
+    # connection. No write method (add_reality_record) is defined anywhere
+    # on this class, which is what makes "a diagnostic cannot fabricate a
+    # verified-reality row" structural rather than a convention.
+
+    def list_reality_records(self, release_id=None, links_to=None,
+                             raw=False):
+        return Store.list_reality_records(self, release_id=release_id,
+                                          links_to=links_to, raw=raw)
+
+    def get_reality_record(self, record_id, raw=False):
+        return Store.get_reality_record(self, record_id, raw=raw)
 
     def list_alerts(self, resolved=None, raw=False):
         return Store.list_alerts(self, resolved=resolved, raw=raw)

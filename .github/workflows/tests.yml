@@ -229,6 +229,13 @@ jobs:
       # consuming side and depositing one fills nothing while looking filled.
       - name: Run the change passport producer suite
         run: python3 tools/test_bm_passport.py
+      # The verified-reality record suite, added 2026-08-20 (A5). Its load
+      # bearing test is the return edge: a defect that creates no new
+      # intent row is refused, because a defect the chain cannot route
+      # back into intent leaves the loop open, and a record of reality
+      # that does not feed the next intent is a log rather than a loop.
+      - name: Run the verified-reality record suite
+        run: python3 tools/test_bm_reality.py
       # The Toolkit inventory suite, added 2026-08-12. Its load bearing test
       # is the false-versus-null distinction on whether a plugin is enabled:
       # one is a fact, the other is could-not-tell, and a conflict report

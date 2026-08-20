@@ -1087,6 +1087,16 @@ class TestFixRoundGates(unittest.TestCase):
                                  "because this guard caught the new "
                                  "migration, which is the guard working "
                                  "exactly as every entry above it records",
+            "_migrate_20_to_21": "a schema migration step, run INSIDE the "
+                                 "caller's BEGIN EXCLUSIVE (A5, the "
+                                 "smallest verified-reality record). Two "
+                                 "bare calls, both deliberate: the CREATE "
+                                 "TABLE and CREATE INDEX statements take "
+                                 "the same exemption and same reason as "
+                                 "_migrate_16_to_17, because a CREATE "
+                                 "TABLE failing mid-migration must roll "
+                                 "the caller's transaction back rather "
+                                 "than move the founder's store aside",
         }
         with io.open(os.path.join(HERE, "bm_store.py"), encoding="utf-8") as f:
             source = f.read()
@@ -24301,7 +24311,13 @@ class TestEveryProjectScopedTableIsPurged(unittest.TestCase):
     # thing a deletion must not erase. Any OTHER table with a project_id
     # column that purge_project leaves behind is a defect, and must fail
     # below rather than sit next to this one under a shared excuse.
-    _EXEMPT = frozenset(["attribution"])
+    #
+    # reality_records (A5) takes the same exemption, deliberately: it
+    # carries a project_id column with no foreign key, mirroring
+    # attribution on purpose, because an audit trail of what actually
+    # happened after a release must outlive the project row it
+    # describes. purge_project never touches it.
+    _EXEMPT = frozenset(["attribution", "reality_records"])
 
     def _tables_with_project_id(self, store):
         names = [r["name"] for r in store.conn.execute(
