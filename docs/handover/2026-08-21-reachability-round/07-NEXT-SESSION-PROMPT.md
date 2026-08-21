@@ -63,7 +63,7 @@ old shape, and the docs and registries that lag new code.
 
 <!-- bm-human:begin -->
 0. OPEN. Freeze check, ceremony, founder rules, claim before writing.
-     cd /Users/khalil.maaouni/Documents/BrotherModeUp
+     `cd /Users/khalil.maaouni/Documents/BrotherModeUp`
      git fetch --tags origin && git rev-parse --short HEAD && git status --porcelain | wc -l
      python3 tools/bm_handover.py detect && python3 tools/bm_stall.py && python3 tools/bm_idle.py check
    EXPECTED: HEAD 4c36ac9 or later, tree clean, tag v3.3.2 present, detect clean,

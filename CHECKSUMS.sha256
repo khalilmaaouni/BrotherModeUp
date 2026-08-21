@@ -220,6 +220,7 @@ c7071aa34bbbcc77c65415b4c6f43d6d5737324ced7fe18028d4932ee0f2475e  docs/evidence/
 078f3e49918a36d93f1432bf6940ce637b7884d23010dabae8ed8613c0837b11  docs/evidence/ecosystem/RESEARCH-2026-08-11.md
 86a69b3da728d7ef3dc1d8135458ae42a141c5b7158ce95a6196e2c7d9d871d2  docs/evidence/final-close/FINDINGS-LEDGER.md
 bccdbe46a94114c3418b8e497bd04efe8a0729fae8bb2ec6b767e5a89c8cc533  docs/evidence/final-close/GANTT-2026-08-09-snapshot.html
+a8a8b3d61429816202c3413183fdc6632c3155b22e02b66e5567f1c5ea005709  docs/evidence/market-scan-2026-08-21.md
 7824752a6d3a04e590fe4f931885dd079b7d075cf3168e0c9c659a4c4544ef04  docs/evidence/night-2026-08-21-closed-item-audit.md
 74243298cbb3a95451876e8e07076fa4f3f8e813c010b1ff573241f29e878353  docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md
 74143cc9f09f35d71b94a338a81cbde010df0437cd3304915a22cfc3e874819b  docs/evidence/night-2026-08-21-m15-parked-record.md
@@ -517,7 +518,7 @@ a8e133124eeec6c84cecb19989e5412bf007ff3511e4e1887e6e8f64a7e1d9a2  docs/handover/
 301e4c8d1df3f686cb5b5b7376b6abeb7ba4bd80007323e3ef4ae32831d8ad08  docs/handover/2026-08-21-reachability-round/04-NEXT-LOOPS-PRIORITIZED.md
 82b0651a132db9812545b4e221c5c32886a5b3ec397a841c3092241e84c33543  docs/handover/2026-08-21-reachability-round/05-VAULT-AND-OBSIDIAN.md
 ba92eae1eb46905c02540917bd46da355f5ef0f8fe89fa7d67066269c76bd226  docs/handover/2026-08-21-reachability-round/06-CLOSE-REPORT.md
-e91fdda3eb513d4d2f7e8eeb9bfaba552f0c8863e290ca5447a9859f2fdec8dc  docs/handover/2026-08-21-reachability-round/07-NEXT-SESSION-PROMPT.md
+b7695e466c523d8fbc1e9da1b344f17b7dd1c6e63d0030384866db9bc1edddee  docs/handover/2026-08-21-reachability-round/07-NEXT-SESSION-PROMPT.md
 d95d456a019dcac48d422dfc7d4a2162d8ebe0d101175770b032380ed9262f9a  docs/handover/2026-08-21-reachability-round/GANTT.html
 4a0aa5d30e262ae8559aefd7ff33d1e13dae1cc3e7297206e8d2a9b34bf285de  docs/handover/README.md
 e7f67bb7db6dc495003098bbbdfeef799ccb5b9a83614802a9f3f4b08971e090  docs/knowledge/LESSONS.md
