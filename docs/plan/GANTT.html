@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Day Run Board</title>
+<title>BrotherMode Board</title>
 <style>
 :root{
   --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
@@ -139,14 +139,18 @@ footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);
 code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
 a{color:var(--bm-accent)}
 a:focus-visible,li:focus-visible{outline:2px solid var(--bm-accent);outline-offset:2px}
+details.carried{margin:0 0 13px}
+details.carried>summary{cursor:pointer;font-family:var(--sans);font-size:14px;font-weight:600;color:var(--bm-muted);padding:8px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<p class="eyebrow">BrotherMode and BrotherSBE // the 2026-08-20 day run</p>
-<h1>The day the chain gets its passport</h1>
-<p class="stamp">Refreshed 2026-08-20 17:40 JST by the day-run CLOSING session (bm1-0a17e1d9) at its close. A5 CLOSED and pushed. A6 CLOSED: release 3.3.2 is prepared to your tag step and stops there. Its cross-family debate returned NOT READY on four blockers; two are closed and verified by direct attack, one major with them, and the other two are now stated in the CHANGELOG itself rather than claimed past, and queued as R1 and R2. YOUR TWO COMMANDS ARE IN THE PACK AND NOTHING LANDS ON MAIN UNTIL YOU RUN THEM. Grant window: 10,000,000 until 23:00 JST.<br>
+<p class="eyebrow">BrotherMode and BrotherSBE // the overnight plan of 2026-08-22, the team's list first</p>
+<h1>The night the team's list comes first</h1>
+<p class="stamp">Refreshed 2026-08-22 02:5x JST by the planning session (bm1-a4ba8509), which wrote no product code: the status of every item the adopter team raised was re-measured against code in both repositories, the overnight WBS was written to docs/plan/OVERNIGHT-2026-08-22-TEAM-COMPLAINTS-WBS.md, and this board was rebuilt from it. The stable artifact link recorded in PROJECT.md answers NOT FOUND to this account, so this page travels as its own HTML file inside the handover zip and no second artifact was minted.<br>
+EARLIER STAMPS, kept as history:<br>
+Refreshed 2026-08-20 17:40 JST by the day-run CLOSING session (bm1-0a17e1d9) at its close. A5 CLOSED and pushed. A6 CLOSED: release 3.3.2 is prepared to your tag step and stops there. Its cross-family debate returned NOT READY on four blockers; two are closed and verified by direct attack, one major with them, and the other two are now stated in the CHANGELOG itself rather than claimed past, and queued as R1 and R2. YOUR TWO COMMANDS ARE IN THE PACK AND NOTHING LANDS ON MAIN UNTIL YOU RUN THEM. Grant window: 10,000,000 until 23:00 JST.<br>
 EVENING ADDENDUM, 2026-08-20 22:0x JST by a second session (bm1-2bd79386), merged on top of the 17:40 board rather than over it: the handover ceremony now GENERATES its own next-session prompt and verify-close refuses a pack whose slots are unfilled, landed on branch feature/ceremony-carries-the-next-prompt at 23d4c92 with the full gate ALL GREEN over 3472 tests across 42 suites. Main is untouched at eacf249. The founder decided FIX FIRST on the two remaining findings (R1 and R2), so the local v3.3.2 tag stays unpushed for now.<br>
 NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of both earlier boards rather than over them. The v3.3.2 tag is PUSHED and confirmed, which ended the freeze and cleared the last red test. THAT SUPERSEDES THE LINE ABOVE saying the tag stays unpushed pending R1 and R2: asked in the live session, he said push, and it stands on that explicit yes. Stated plainly because it is a process miss worth seeing: the earlier FIX FIRST decision was NOT put in front of him at the moment of asking. What the tag did was then checked rather than assumed, and it published nothing (no Release object exists, Actions are disabled, no run fired, and the release notes already disclose both findings in prose). R1 and R2 remain queued and unfixed. Then the night turned: one writer per file was NOT being enforced anywhere in this repository, for any session, and the two controls that own that question both reported healthy. Repaired on your call, proven by a refusal fired at the live store, and main fast forwarded to carry both sessions.<br>NIGHT ADDENDUM, 2026-08-21 by the OVERNIGHT session (bm1-3989fa29), CLOSED at 04:0x JST with main at 478f4fa, green and pushed, after a second unit taken because the first closed three hours early. Merged on top of the earlier boards rather than over them. The control-integrity unit is CODED, GATED and PUSHED: M19, M17, M18 and the M15 measurement, four items, each with a regression test proven to fail on the pre-fix shape in this checkout and not only in a writer sandbox. Two full gates ALL GREEN, 3474 then 3476 tests across 42 suites. Then the cross-family debate returned NOT READY on 16 findings, 8 of them BLOCKER, and a separate reproduction pass executed all eight and reproduced 8 OF 8. None was refuted. Two of those defects were introduced by the very commits closing this unit, and one of them I had reviewed by hand and cleared. Five are fixed tonight, seven are queued as M20 to M26, two were examined and are not defects. THE UNIT IS NOT CALLED DONE, because your rule is that findings become plan updates first, and because M18 does not yet answer its own question. Grant window: 10,000,000 until 07:00 JST, and the figure had to be applied to this project block by hand, because the note naming it was written without the numbers.<br>TICK CONTRACT: a box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions.</p>
 
@@ -159,77 +163,184 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
 <div class="strip">
   <div class="card now">
     <span class="k">Now</span>
-    <p><span class="big">Four controls fixed, then caught lying again</span>The four control-integrity items are coded, tested, gated green twice and pushed. An outside model family then read the same code and found 16 defects, 8 of them blocking, and every one of the eight reproduced when executed. Two were introduced by these very commits. Five are already fixed on top; the rest are queued by name.</p>
+    <p><span class="big">7 of 14 closed, 0 shipped</span>Seven of the fourteen problems the adopter team raised are closed in the sibling's source, and none has reached them yet. The newest public tag is still v3.2.0, main sits 150 commits ahead of it, and the tag is blocked behind a red gate battery, a history decision and a branch ruleset.</p>
   </div>
   <div class="card you">
     <span class="k">Waiting on you</span>
-    <p><span class="big">3 now</span>Nothing is blocking tonight. The grant question is closed: you named 10 million and it is applied. What needs you is whether M18 counts as closed when it still cannot answer its own question, and the standing Bitbucket seats. The third is seven stale worktrees holding 25 uncommitted files: 19 provably landed, 6 needing a look, none touched because deletion is your gate. All three have a default if you say nothing.</p>
+    <p><span class="big">6 now</span>The budget for tonight, the launch window, SBE-2 (authorise the fix band), SBE-1 (the history decision on nine already-public objects), the board's own account, and the tag plus the note to the two lead reviewers. Each has a default if you say nothing, listed below.</p>
   </div>
   <div class="card risk">
     <span class="k">Risk watch</span>
-    <p><span class="big">A done state is a claim nothing re-checks</span>Three items recorded as CLOSED were open: M14 retired against a hook it does not name, M16 where a brief read a queue entry as a fix, and M9 found only because the first two made me suspicious. An audit of 14 of the 50 done items found four more whose check no longer means what it says. Eight full gates were green through all of it, because none of this is the kind of thing a test suite asks.</p>
+    <p><span class="big">Nothing reaches the team until the tag</span>The sibling's gate battery stops at command 4 of 52: six suites red, seven eval regressions on top. Separately, the stable board link in PROJECT.md answers not found to this account, so this page ships as its own file rather than a link.</p>
   </div>
   <div class="card fc">
     <span class="k">Forecast</span>
-    <p><span class="big">420 agent minutes queued, none tonight</span>M20 to M26 carry 420 minutes on the agent clock. Corrected by this project's measured 2.24 multiplier (n=14, judged), that is roughly 16 to 21 hours of wall time, so it is several sessions and not one. Nothing in that list is started tonight, deliberately.</p>
+    <p><span class="big">530 agent minutes briefed, 740 to 1190 actual</span>Corrected by this project's two measured multipliers (2.24x judged, n=14; 1.39x any, n=17), the MUST band runs 6 to 9 hours of wall time with two to three writers. Launched now to the 07:00 JST hard stop (about 4 hours) buys S0, S1a to S1d, S2, S6, S7 and the ceremony. Launched 22:00 to 07:00 buys every MUST row.</p>
   </div>
 </div>
 
-<h2>Short range: today, two-hour blocks<span class="n">09:00 to 23:00 JST</span></h2>
+<h2>Short range: tonight, hourly blocks<span class="n">22:00 to 06:00 JST; a launch now (about 02:50) starts at the 03 column</span></h2>
 <div class="scroll">
 <table class="gantt">
-<thead><tr><th class="lbl">Lane and task</th><th>09</th><th>11</th><th>13</th><th>15</th><th>17</th><th>19</th><th>21</th><th>23</th></tr></thead>
+<thead><tr><th class="lbl">Lane and task</th><th>22</th><th>23</th><th>00</th><th>01</th><th>02</th><th>03</th><th>04</th><th>05</th><th>06</th></tr></thead>
 <tbody>
-<tr><td class="lbl"><span class="cnt">3/3</span>Open: grant raised, ceremony done, rules surfaced</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>Step 1: this board, rebuilt and republished</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">4/4</span>A1 trust-surface fixes</td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">6/6</span>A2 change passport producer, plus its codex debate</td><td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">8/8</span>A3 the complaint fixes, M12 registry mismatch added</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>A4 every backlog item names its stage</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>Gate catch and fix: M2 guard learns partial delivery</td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>A5 smallest after-release record, plus the four refusals made readable</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/1</span>A6 close: 3.3.2 cut, its debate answered, the install smoke PASSED</td><td></td><td></td><td></td><td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">3/3</span>Lane B handshake confirmed: identical fixture bytes both repos, sibling closed</td><td></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td><div class="bar done"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">1/3</span>Your gates: smoke answered, the tag and the install swap still yours</td><td></td><td></td><td></td><td><div class="bar done"></div></td><td><div class="bar wall"></div></td><td><div class="bar wall"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S0 open: detect live sessions, read the pack, pin the base sha</td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>S1a to S1d fix band: discover, interop, sandbox, stall detector</td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/7</span>S1e fix band: the seven eval regressions</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S2 p5-wall-of-text: short status form by default</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S3 H7-reviewer-concentration</td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S4 H8-opened-closed-pair</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S5 H5 writer: rollback, reopen, escaped defect, incident</td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S6 H9 finish: clear the remaining fence registry rot</td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S7 p12 docs gap: name the Bitbucket seat block</td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>S8 p2 BA guide, draft only</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>M-a and M-b: queue reconciliation and the p1 decision, bookkeeping</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>The baton ceremony, 45 minutes reserved before the hard stop</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td></tr>
 </tbody>
 </table>
 <p class="key"><span><i class="bar done"></i>done, check quoted</span><span><i class="bar sched"></i>scheduled, running now</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>waits for your hand</span></p>
 </div>
 
-<h2>Long range: the eight gates to category leadership<span class="n">by gate, not by date</span></h2>
+<h2>Long range: the team's list to the tag<span class="n">by row, not by date</span></h2>
 <div class="scroll">
 <table class="gantt">
-<thead><tr><th class="lbl">Gate</th><th>today</th><th>+1d</th><th>+3d</th><th>+1w</th><th>+2w</th><th>+1m</th><th>+2m</th><th>later</th></tr></thead>
+<thead><tr><th class="lbl">Row</th><th>tonight</th><th>+1d</th><th>+3d</th><th>+1w</th><th>+2w</th><th>+1m</th></tr></thead>
 <tbody>
-<tr><td class="lbl"><span class="cnt">1/6</span>Gate 0, a trust surface with no contradictions</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/8</span>Gate 1, own Claude Code execution trust</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/6</span>Gate 2, the change passport as a hard contract</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">3/8</span>Gate 3, independent assurance complete</td><td><div class="bar est"></div></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/4</span>Gate 4, verified reality closes the loop</td><td><div class="bar est"></div></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/5</span>Gate 5, five external pilots, twenty deliveries</td><td></td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
-<tr><td class="lbl"><span class="cnt">0/4</span>Gate 6, distribution without becoming generic</td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td></tr>
-<tr><td class="lbl"><span class="cnt">0/2</span>Gate 7, second runtime, only on proven demand</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">7/14</span>The fourteen raised problems, closed in source</td><td><div class="bar done"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/14</span>Shipped to the team</td><td></td><td><div class="bar wall"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/11</span>Fix band: four suites and seven evals</td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>Push main: the history decision, then the ruleset</td><td></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>Tag and the note to the two lead reviewers, your hand</td><td></td><td><div class="bar wall"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/7</span>MUST rows S2 to S8</td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/6</span>SHOULD rows S9 to S14</td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/2</span>T3 design: p10 and p13</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>Parked on people: H1, p5 stale status, p12 seat, p2 sign-off</td><td></td><td></td><td></td><td><div class="bar wall"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/4</span>This repository's chosen round: M22, M18, M26, then M20</td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>The sibling's chosen round, the reality command</td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
 </tbody>
 </table>
-<p class="key"><span><i class="bar sched"></i>scheduled today</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>needs people outside this machine</span></p>
+<p class="key"><span><i class="bar done"></i>done, check quoted</span><span><i class="bar est"></i>estimate, faint on purpose</span><span><i class="bar wall"></i>needs people outside this machine</span></p>
 </div>
-<p class="lede">Gate counters count named exit conditions from the strategy document, not impressions. Gate 3 stands at 3 of 8 because the sibling's behaviour, risk, and required-proof concerns already exist and refuse things; the mandate audit verified that directly. Today attacks Gates 0, 1, 2 and the first sliver of 4.</p>
+<p class="lede">Counters count rows of the WBS, never impressions. Done means landed in source with a commit named, not shipped: the team's fourteen problems read 7/14 done for exactly that reason, and shipped stays 0/14 until the tag is cut.</p>
 
-<h2>Decisions waiting on you<span class="n">2</span></h2>
+<h2>Decisions waiting on you<span class="n">6</span></h2>
 <div class="decks">
   <div class="deck you">
-    <span class="tag">Whenever you wake</span>
-    <h4>Does M18 count as closed?</h4>
-    <p>M18 asks whether a wired fence hook can REACH A VERDICT. What shipped compares two source version constants and never opens a store at all: the reproduction put it plainly, migrate_install never opens any .sqlite3 file. So it catches a stale install and misses a store the wired copy genuinely cannot read. It is a real improvement that does not answer its own question. I have left it OPEN rather than tick it. <b>Default if you say nothing:</b> it stays open, and M22 and M26 carry the remaining work. <b>The alternative</b> is to accept it as a partial win and close it, which I do not recommend, because the whole unit exists to stop controls claiming more than they checked.</p>
+    <span class="tag">Before you sleep</span>
+    <h4>The budget for tonight's run</h4>
+    <p>Baseline is 800,000 output tokens per session (~/.claude/spend-guard.json, default block); 8,000,000 and 10,000,000 were used the last two nights, each with an until at 07:00 JST. <b>Default if you say nothing:</b> the run starts at the baseline and stops at the brake with a handover; it never raises its own ceiling. <b>Recommended:</b> 8,000,000 until 07:00 JST, written into the sibling's project block with an until.</p>
   </div>
   <div class="deck you">
-    <span class="tag">Standing, whenever</span>
-    <h4>Bitbucket seats</h4>
-    <p>The test workspace is still read-only from the seat limit. Nothing today needs it: host-neutral checks run locally and the Bitbucket leg is labeled blocked by name, exactly as documented. Freeing seats reopens that leg whenever you choose.</p>
+    <span class="tag">Before you sleep</span>
+    <h4>The launch window</h4>
+    <p>Now to 07:00 JST (about 4 hours) buys S0, S1a to S1d, S2, S6, S7 and the ceremony. 22:00 to 07:00 JST (9 hours) buys every MUST row. <b>Default if you say nothing:</b> the run launches now and stops at 07:00 JST regardless. <b>Recommended:</b> whichever window you can actually grant; the fix band's size is unknowable until it runs, so more window is safer.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Before you sleep</span>
+    <h4>SBE-2: authorise the fix band for the six red suites</h4>
+    <p>The sibling's gate battery stops at command 4 of 52, six suites red, before any seal can be attempted. <b>Default if you say nothing:</b> the band does not open; the run takes S2, S6, S7 and the SHOULD items instead, and the tag stays blocked. <b>Recommended:</b> authorise; it is the critical path.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Whenever you wake</span>
+    <h4>SBE-1: the nine already-public objects carrying two private terms</h4>
+    <p>One suite, the private-name history test, cannot be fixed by code. <b>Default if you say nothing:</b> the history test stays the one named red; nothing tonight is blocked by it except the push to main. <b>Recommended:</b> accept and record the flip condition (a clean extraction if a third exposure appears), because the objects are already public and a rewrite has its own recorded failure class.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Whenever you wake</span>
+    <h4>The board's account</h4>
+    <p>The stable link in PROJECT.md (bf99e884) answers not found to this account; the sibling found on 2026-08-21 that boards published from different accounts cannot be updated across accounts. <b>Default if you say nothing:</b> the board travels as its HTML file in the pack's zip and no second artifact is minted. <b>Recommended:</b> open the link from the account that published it, or name this account as the board's owner so the next close republishes from it and PROJECT.md records the new link.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Whenever you wake</span>
+    <h4>The tag and the note to the two lead reviewers</h4>
+    <p>Everything up to the cut is prepared; the run stops there. <b>Default if you say nothing:</b> the tag stays prepared, never cut. <b>Recommended:</b> your hand, in the morning, once the fix band and the branch ruleset are clear.</p>
   </div>
 </div>
 
-<h2>Risk management, insights and alerts<span class="n">9</span></h2>
+<h2>Risk management, insights and alerts<span class="n">17</span></h2>
+
+<div class="alert">
+  <h4>Nothing the team raised has reached them yet</h4>
+  <dl>
+    <dt>What</dt><dd>Seven of fourteen team-raised problems are closed in the sibling's source; not one fix has shipped. The newest public tag is still v3.2.0.</dd>
+    <dt>Why it matters</dt><dd>The team is reviewing a build generations behind source, exactly the ship-to-reviewers complaint on their own list; closing problems in a private branch does not answer them.</dd>
+    <dt>The action</dt><dd>The overnight run's whole priority order exists to reach the tag; nothing else outranks it tonight (WBS section 3).</dd>
+    <dt>When</dt><dd>Critical path, tonight through the founder's hand at the cut.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The sibling's gate battery is red: six suites, four in the canonical gate list, seven eval regressions</h4>
+  <dl>
+    <dt>What</dt><dd>Six suites red at the sibling's ad1767c, four in the canonical gate list (test_sbe_discover.py, test_sbe_interop.py, test_sbe_sandbox.py, test_stall_detector.py), plus test_sbe.py's private-name history test and test_sbe_book.py. The live board adds seven eval regressions; the battery stops at command 4 of 52 (the sibling's day plan, lines 234 to 300).</dd>
+    <dt>Why it matters</dt><dd>No tag can be cut behind a red gate battery; this is the mechanical block between seven closed fixes and the team seeing any of them.</dd>
+    <dt>The action</dt><dd>S1a to S1e fix or waive each by name with owner and expiry; S1f (book) stays NO-DATA, environmental, needs the claude CLI on PATH; S1g (history) waits on SBE-1.</dd>
+    <dt>When</dt><dd>Tonight, first in Lane S.</dd>
+  </dl>
+</div>
+
+<div class="alert info">
+  <h4>The board's stable link died for this account, root cause named by the sibling on 2026-08-21</h4>
+  <dl>
+    <dt>What</dt><dd>The stable artifact link recorded in PROJECT.md (bf99e884) answers NOT FOUND to this account.</dd>
+    <dt>Why it matters</dt><dd>The sibling found the root cause on 2026-08-21: boards published from different accounts cannot be updated across accounts. This board therefore cannot republish to its usual URL from this session.</dd>
+    <dt>The action</dt><dd>Ship the board as its own HTML file inside the handover zip; no second artifact minted. Named as a decision waiting on you above.</dd>
+    <dt>When</dt><dd>Tonight, and standing until the account question is settled.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Pull requests 50, 55 and 56 sit open and conflicted, holding three team complaints unlanded</h4>
+  <dl>
+    <dt>What</dt><dd>Pull requests 50, 55 and 56, the Windows and publish round, all read OPEN with mergedAt null (gh pr view, 2026-08-22).</dd>
+    <dt>Why it matters</dt><dd>Three team complaints (p1-windows-first-run's SBE half, C2, C3, C4) sit unlanded behind these three PRs, not behind unwritten code.</dd>
+    <dt>The action</dt><dd>Not scoped into tonight's MUST band; named here so the next attended session does not treat them as untouched work.</dd>
+    <dt>When</dt><dd>Not tonight; next attended session.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>p2 is NO-DATA: the guide file the complaint quotes could not be located</h4>
+  <dl>
+    <dt>What</dt><dd>Two searches, find docs -iname &#39;*analyst*&#39; and grep -rln &#39;full specification&#39; docs/*.md, both returned nothing. No guide file matching the complaint&#39;s quoted text was located.</dd>
+    <dt>Why it matters</dt><dd>A complaint cannot be judged fixed or unfixed without locating the text it quotes; guessing at the wrong file would fix nothing the analyst lead actually complained about.</dd>
+    <dt>The action</dt><dd>S8 locates the file and drafts the corrected page; sign-off stays with the analyst lead, named SIGN-OFF PENDING in the close report.</dd>
+    <dt>When</dt><dd>Tonight, S8, draft only.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>This planning session's own scout ran above the effort cap, reported rather than hidden</h4>
+  <dl>
+    <dt>What</dt><dd>This planning session&#39;s one scout ran as the navigator agent type with a sonnet model override, which kept the navigator definition&#39;s xhigh effort rather than the standard high cap.</dd>
+    <dt>Why it matters</dt><dd>The founder&#39;s model-consumption-cap order pins subagents at high; xhigh needs his own words in the session, which this scout dispatch did not have.</dd>
+    <dt>The action</dt><dd>Reported, not hidden (decision OV-3 in the WBS). No rerun performed; the finding stands as a compliance note for tonight&#39;s run to avoid repeating.</dd>
+    <dt>When</dt><dd>Already happened, in this planning session; named so the overnight run does not repeat it.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Two live Claude processes sat in the sibling at planning time</h4>
+  <dl>
+    <dt>What</dt><dd>At 23:55 on 2026-08-21 a board refresh and seven open tasks were live in the sibling.</dd>
+    <dt>Why it matters</dt><dd>One writer per repository is law; an overnight session opening in that tree without detecting a live peer risks the exact concurrent-edit failure this estate has already paid for once.</dd>
+    <dt>The action</dt><dd>S0 detects live sessions by commits, records and processes, reads the 2026-08-21 pack, and pins the base sha before any write.</dd>
+    <dt>When</dt><dd>First step of the overnight run, before anything else.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The 2.24x optimism correction is measured, not chosen</h4>
+  <dl>
+    <dt>What</dt><dd>python3 tools/bm_forecast.py calibrate prints clock=agent basis=judged n=14 median=2.24 and clock=any basis=any n=17 median=1.39.</dd>
+    <dt>Why it matters</dt><dd>The MUST band&#39;s 530 briefed agent minutes are not the honest wall-clock estimate; the measured multipliers are, and they turn 530 minutes into 740 to 1190.</dd>
+    <dt>The action</dt><dd>Every estimate on this board is already stated both ways, briefed and corrected, rather than promised at the briefed figure alone.</dd>
+    <dt>When</dt><dd>Standing; re-measured each time the sample grows.</dd>
+  </dl>
+</div>
+
+<details class="carried">
+<summary>Carried from the 2026-08-21 board, still live</summary>
 
 <div class="alert">
   <h4>A read-and-package command destroyed a file outside the project, and the guard that should have stopped it ran too late</h4>
@@ -321,7 +432,55 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
   </dl>
 </div>
 
+</details>
+
 <h2>The ledger</h2>
+
+<div class="phase">
+<h3>Phase 7, the overnight plan, 2026-08-22<span class="chip">3/20 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">WBS written and scanned clean</span>
+    <span class="ev">wc -l prints 242; dash scan prints 0; private-term scan prints 0; python3 tools/bm_progress_check.py printed OWED (stale) against the new plan, which is this refresh</span></li>
+  <li class="tick"><span class="t">escalation-finish proven closed here</span>
+    <span class="ev">tools/bm_effects.py:623, python3 tools/test_bm_effects.py printed Ran 10 tests ... OK, landed 15c7864</span></li>
+  <li class="tick"><span class="t">23 team items measured at the sibling's 12d54fa</span>
+    <span class="ev">by a read-only scout, every verdict with its command (WBS section 1)</span></li>
+  <li class="open"><span class="t">S0 open: detect live sessions, read the pack, pin the base sha</span>
+    <span class="ev">`git rev-parse HEAD` equals `git ls-remote origin refs/heads/backup/main-unpushed-2026-08-19` or the difference is named before any write</span></li>
+  <li class="open"><span class="t">S1a fix band: discover</span>
+    <span class="ev">`python3 tools/test_sbe_discover.py` prints OK; the pre-fix assertion quoted red first</span></li>
+  <li class="open"><span class="t">S1b fix band: interop</span>
+    <span class="ev">`python3 tools/test_sbe_interop.py` OK; each of the three quoted red then green</span></li>
+  <li class="open"><span class="t">S1c fix band: sandbox</span>
+    <span class="ev">`python3 tools/test_sbe_sandbox.py` OK; the doc's quoted block matches a fresh run</span></li>
+  <li class="open"><span class="t">S1d fix band: stall detector</span>
+    <span class="ev">`python3 tools/test_stall_detector.py` OK on a machine with under 15 GiB free (this one has 12)</span></li>
+  <li class="open"><span class="t">S1e fix band: the seven eval regressions</span>
+    <span class="ev">`python3 evals/run_evals.py --strict` prints 0 regressions, or names each waived one</span></li>
+  <li class="open"><span class="t">S1f fix band: book, environmental NO-DATA, not a bug</span>
+    <span class="ev">the battery log names it NO-DATA with the reason</span></li>
+  <li class="open"><span class="t">S1g fix band: the private-name history test</span>
+    <span class="ev">the battery log names it and the decision it waits on</span></li>
+  <li class="open"><span class="t">S2 p5-wall-of-text</span>
+    <span class="ev">short form under 25 lines on the sibling's own repo; `--long` (or the chosen name) prints today's output byte for byte; status suite OK</span></li>
+  <li class="open"><span class="t">S3 H7-reviewer-concentration</span>
+    <span class="ev">route three changes to one reviewer, the third prints a count of three (the queue's own done_check)</span></li>
+  <li class="open"><span class="t">S4 H8-opened-closed-pair</span>
+    <span class="ev">a fixture prints a median duration for T1 and NO-DATA for T3</span></li>
+  <li class="open"><span class="t">S5 H5 writer</span>
+    <span class="ev">a fixture of six closed changes prints the tier against outcome table, four prints NO-DATA</span></li>
+  <li class="open"><span class="t">S6 H9 finish</span>
+    <span class="ev">`python3 tools/sbe_fence_hook.py fences | grep -c 'no readable'` prints 0, and one after a malformed line is added</span></li>
+  <li class="open"><span class="t">S7 p12 docs gap</span>
+    <span class="ev">`grep -n 'seat' docs/BITBUCKET.md` hits, and the doc-consistency suite OK</span></li>
+  <li class="open"><span class="t">S8 p2 BA guide, draft only</span>
+    <span class="ev">the file is named with its line, the draft exists, and the close report says SIGN-OFF PENDING</span></li>
+  <li class="open"><span class="t">M-a queue reconciliation</span>
+    <span class="ev">`python3 tools/bm_idle.py check` quotes the new depth; every moved row carries the quoted output</span></li>
+  <li class="open"><span class="t">M-b p1 decision recorded</span>
+    <span class="ev">the store's decision listing shows it</span></li>
+</ul>
+</div>
 
 <div class="phase">
 <h3>Phase 6, the night the fixes were audited by a stranger<span class="chip">15/15 ticked</span></h3>
@@ -451,8 +610,32 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
 </ul>
 </div>
 
-<h2>Decisions recorded<span class="n">10</span></h2>
+<h2>Decisions recorded<span class="n">14</span></h2>
 <div class="decks">
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-22</span>
+    <h4>OV-1: the team's remaining items outrank both repositories' chosen rounds</h4>
+    <p>Founder instruction 2026-08-22: M22, M18 and M26 here, and the reality command in the sibling, move behind the team's list.</p>
+    <p>Flip condition: he names either round again in his own words, or every MUST row closes with budget and clock left.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-22</span>
+    <h4>OV-2: the overnight session opens in the sibling's canonical path</h4>
+    <p>Every code item on the team's list lives there; this repository's lane is bookkeeping (section 4c of the WBS).</p>
+    <p>Flip condition: the founder wants two sessions.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-22</span>
+    <h4>OV-3: no tier above effort high is dispatched tonight</h4>
+    <p>The navigator and reviewer definitions pin xhigh; the cross-family Codex gate covers the adversarial read instead. Stated for the record: this planning session's one scout ran as the navigator type with a sonnet override, which kept the definition's xhigh effort; that is above the cap and is reported, not hidden.</p>
+    <p>Flip condition: the founder readjusts the cap in his own words.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Recorded 2026-08-22</span>
+    <h4>OV-4: nothing is deleted, no tag is cut, no Release object is published</h4>
+    <p>No Bitbucket seat is touched, no workflow file is written, Actions stay off, no history is rewritten.</p>
+    <p>Flip condition: none named; these are standing founder gates, not choices this run can make either way.</p>
+  </div>
   <div class="deck done">
     <span class="tag">Recorded 2026-08-20 night</span>
     <h4>The tag stands: disclosure in the release notes is enough, and no Release object is published</h4>
@@ -518,7 +701,7 @@ NIGHT ADDENDUM, 2026-08-20 by a THIRD session (bm1-1a93ad21), merged on top of b
 
 <footer>
   <p class="contract">A box ticks only when its done-check ran after the last edit and the output is quoted beside it. Percentages are counts of records, never impressions. A green from a script written here is worth nothing until somebody has tried to make it lie.</p>
-  <p>Refreshed 2026-08-20 17:40 JST by the day-run closing session (bm1-0a17e1d9) at its close. This page names no client, no company and no reviewer. Roles only.</p>
+  <p>Refreshed 2026-08-22 02:5x JST by the planning session (bm1-a4ba8509). This page names no client, no company and no reviewer. Roles only. Delivered as its own HTML file because the stable link answers not found to this account.</p>
 </footer>
 
 </div>
