@@ -799,3 +799,12 @@ MIT. Use it, fork it, rewrite the law to fit how you work. `RUBRIC.md` ships
 as a template on purpose: measure your own baselines before freezing it.
 
 Created by Khalil Maaouni.
+
+## Part of Brother
+
+This product is one capability area of Brother, the umbrella that carries the
+shared chain, the verdict tuple and the evidence law across all three.
+
+Read COORDINATION.md in https://github.com/khalilmaaouni/Brother before adding
+a command, an agent, a hook, or a state vocabulary: the merge enforces surface
+caps and a single state vocabulary, and work that fails them will be deleted.
