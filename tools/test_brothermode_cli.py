@@ -274,13 +274,21 @@ class TestDoctorIsByteIdenticalToDirectScript(unittest.TestCase):
         # by design between a wave's commits and its manifest-last rebuild
         # (M18). Pinning exit 0 made the gate order-dependent, measured
         # 2026-08-08 (check 9 FAIL, 31 files newer than the manifest,
-        # every other check PASS).
+        # every other check PASS). At that date the checksums check sat at
+        # position 9 in CHECK_TITLES (scripts/doctor.py). store (commit
+        # a83fc1c, "doctor grows to ten checks") and mode_wiring (commit
+        # 997ec00, the H1-H4 fence-core close) were both inserted ahead of
+        # it since, so the SAME check, "checksums" / "CHECKSUMS.sha256
+        # self-check", now sits at position 11; the id below follows that
+        # deliberate growth, not a new tolerance.
         #
         # On a bare checkout with no install (every GitHub Actions runner:
         # CI checks the repo out and runs the suite, it never runs
-        # scripts/install.py or scripts/setup.py), checks 1 fence, 4
-        # consent and 10 settings_json FAIL because there is no
-        # ~/.claude/settings.json and setup has never been completed.
+        # scripts/install.py or scripts/setup.py), checks 1 fence, 5
+        # consent and 12 settings_json FAIL because there is no
+        # ~/.claude/settings.json and setup has never been completed (ids
+        # updated for the same CHECK_TITLES growth as above: consent and
+        # settings_json themselves did not move, their position did).
         # Those three FAILs are doctor telling the exact truth about that
         # machine, so asserting them away would be asserting a falsehood.
         # There is nothing there for this guard to guard, so it skips and
@@ -299,7 +307,7 @@ class TestDoctorIsByteIdenticalToDirectScript(unittest.TestCase):
         if r.returncode == 1:
             failing = [c["id"] for c in payload["checks"]
                        if c.get("status") == "FAIL"]
-            self.assertEqual(failing, [9],
+            self.assertEqual(failing, [11],
                              "doctor may only be red mid-train on the "
                              "manifest check; any other FAIL is real: %r"
                              % failing)

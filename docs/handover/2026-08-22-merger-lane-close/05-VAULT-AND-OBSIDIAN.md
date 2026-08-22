@@ -12,7 +12,7 @@ This page has no store-derived section: the vault lives outside this project's o
 Session log to write into the BrotherMode project's Sessions folder, and the Home list
 and Overview to update, per the vault protocol. The entry this close should carry:
 
-2026-08-22 evening, BrotherModeUp merger lane. M22 fixed and pushed (b774227): the
+2026-08-22 evening, `BrotherModeUp` merger lane. M22 fixed and pushed (b774227): the
 install repair script no longer certifies a schema version read as text from a source
 file, it parses without executing and says NO-DATA when the effective value cannot be
 known. A four-day-old credential scrub found unmerged and unpushed on work/bitbucket-duo

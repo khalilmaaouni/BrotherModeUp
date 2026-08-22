@@ -1,4 +1,4 @@
-# Worktree inventory, BrotherModeUp, measured 2026-08-22 by session 9ce77be3
+# Worktree inventory, `BrotherModeUp`, measured 2026-08-22 by session 9ce77be3
 
 9 worktrees exist (the main checkout plus 8 agent worktrees). EIGHT of the agent
 worktrees hold UNCOMMITTED paths. Nothing here was deleted, reset, or committed by
