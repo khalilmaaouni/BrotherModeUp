@@ -1492,7 +1492,7 @@
     {
       "id": "M22",
       "title": "reading SCHEMA_VERSION out of a source file as text can certify a runtime version that is not real: the constant may be shadowed, computed, or overridden at import, so the text parser answers about the literal rather than about what the module would actually use. Cross-family debate 2026-08-21 (finding 10, MAJOR). The text read was a deliberate choice, because importing a stale or foreign copy runs its module level code, so the fix is a better question rather than an import",
-      "state": "queued",
+      "state": "done",
       "stage": "evidence-integrity",
       "clock": "agent",
       "forecast_minutes": 45,

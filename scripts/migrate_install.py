@@ -35,6 +35,7 @@ Python 3.9, standard library only. No network.
 No em or en dashes anywhere in this file, its comments, or its output.
 """
 import argparse
+import ast
 import io
 import json
 import os
@@ -157,22 +158,71 @@ def _loader_wired(skill_dir):
 
 
 def _schema_version_of(path):
-    """The integer after "SCHEMA_VERSION = " in `path`, read as plain
-    text, or None when the file cannot be read or defines no such line.
-    A text search, not an import: `path` may be a stale or foreign copy
-    of bm_store.py, and importing it would run its module-level code."""
+    """The SCHEMA_VERSION `path` would ACTUALLY USE, or None when that
+    cannot be told without running the file.
+
+    Still not an import: `path` may be a stale or foreign copy of
+    bm_store.py, and importing it would run its module-level code. But
+    the old text search asked the wrong question (M22, docs/plan/
+    QUEUE.json, family evidence-integrity, cross-family debate
+    2026-08-21 finding 10). It returned the integer after the FIRST
+    "SCHEMA_VERSION = " line, which answers about the LITERAL rather
+    than about the value the module would end up with. A file that
+    assigns the name twice, or assigns it inside an `if`, or rebinds it
+    from a function, certifies a version that is not real, and the
+    caller then reports an install as current when it cannot reach a
+    verdict at all.
+
+    So the question is asked better instead of asked at runtime: parse
+    the file (no execution) and answer only when the answer is
+    unambiguous, which means the name is bound EXACTLY ONCE in the whole
+    file, that binding sits at module level rather than inside any
+    branch or body, and its value is a plain integer literal. Anything
+    else is None, which every caller renders as NO-DATA. NO-DATA is
+    never a pass and never a block: it says the version could not be
+    told, which is the truth, where a guessed number is not."""
     try:
         with io.open(path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line.startswith("SCHEMA_VERSION = "):
-                    digits = line[len("SCHEMA_VERSION = "):].strip()
-                    try:
-                        return int(digits)
-                    except ValueError:
-                        return None
+            source = fh.read()
     except (IOError, OSError):
         return None
+    try:
+        tree = ast.parse(source, filename=path)
+    except (SyntaxError, ValueError):
+        return None
+
+    bindings = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        elif isinstance(node, ast.NamedExpr):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id == "SCHEMA_VERSION":
+                bindings.append(node)
+
+    if len(bindings) != 1:
+        return None
+    node = bindings[0]
+    # Module level and unconditional: a binding nested in an `if`, a
+    # loop, a `try`, or a function body is decided at runtime.
+    if not any(node is child for child in tree.body):
+        return None
+    if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+        return None
+    if isinstance(node, ast.Assign) and len(node.targets) != 1:
+        return None
+    value = node.value
+    if value is None:
+        return None
+    # bool is a subclass of int and `SCHEMA_VERSION = True` is not a
+    # schema number, so the type is checked exactly.
+    if isinstance(value, ast.Constant) and type(value.value) is int:
+        return value.value
     return None
 
 
@@ -225,9 +275,12 @@ def _schema_gap_message(skill_dir):
     wired_version = _schema_version_of(wired_store)
     if wired_version is None:
         return (
-            "NO-DATA: %s does not define SCHEMA_VERSION in a readable "
-            "form, so whether its wired fence hook can reach a verdict "
-            "against this project's own schema %d store cannot be "
+            "NO-DATA: %s does not name one plain SCHEMA_VERSION this "
+            "script can read without running the file (no such line, "
+            "or the name is set more than once, or set inside a branch, "
+            "so the value it would really use is a runtime fact). "
+            "Whether its wired fence hook can reach a verdict against "
+            "this project's own schema %d store therefore cannot be "
             "determined." % (wired_store, current_version))
     if wired_version >= current_version:
         return None

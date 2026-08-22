@@ -6313,6 +6313,138 @@ class TestM1MigrateInstallScript(unittest.TestCase):
                 "tell, not stay silent about it. Output:\n%s" % r.stdout)
 
 
+    # -- M22: the version reported must be the one that would be USED --
+
+    def _plant_store(self, tools_dir, body):
+        """Write a throwaway tools/bm_store.py carrying `body` and
+        return its path. Never imported by the code under test: the
+        whole point of M22 is that a foreign copy must be answered
+        ABOUT without being executed."""
+        os.makedirs(tools_dir, exist_ok=True)
+        path = os.path.join(tools_dir, "bm_store.py")
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return path
+
+    def test_schema_version_of_refuses_a_shadowed_constant(self):
+        """REPRODUCED pre-fix (M22, docs/plan/QUEUE.json, family
+        evidence-integrity, cross-family debate 2026-08-21 finding 10):
+        _schema_version_of returned the integer after the FIRST
+        "SCHEMA_VERSION = " line it saw, so a module that assigns the
+        name twice certifies a version the module would never use. The
+        text read answers about the literal; the question is about the
+        effective value. Where the effective value cannot be known
+        without executing the file, and executing a stale or foreign
+        copy is exactly what this function refuses to do, the only
+        honest answer is NO-DATA."""
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = self._plant_store(os.path.join(tmp, "tools"),
+                                        "SCHEMA_VERSION = 3\n"
+                                        "SCHEMA_VERSION = 9\n")
+            got = migrate_install._schema_version_of(planted)
+            self.assertIsNone(
+                got,
+                "the file assigns SCHEMA_VERSION twice at module level, "
+                "so the value it would actually use is 9 and the first "
+                "literal is 3. Reporting %r certifies a version that is "
+                "not real; the answer must be None, which the caller "
+                "renders as NO-DATA." % (got,))
+
+    def test_schema_version_of_refuses_a_conditional_constant(self):
+        """REPRODUCED pre-fix (M22): the old reader stripped each line
+        before matching, so an assignment nested inside an `if` matched
+        exactly like a top-level one and the FIRST branch's literal was
+        returned regardless of which branch would run. Which branch runs
+        is a runtime fact, so the answer is NO-DATA."""
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = self._plant_store(
+                os.path.join(tmp, "tools"),
+                "import os\n"
+                "if os.environ.get('BM_STORE_NEXT'):\n"
+                "    SCHEMA_VERSION = 99\n"
+                "else:\n"
+                "    SCHEMA_VERSION = 3\n")
+            got = migrate_install._schema_version_of(planted)
+            self.assertIsNone(
+                got,
+                "the effective SCHEMA_VERSION depends on the "
+                "environment at import time, so no static reader can "
+                "name it. Reporting %r is a guess dressed as a "
+                "measurement." % (got,))
+
+    def test_schema_version_of_still_reads_the_ordinary_shape(self):
+        """The fix must not turn every real file into NO-DATA: this
+        project's own tools/bm_store.py has one plain top-level literal
+        and must still be read, or M18's whole comparison degrades to
+        NO-DATA everywhere and stops catching stale installs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = self._plant_store(os.path.join(tmp, "tools"),
+                                        '"""docstring."""\n'
+                                        "import os\n"
+                                        "SCHEMA_VERSION = 7\n"
+                                        "def f():\n"
+                                        "    return SCHEMA_VERSION\n")
+            self.assertEqual(migrate_install._schema_version_of(planted), 7)
+        real = os.path.join(migrate_install.ROOT, "tools", "bm_store.py")
+        self.assertEqual(
+            migrate_install._schema_version_of(real), bs.SCHEMA_VERSION,
+            "this project's own store file must still be readable by "
+            "the static reader; if it is not, the M18 comparison has "
+            "nothing to compare against.")
+
+    def test_shadowed_constant_in_a_wired_copy_is_not_nothing_to_do(self):
+        """REPRODUCED pre-fix (M22 end to end): the failure that makes
+        this MAJOR rather than cosmetic. A wired copy whose FIRST
+        SCHEMA_VERSION literal equals this project's own, but which
+        reassigns the name afterwards, passed the M18 comparison as
+        current and the dry run printed NOTHING TO DO. The install is
+        exactly as unable to reach a verdict as the plainly stale one
+        M18 already catches, and it hid behind a literal."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            tools_dir = os.path.join(skill_dir, "tools")
+            os.makedirs(tools_dir)
+            for name in sorted(os.listdir(HERE)):
+                if name.endswith(".py") and not name.startswith("test_"):
+                    shutil.copy2(os.path.join(HERE, name),
+                                 os.path.join(tools_dir, name))
+            store_copy = os.path.join(tools_dir, "bm_store.py")
+            with io.open(store_copy, encoding="utf-8") as fh:
+                src = fh.read()
+            old_line = "SCHEMA_VERSION = %d" % bs.SCHEMA_VERSION
+            self.assertIn(old_line, src,
+                          "fixture assumption broke: tools/bm_store.py no "
+                          "longer defines %r verbatim" % old_line)
+            # The literal a text reader sees first stays current; the
+            # value the module would really use is one schema behind.
+            src = src.replace(
+                old_line,
+                "%s\nSCHEMA_VERSION = %d" % (old_line, bs.SCHEMA_VERSION - 1),
+                1)
+            with io.open(store_copy, "w", encoding="utf-8") as fh:
+                fh.write(src)
+            os.makedirs(os.path.join(skill_dir, "hooks"))
+            with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                         "w", encoding="utf-8") as fh:
+                fh.write('{"hooks": {"PreToolUse": [{"hooks": [{'
+                         '"command": "python3 %s/bm_fence_hook.py"'
+                         '}]}]}}' % tools_dir)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn(
+                "NOTHING TO DO", r.stdout,
+                "the wired copy reassigns SCHEMA_VERSION after the "
+                "literal a text reader sees, so its effective schema is "
+                "unknown to any static reader. NOTHING TO DO certifies "
+                "a version that is not real. Output:\n%s" % r.stdout)
+            self.assertIn(
+                "NO-DATA", r.stdout,
+                "an unreadable effective version must be said plainly, "
+                "not guessed from the first literal. Output:\n%s"
+                % r.stdout)
+
+
 class TestLoop11McpCopyFirstIsAutomated(unittest.TestCase):
     """LOOP 11 workstream C. The MCP server's copy-first design (snapshot the
     project, read the COPY, delete the copy) was argued in a long docstring
