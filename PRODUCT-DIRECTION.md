@@ -2,6 +2,12 @@
 
 Status: FOUNDER DIRECTION
 
+## Amendment, founder direction 2026-08-22: one Brother repository
+
+AMENDMENT, founder direction 2026-08-22: the three products converge into ONE repository, Brother, created by clean extraction of the three trees at named commits and never by merging histories. BrotherMode (execution provenance), BrotherSBE (assurance) and BrotherDS (the claim, and verified reality for a claim) live there as three plugins under one marketplace manifest, each whole and installable alone, sharing one contracts directory for the change passport, the handoff package and the delivery gates, one battery, one ceremony, and one registry once its owner is decided. The merge happens when the six-condition timing gate in docs/plan/ADR-2026-08-23-one-brother-repository.md reads green, not before; until then the backlog is finished in place and each repository is prepared so the merge is a move. The three existing repositories are archived read-only with pointers, never deleted. The merged product is ONE product to the person using it: one entry point that routes, one vocabulary, the seams as plumbing nobody touches, and a surface redesigned ONCE at the merge around a target set after BR-07 reads the three surfaces file by file (the earlier one-third figure was withdrawn with the surface caps on 2026-08-22), measured before and after; the tool surface stays frozen before and after that one redesign. BrotherDS's capability is routed as experimental until its first claim is scored against a real outcome. Nothing else above this amendment changes: the passport stays the only seam between execution and assurance, every development works on both hosts, and nothing self-fires in CI.
+
+Landed 2026-08-22 by the founder's word in the question UI of the unification thread, his chosen option: "Yes, with the one third clause replaced by a target set after BR-07 reads the surfaces".
+
 ## Amendment, founder direction 2026-08-16
 
 The company sentence, the founder's own words:
