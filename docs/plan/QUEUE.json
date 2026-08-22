@@ -1049,7 +1049,8 @@
         "BrotherSBE"
       ],
       "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA",
-      "stage": "verified-reality"
+      "stage": "verified-reality",
+      "unit_note_2026_08_22": "verified-reality is occupied per unit (founder, 2026-08-22): this item computes the CHANGE unit's verdict and names the assurance product's files; the work lands there (its WBS row S5); this row is a cross-reference, never built here"
     },
     {
       "id": "H6",
