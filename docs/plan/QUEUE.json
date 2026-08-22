@@ -1,1619 +1,1622 @@
 {
- "schema": 1,
- "_comment": "The machine-readable work queue. tools/bm_idle.py reads THIS file and nothing else to answer whether the machine is about to sit idle. Depth is the count of items in state 'queued'. Ordering is the array order: the next item to start is the first 'queued' item. An item is startable only if it needs no founder answer; anything that does carries state 'blocked' with a reason and is NOT counted toward depth, because a blocked item cannot save a night. Edit by hand or with bm_idle.py mark.",
- "window": {
-  "label": "toolkit focus, week of 2026-08-12",
-  "opened": "2026-08-12T09:00:00+09:00",
-  "hard_stop": "2026-08-15T18:00:00+09:00",
-  "unattended": false
- },
- "min_depth": 5,
- "idle_window_minutes": 25,
- "watch_paths": [
-  "tools",
-  "docs/plan",
-  "docs/team",
-  "docs/handover"
- ],
- "items": [
-  {
-   "id": "TK10",
-   "title": "purge_project leaves orphaned capability_receipts rows; disclosed by the TK5a builder, deliberately out of its scope",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "purging a project removes its capability_receipts, proven by a test written failing first; the exact-dict-shape removed map and dry-run semantics still hold",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK11",
-   "title": "CLI surface for receipts: bm_project.py add and list capability receipts, plus an evidence criterion_id flag",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 40,
-   "files": [
-    "tools/bm_project.py",
-    "tools/test_bm_project.py"
-   ],
-   "done_check": "a receipt can be filed and listed from the command line without touching the store directly",
-   "stage": "required-proof",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK1",
-   "title": "T1 Inventory: bm_toolkit.py inventory, builds on claude plugin details, adds skills, settings layers, CLIs, cross-plugin view",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 150,
-   "files": [
-    "tools/bm_toolkit.py",
-    "tools/test_bm_toolkit.py"
-   ],
-   "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted",
-   "closed_note": "landed at d382ca5; 17 tests, three hostile fixtures, five registries; real machine reports 8 marketplaces, 69 plugins, 37 skills, 12 MCP servers",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK2",
-   "title": "T2 Conflict detection with severity data file; fixtures: 7 Stop hooks, 10 PreToolUse layers, dual brothersbe versions; includes the hookify ordering experiment",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 150,
-   "files": [
-    "tools/bm_toolkit.py",
-    "tools/toolkit_conflict_classes.json",
-    "tools/test_bm_toolkit.py"
-   ],
-   "done_check": "python3 tools/bm_toolkit.py conflicts finds the known fixtures by itself; NO-DATA on unreadable surface",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK3",
-   "title": "T3 Capability records with static DECLARED reach derived from artifacts",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "tools/bm_toolkit.py",
-    "tools/bm_store.py",
-    "tools/test_bm_toolkit.py"
-   ],
-   "done_check": "a hand-asserted record is visibly marked; derived records name their source files",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK4",
-   "title": "T4 Routing table plus route command; BMAD route DISABLED until footprint confirmed",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "tools/toolkit_routes.json",
-    "tools/bm_toolkit.py"
-   ],
-   "done_check": "route command names capability, reason, degrade path when absent",
-   "stage": "method"
-  },
-  {
-   "id": "TK5",
-   "title": "T5 Receipts: nine fields, NO-DATA path, plus criterion-linked verification (R1.2 pulled into this arc per decision 32, the receipt backbone)",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 210,
-   "files": [
-    "brotherme/core/schema.py",
-    "tools/bm_store.py",
-    "tools/bm_toolkit.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion",
-   "closed_note": "TK5a storage half landed: schema 20, capability_receipts, criterion links, 1075 store tests. CLI surface and packet rendering remain.",
-   "note": "done: TK5a storage plus criterion-linked verification landed 2026-08-12 at e0341cb; TK11 CLI landed 2026-08-15; in_flight owner session died and its handover was acknowledged",
-   "stage": "required-proof",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "TK6",
-   "title": "T6 The five-step pipeline on O4, real cargo, one evidence packet",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 240,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "pipeline completes; receipt per external step; the review step uses the named core falsification brief when Code Review is absent; O4 done-check green: claim then park from two shells",
-   "stage": "required-proof"
-  },
-  {
-   "id": "TK7",
-   "title": "T7 Retention proposals from receipts, founder ratifies",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_toolkit.py"
-   ],
-   "done_check": "retention command proposes per capability used in TK6",
-   "stage": "human-decision"
-  },
-  {
-   "id": "TK8",
-   "title": "T8 Doctor and gate integration, five-registry sweep per PF-3",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "scripts/doctor.py",
-    "tools/test_all.py",
-    ".github/workflows/tests.yml",
-    "tools/write_sites.json",
-    "pyproject.toml"
-   ],
-   "done_check": "doctor reports undeclared use and conflicts; suite in gate and CI",
-   "stage": "provenance"
-  },
-  {
-   "id": "TK9",
-   "title": "BMAD footprint follow-up: repo-tree read, enable or reject its route",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/toolkit_routes.json"
-   ],
-   "done_check": "the route is enabled with the footprint named, or rejected with the reason",
-   "note": "done 2026-08-15: footprint confirmed from bmad-code-org source (install-paths.js): _bmad/ and _bmad-output/ at project root, no .brothermode or STATE.md collision; .claude/skills only on explicit IDE opt-in with bmad- prefix. Verdict ENABLE recorded; flipping the shipped default (constant plus json, byte-identical pair) is a one-line data change deliberately deferred to the next session with the guard: skip the installer .claude/skills opt-in or diff filenames first.",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O4",
-   "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another (the design landed at 8949ffd; this is the build)",
-   "state": "blocked",
-   "clock": "agent",
-   "forecast_minutes": 35,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first",
-   "blocked_reason": "reserved as TK6 pipeline cargo per decision 26; runs INSIDE the toolkit E2E, not standalone",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O5",
-   "title": "Adversarial read of the first-day pack as somebody who has never used any of this",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    "docs/evidence/tester-pack/ADVERSARIAL-READ.md"
-   ],
-   "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named",
-   "note": "done 2026-08-16: adversarial newcomer read executed commands per PO-5; 2 critical findings (unsatisfiable sbe version check, stale v3.1.0 pin) plus 2 fixed inline and 1 deferred; fixes landed same session",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O6",
-   "title": "Re-probe the three defects found on 2026-08-11 against the released v3.2.0 tree",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "docs/evidence/v3.2.0/DEFECT-REPROBE.md"
-   ],
-   "done_check": "each defect carries a reproduction attempt and its verbatim result",
-   "stage": "verified-reality"
-  },
-  {
-   "id": "O7",
-   "title": "Documentation link sweep, every relative link resolved",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [],
-   "done_check": "a script lists zero unresolved relative links across the docs tree",
-   "note": "done 2026-08-15: haiku sweep found zero unresolved relative links in docs and README; nothing to fix",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O8",
-   "title": "Re-read docs/KNOWN-LIMITS.md against the current tree, file every limit now false or newly true",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "docs/KNOWN-LIMITS.md"
-   ],
-   "done_check": "every limit in the file either still reproduces or is marked resolved with the commit that resolved it",
-   "stage": "verified-reality"
-  },
-  {
-   "id": "O9",
-   "title": "The booklet under docs/book/, one release stale on the command surface",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    "docs/book/brothermode-solo-builder-booklet.html"
-   ],
-   "done_check": "every command named in the booklet exists in commands/ or is removed",
-   "stage": "method"
-  },
-  {
-   "id": "O10",
-   "title": "Seed bm_forecast with every measurable historic estimate found in the plan docs",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    ".brothermode/forecasts.jsonl"
-   ],
-   "done_check": "python3 tools/bm_forecast.py calibrate reports n greater than 6",
-   "stage": "business-impact"
-  },
-  {
-   "id": "O11",
-   "title": "BrotherSBE parity read: what BrotherMode enforces that BrotherSBE only states",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/evidence/parity/SBE-PARITY-2026-08-12.md"
-   ],
-   "done_check": "each law names checked-by-tool or human, verified by opening the tool",
-   "note": "done 2026-08-16: parity read landed as docs/plan/PARITY-READ-2026-08-15.md with proving lines and the three integration moves",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O12",
-   "title": "R1.1 outcome contract columns, per the long range WBS",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "brotherme/core/schema.py",
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "the suite proves a record carries its outcome contract and refuses one without",
-   "stage": "behaviour"
-  },
-  {
-   "id": "O13",
-   "title": "R1.2 criterion-linked verification, per the long range WBS",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a verification row cannot be filed without naming the criterion it satisfies",
-   "stage": "required-proof"
-  },
-  {
-   "id": "O14",
-   "title": "Pick the oldest parking lot item, give it an objective or write down why it cannot have one",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [
-    "docs/plan/LONG-RANGE-PLAN-2026-08-11.md"
-   ],
-   "done_check": "the item either names its north star objective or carries a written reason it cannot",
-   "stage": "intent"
-  },
-  {
-   "id": "O15",
-   "title": "Regenerate CHECKSUMS and prove doctor check 9 passes",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 10,
-   "files": [
-    "CHECKSUMS.sha256"
-   ],
-   "done_check": "python3 scripts/doctor.py reports check 9 PASS",
-   "note": "done: manifest regenerated at every commit today; doctor check 9 reads SKIP on a dirty tree by design and PASS on the committed tree, quoted in the session record",
-   "stage": "evidence-integrity",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O16",
-   "title": "Loop back to O6 and re-run the whole overflow tier. The queue does not end",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 0,
-   "files": [],
-   "done_check": "not applicable, this item exists so depth never reaches zero",
-   "stage": "verified-reality"
-  },
-  {
-   "id": "G1",
-   "title": "Cut v3.3.0",
-   "state": "done",
-   "blocked_reason": "a release is a founder gate. He is asleep. This never enters the queue and never counts toward depth",
-   "clock": "wall",
-   "forecast_minutes": 0,
-   "files": [],
-   "done_check": "founder says yes",
-   "note": "done: v3.3.0 cut, tagged, pushed 2026-08-15; tag peels to e795f78 local and remote",
-   "stage": "human-decision",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "G2",
-   "title": "First cold tester install on somebody else's machine",
-   "state": "blocked",
-   "blocked_reason": "needs another person and their machine. Wall clock, cannot be compressed or started by an agent",
-   "clock": "wall",
-   "forecast_minutes": 0,
-   "files": [],
-   "done_check": "a tester reports the two version numbers from their own shell",
-   "stage": "verified-reality",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O18",
-   "title": "bm_forecast.py refuses --help on every verb; file and fix, the project has this exact precedent",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [
-    "tools/bm_forecast.py",
-    "tools/test_bm_forecast.py"
-   ],
-   "done_check": "python3 tools/bm_forecast.py record --help prints usage and exits 0",
-   "note": "done 2026-08-15: every verb answers --help exit 0, bm_project.py parse pattern mirrored, 23 forecast tests OK, red quoted in session record",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O19",
-   "title": "Wire bm_idle.py check into tools/bm_sessionstart.sh so the verdict arrives unasked",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/bm_sessionstart.sh"
-   ],
-   "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one",
-   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
-   "stage": "intent",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O20",
-   "title": "Record actuals for L6, L7 and L8 so the calibration sample grows past n=4",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 5,
-   "files": [
-    ".brothermode/forecasts-log.jsonl"
-   ],
-   "done_check": "python3 tools/bm_forecast.py calibrate --clock agent --basis judged reports n greater than 6",
-   "note": "done-as-overtaken: calibration sample is n=14 with check PASS and 0 open forecasts; L6 and L7 carry measured actuals; L8-close-pack has no measured actual and a retroactive guess is refused by the never-invent law",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A4",
-   "title": "Put the calibration number on the session start line, beside the progress-page verdict",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/bm_sessionstart.sh"
-   ],
-   "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin",
-   "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A5",
-   "title": "R1.5 pulled forward: retire the prose fence claims that no file enforces",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 35,
-   "files": [
-    "docs/KNOWN-LIMITS.md",
-    "SKILL.md"
-   ],
-   "done_check": "every fence claim in the docs names its enforcing file or is marked UNENFORCED",
-   "stage": "provenance"
-  },
-  {
-   "id": "A6",
-   "title": "Teach bm_idle.py to read the forecast log so IDLE can cite what should have been in flight",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "tools/bm_idle.py",
-    "tools/test_bm_idle.py"
-   ],
-   "done_check": "the IDLE verdict names the open forecast whose actual never arrived",
-   "stage": "business-impact"
-  },
-  {
-   "id": "A9",
-   "title": "Give the memory design its missing third alternative: extend learning_rules, argued against properly",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
-   ],
-   "done_check": "the document contests the design that actually competes with it, per REFUTE-2026-08-12.md finding 1",
-   "stage": "method"
-  },
-  {
-   "id": "A10",
-   "title": "Resolve the intake-versus-intent contradiction between the one-change doc and TEAM-ADOPTION.md",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "docs/design/ONE-CHANGE-IDENTIFIER-2026-08-12.md"
-   ],
-   "done_check": "the default minter agrees with the published nine-step order, or the order is changed on purpose",
-   "stage": "intent"
-  },
-  {
-   "id": "L1",
-   "title": "The aggressive replan and this queue",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [
-    "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
-    "docs/plan/QUEUE.json"
-   ],
-   "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\"",
-   "stage": "intent",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L2",
-   "title": "Forecast telemetry tool, tests written first",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 35,
-   "files": [
-    "tools/bm_forecast.py",
-    "tools/test_bm_forecast.py"
-   ],
-   "done_check": "python3 tools/test_bm_forecast.py",
-   "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L3",
-   "title": "Idle check tool, tests written first",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "tools/bm_idle.py",
-    "tools/test_bm_idle.py"
-   ],
-   "done_check": "python3 tools/test_bm_idle.py",
-   "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA",
-   "stage": "intent",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L4",
-   "title": "Register both tools in the gate, the write inventory and CI",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [
-    "tools/test_all.py",
-    "tools/write_sites.json",
-    ".github/workflows/tests.yml",
-    "pyproject.toml"
-   ],
-   "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
-   "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green",
-   "stage": "evidence-integrity",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L5",
-   "title": "Tester package covering both products in one bundle",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 40,
-   "files": [
-    "docs/team/TESTER-PACK.md",
-    "docs/team/INSTALL-CARD.md"
-   ],
-   "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
-   "closed_note": "tester pack, evidence file and a corrected install card landed",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L6",
-   "title": "Progress page under the absolute structure, delivered not merely written",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/plan/GANTT.html"
-   ],
-   "done_check": "python3 tools/bm_progress_check.py status",
-   "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0",
-   "stage": "human-decision",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L7",
-   "title": "Full battery at the final tree",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 13,
-   "files": [],
-   "done_check": "python3 tools/test_all.py",
-   "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md",
-   "stage": "required-proof",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "L8",
-   "title": "Push, close pack, verify-close",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "docs/handover/2026-08-12-aggressive-replan"
-   ],
-   "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
-   "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O1",
-   "title": "Memory architecture design document, two genuinely rejected alternatives",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/design/MEMORY-ARCHITECTURE.md"
-   ],
-   "done_check": "a reader can name what was rejected and the condition that would flip the decision",
-   "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O2",
-   "title": "Toolkit broker design document: trust tiers and quarantine",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/design/TOOLKIT-BROKER.md"
-   ],
-   "done_check": "same shape as O1",
-   "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O3",
-   "title": "Connector model design document and the per-connector gate",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/design/CONNECTOR-MODEL.md"
-   ],
-   "done_check": "same shape as O1",
-   "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md",
-   "stage": "method",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O17",
-   "title": "Pin BrotherSBE README install to a tag, matching BrotherMode's pinned form",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 10,
-   "files": [
-    "../BrotherSBE/README.md"
-   ],
-   "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0",
-   "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form",
-   "stage": "evidence-integrity",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O21",
-   "title": "Read the four design documents the concurrent session wrote and refute one claim in each",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 35,
-   "files": [
-    "docs/evidence/design-review/REFUTE-2026-08-12.md"
-   ],
-   "done_check": "each of the four carries either a named broken claim or the words COULD NOT BREAK with the attack that was run",
-   "closed_note": "opus reviewer, 6 blocking 10 significant 9 minor, 4 load-bearing citations re-verified by hand; docs/evidence/design-review/REFUTE-2026-08-12.md",
-   "stage": "intent",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A1",
-   "title": "R1.1 pulled forward: outcome contract columns on the record",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "brotherme/core/schema.py",
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "the suite proves a record refuses to close without its outcome contract",
-   "closed_note": "R1.1 landed and folded into the canonical shape; store 1047, project 50, schema 20 green",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A2",
-   "title": "R1.3 pulled forward: wire the ceremony opening half so detect runs unasked at session start",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "tools/bm_sessionstart.sh",
-    "hooks/hooks.json"
-   ],
-   "done_check": "a fresh session prints the detect verdict without anybody typing it",
-   "closed_note": "tools/bm_sessionstart.sh wired, 0.08s measured, 2 new tests in test_bm_consent.py, suite 46 OK",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A3",
-   "title": "Wire bm_forecast.py check into verify-close so a session cannot close on an unclosed forecast",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    "tools/bm_handover.py",
-    "tools/test_bm_handover.py"
-   ],
-   "done_check": "verify-close refuses a pack whose session left a forecast open past the window",
-   "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case",
-   "stage": "required-proof",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A7",
-   "title": "Re-run the battery with --artifacts to catch the handover flake's real assertion if it recurs",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [],
-   "done_check": "either a green gate, or the flake's actual assertion text captured on disk",
-   "closed_note": "--artifacts produced the swallowed assertion on the first run that carried it; the failure was a real bug in the zip freshness check, now fixed with a deterministic regression test",
-   "stage": "required-proof",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "A8",
-   "title": "Read tools/test_bm_handover.py:278-282 for the BROTHERMODE_ROOT restore leak named in the defect file",
-   "state": "done",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/test_bm_handover.py"
-   ],
-   "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
-   "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers",
-   "stage": "provenance",
-   "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
-  },
-  {
-   "id": "O21",
-   "title": "FIRST-DAY.md Exercise 2 step 1 never names the command that claims ownership; a newcomer cannot execute it. Found by the O5 adversarial read (MEDIUM 3). Name the actual claiming action in the exercise.",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 15,
-   "files": [
-    "docs/team/FIRST-DAY.md"
-   ],
-   "done_check": "the exercise names a runnable claiming command a newcomer can paste; docs suite green",
-   "stage": "provenance"
-  },
-  {
-   "id": "O23",
-   "title": "Sibling ownership overlap, the architecture 6.5: take the one decision the parity map ranks first (retire sbe_fence_hook.py in favour of bm_fence_hook.py behind BrotherSBE coordination), designed with BrotherSBE, founder-ratified",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "docs/plan/PARITY-READ-2026-08-15.md"
-   ],
-   "done_check": "a ratified ownership decision recorded in both repositories naming the single fence owner",
-   "stage": "passport"
-  },
-  {
-   "id": "SBE1",
-   "title": "P1 The installed clone and the repository can disagree while both report VERSION 3.3.0; measured 22 commits of source skew with real differences in bm_store, bm_effects, bm_project, bm_toolkit, bm_sessionstart and write_sites. Every green gate binds to code that is not the code running the hooks. Stamp the git SHA into the installed tree and add a doctor check comparing it to the source tree",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "scripts/doctor.py",
-    "scripts/install.py"
-   ],
-   "done_check": "doctor names both SHAs and FAILs when they differ; proven by pointing it at two trees at different commits",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE2",
-   "title": "P0 The install suite is killed at the 900 second SILENCE budget while it is still making progress, three times in one night. ROOT CAUSE PROVEN 2026-08-16 and it is not what the first review guessed: tools/test_all.py reads the child by LINES (for line in p.stdout) while unittest writes one dot per test with NO newline, so a whole suite emits no complete line until its dot row ends. Any suite whose row takes longer than the budget reads as silent and is killed with 0 tests. Disproven on the way: adding -u changes nothing, both buffered and unbuffered first reached the reader only when a newline arrived (measured, 3.03s in both arms). Fix candidates: read by chunk instead of line, or run suites at verbosity 2 so each test emits its own line. The .claude copytree exclusion already landed and is worth keeping on its own merits but did NOT fix this",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/test_install.py",
-    ".gitignore"
-   ],
-   "done_check": "a suite that runs longer than the budget while emitting dots is NOT killed, proven by a fixture suite that sleeps past the budget and still reports its real test count",
-   "note": "root cause corrected 2026-08-16 by an executed experiment after the first fix failed; the earlier 678 MB copytree diagnosis was incomplete, and the honest record of that is the point",
-   "stage": "required-proof"
-  },
-  {
-   "id": "SBE3",
-   "title": "P2 The effects registry is a control only at gate time: no runtime caller imports bm_effects, so declared() never refuses an undeclared command in production. Call it at dispatch in brothermode_cli.py or record in KNOWN-LIMITS that it is a test-time control only",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/brothermode_cli.py",
-    "tools/bm_effects.py",
-    "docs/KNOWN-LIMITS.md"
-   ],
-   "done_check": "an undeclared command fails at runtime with the registry's own refusal, proven by a test that adds one",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "required-proof"
-  },
-  {
-   "id": "SBE4",
-   "title": "P2 Three sources of truth for work items with no reconciliation: docs/plan/QUEUE.json, the store tasks table, and the prose plans. bm_idle's depth verdict is only as true as a hand-edited file. Make QUEUE.json a generated view of the store, or the store read the queue, one direction only",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "docs/plan/QUEUE.json",
-    "tools/bm_store.py",
-    "tools/bm_idle.py"
-   ],
-   "done_check": "one direction is authoritative and a check refuses divergence, proven by diverging them deliberately",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE5",
-   "title": "P2 bm_store.py is a god module: 19,132 lines, one Store class with 258 methods, about 50 tables spanning nine unrelated contexts, and its 0.10s import is paid by three separate processes on every Bash PreToolUse (measured Bash chain median 471ms, worst 853ms). Split the ownership and claims tables onto a small hook-path module, or collapse the three Bash hooks into one process; write the latency budget down first",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 180,
-   "files": [
-    "tools/bm_store.py",
-    "hooks/hooks.json",
-    "docs/PERFORMANCE.md"
-   ],
-   "done_check": "a written p90 hook budget exists and the measured chain meets it after the change",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "method"
-  },
-  {
-   "id": "SBE6",
-   "title": "P3 tools/bm_project_facts.py reads the SUITES registry by regex over source text, which is why test_all.py carries nine apostrophe warnings and has gone red once for exactly that. Replace with ast.literal_eval on the assignment node",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    "tools/bm_project_facts.py"
-   ],
-   "done_check": "the facts tool parses SUITES without regex and the apostrophe warnings are deleted; suites count unchanged, quoted",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE7",
-   "title": "P3 Registry drift across the install boundary is unchecked: write_sites.json differs between trees and toolkit_routes.json is absent from the installed clone entirely. Teach verify-install to compare or at least report the registries it ships",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "scripts/verify-install.sh"
-   ],
-   "done_check": "verify-install names a missing or differing registry, proven against a tree with one removed",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE8",
-   "title": "P4 Five STATE.md.bak files sit untracked at the repository root, inflating every tree copy the install suite makes. Delete them once no session is mid-recovery",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 10,
-   "files": [
-    "STATE.md"
-   ],
-   "done_check": "the repository root carries no .bak litter and the store still renders STATE.md",
-   "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE9",
-   "title": "P0 purge_project CRASHES for any project whose capability receipt names a task: receipts are deleted 100 lines after tasks under foreign keys ON, so a bare sqlite IntegrityError escapes to the command line and the founder's erasure request fails with no path forward. Reproduced by the reviewer. Fix: move the receipts delete above the tasks delete, and add a task-linked receipt to the purge fixture, which never set task_id and is why the T5 tests missed it",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a project with a task-linked receipt purges cleanly, proven by a test written failing first",
-   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
-   "stage": "behaviour"
-  },
-  {
-   "id": "SBE10",
-   "title": "P0 purge_project leaves the four sentinel tables behind, and they are the ones holding raw founder prose stored deliberately unscrubbed. Reproduced: after a purge reporting 21 cleared keys, sentinel_knowledge still held rows and their verbatim text was readable; add_knowledge also accepts a project that never existed. The method's own docstring claims it erases every row that belongs to the project. Fix: purge the four tables and check project existence on the four writers",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "after purge, all four sentinel tables hold zero rows for that project, proven failing first; a write against a nonexistent project is refused by name",
-   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE11",
-   "title": "P1 The STATE.md integrity check is one-directional, so a completed record can still be listed as active while verify() reports healthy; reproduced. The rendered block also carries no timestamp, store fingerprint or schema version since the stamp was removed, so staleness cannot be seen by inspection either. Fix: make the check two-directional, or stamp the block with a content hash verify() recomputes",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a stale generated view is reported by verify(), proven by rendering, transitioning, and re-verifying",
-   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
-   "stage": "provenance"
-  },
-  {
-   "id": "SBE12",
-   "title": "P2 A capability receipt can certify nothing and contradict its twin: executor identity and verification evidence are not required even when the state is verified, two contradicting receipts on one capability are both accepted, a future-dated receipt sorts last, changed_artifacts carries no digest, and the attribution row for receipt.added passes no evidence reference so the kept trail cannot name which receipt a purge destroyed",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a verified receipt without executor identity or evidence is refused by name, and the attribution row resolves to its receipt",
-   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE13",
-   "title": "P3 Alerts have no project grain but are purged per project and listed store-wide, so any per-project risk display shows other projects' alerts as its own; runtime_runs likewise carries no project and is never purged",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 40,
-   "files": [
-    "tools/bm_store.py"
-   ],
-   "done_check": "alert listing scoped to a project returns only that project's alerts, proven with two seeded projects",
-   "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
-   "stage": "behaviour"
-  },
-  {
-   "id": "SBE14",
-   "title": "P0 The redaction funnel can be switched off by the very content it redacts: any line equal to the human-block open marker starts a block, an unterminated block deliberately runs to end of file, and the marker is a fixed literal with no escaping anywhere. Executed proof: a generated document redacted line 1 and wrote the following lines verbatim. Fix: treat an unterminated marker as NO human block, and neutralize marker-looking lines found outside a real pair before splicing",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a generated document containing the marker inside untrusted text redacts the whole tail, proven failing first",
-   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE15",
-   "title": "P1 bm_project.py writes CANVAS.md and DELIVERY-PACKET.md with raw=True, bypassing the withholding policy and leaving the funnel as the only guard, which is exactly the guard SBE14 disables. DELIVERY-PACKET.md is by name a shareable artifact. Fix: route the raw lane through the same safe display bm_packs uses, or justify raw in the file",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 40,
-   "files": [
-    "tools/bm_project.py"
-   ],
-   "done_check": "the raw lane either passes safe display or carries a written justification naming what it would leak",
-   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE16",
-   "title": "P1 The handover zip carries whatever is in the pack with no content scan: containment is a path control only, the FILL-BY-HAND slots are written by hand AFTER the redaction funnel ran, and the archive lands outside the repository past the commit-time secret scan, in a Documents folder that is commonly cloud synced. Fix: scan every member at zip time and refuse on a hit, naming file and line",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_handover.py"
-   ],
-   "done_check": "zipping a pack whose hand-written slot contains a secret pattern is refused by name, proven failing first",
-   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE17",
-   "title": "P3 Telemetry redacts secrets from artifact paths but never masks absolute paths, which every store export pairs with it, so absolute client and machine paths land verbatim in the local ledger",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 20,
-   "files": [
-    "tools/bm_telemetry.py"
-   ],
-   "done_check": "a recorded artifact path is masked the same way the store export masks it",
-   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "SBE18",
-   "title": "P2 FOUNDER DECISION, not an engineering fix: 199 committed files carry the founder's home path in 2721 occurrences, concentrated in the evidence tree, including a raw agent transcript with session identifiers and full tool payloads. No credentials and no other-project data were found. Decide before the repository is public: scrub the tree, or record that the username is already public and leave it",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "docs/program/absolute-lead/evidence"
-   ],
-   "done_check": "a recorded founder decision exists naming scrub or leave, with its reason",
-   "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
-   "stage": "human-decision"
-  },
-  {
-   "id": "SBE19",
-   "title": "P2 tools/bm_escalate.py writes the founder's own objective and reason text to its ledger without passing it through redact_text, the same posture the sentinel tables had before SBE10 closed them. The file is owner-only at mode 0600 in a 0700 directory and local, so this is a decision for the module's author rather than an emergency: redact on the way in, or record why raw is right for a local ledger",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 25,
-   "files": [
-    "tools/bm_escalate.py"
-   ],
-   "done_check": "either the ledger write passes redaction, or the module carries a written justification naming what it holds raw",
-   "note": "found 2026-08-16 while reviewing the module's write sites, which the gate forced because a concurrent session committed it to main without registering it. Raised for its author rather than changed underneath them",
-   "stage": "evidence-integrity"
-  },
-  {
-   "id": "H3",
-   "title": "evidence binds to a commit and never to what is running; this is how a week of review went into a build generations behind with no verdict noticing",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "set a deployed ref one commit behind the evidence commit, status prints DRIFT naming both refs",
-   "stage": "production-observation"
-  },
-  {
-   "id": "H4",
-   "title": "a defect cannot be entered as a defect: intake has no origin field, so a fix carries no link to the behaviour that failed",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "a defect intake naming a regression row proceeds at T1; one naming no row refuses and prints what is missing",
-   "stage": "intent"
-  },
-  {
-   "id": "H5",
-   "title": "nothing records what happened after merge, so no tier can ever be compared with its real outcome",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA",
-   "stage": "verified-reality"
-  },
-  {
-   "id": "H6",
-   "title": "a requirement discovered during the build has no event; a rule added after a sheet was generated leaves that sheet short one case, silently",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "add a behaviour row after generating a sheet, the sheet reports stale naming the new id",
-   "stage": "intent"
-  },
-  {
-   "id": "H7",
-   "title": "reviewer and tester concentration is invisible to the router, which selects by capability and prints no load",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "route three changes to one reviewer, the third prints a count of three",
-   "stage": "accountability"
-  },
-  {
-   "id": "H8",
-   "title": "no change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "a fixture prints a median duration for T1 and NO-DATA for T3",
-   "stage": "business-impact"
-  },
-  {
-   "id": "H9",
-   "title": "the one-writer control is inert in the assurance repository: about twenty legacy claim lines it cannot parse, each reported as not enforced",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "the fence subcommand prints zero unenforceable lines on a clean tree, and one after a malformed line is added",
-   "stage": "provenance"
-  },
-  {
-   "id": "D4",
-   "title": "three proposed refusals (P3 gate, P6 strict, P7 fail) have no exception path with an owner and an expiry, which the owned list requires",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "an exception carrying an owner and an expiry date suppresses the refusal, and an expired one stops suppressing it",
-   "stage": "required-proof"
-  },
-  {
-   "id": "H1",
-   "title": "no command computes the five queue numbers that decide whether any of this worked; hand counted once, cannot be recomputed",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/"
-   ],
-   "done_check": "run it against the 7 August export and reproduce 41, 22, 23, 11, 48, or name which of the five it cannot supply",
-   "stage": "verified-reality"
-  },
-  {
-   "id": "H2",
-   "title": "there is no accepted state: the chain ends at a green gate and a merge, and whether a person accepted the result is not represented",
-   "state": "queued",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "BrotherSBE"
-   ],
-   "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists",
-   "stage": "human-decision"
-  },
-  {
-   "id": "M1",
-   "title": "BrotherMode's hooks do not load on THIS MACHINE because it carries a skill-directory copy rather than a plugin install; the packaging is correct and identical to the sibling's, which fires. Fix is the documented marketplace install, and the clone must be removed first or every hook fires twice",
-   "state": "blocked",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "scripts/install.py",
-    "docs/KNOWN-LIMITS.md"
-   ],
-   "done_check": "after removing the clone install and running the two documented commands, one of this product's OWN hooks is observed firing (for example its fence hook refusing a write across a live claim by name), or the limits page states the shape difference, which it now does",
-   "note_2026_08_20": "scriptable half DONE at the A3 commit: doctor check 8 install_shape (PASS quoted) and scripts/migrate_install.py with dry-run default, --apply double-gated, fixture-home tests. The LIVE swap of this machine install stays FOUNDER-GATED and is the open half."
-  },
-  {
-   "id": "M2",
-   "title": "deliver certifies a project that did nothing: three commands with no goal, no acceptance check, no build, no review and no evidence produce a success message and a written packet reading (no evidence recorded)",
-   "state": "done",
-   "stage": "human-decision",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_project.py"
-   ],
-   "done_check": "a hollow project is refused by deliver naming its holes; test_bm_project TestDeliverRefusesHollow green at the A3 commit"
-  },
-  {
-   "id": "M3",
-   "title": "a task created through the CLI can never be served by next: task add writes status planned and next reads only ready, so the guided flow's own handoff from planning to work is broken",
-   "state": "done",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_project.py"
-   ],
-   "done_check": "task add then next returns that task rather than 'no recommended next task'"
-  },
-  {
-   "id": "M4",
-   "title": "a task may be born in any of the ten lifecycle states because cmd_task_add passes --status straight through, so the ordering law the whole method rests on is bypassed by one flag",
-   "state": "done",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_project.py"
-   ],
-   "done_check": "already fixed pre-A3: BIRTH_STATES guard in cmd_task_add with pinned test test_a_task_cannot_be_born_past_the_start_of_the_lifecycle, verified green 2026-08-20"
-  },
-  {
-   "id": "M5",
-   "title": "acceptance checks enforce nothing: the criterion link is opt-in, so a review that names no criterion verifies a task whose acceptance checks were never examined",
-   "state": "done",
-   "stage": "required-proof",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_store.py"
-   ],
-   "done_check": "review_task returns the acceptance gap and cmd_review prints the warning; store-level test green at the A3 commit"
-  },
-  {
-   "id": "M6",
-   "title": "the capability detector cannot tell installed from absent in either direction: it reads only ~/.claude/skills and the plugin caches, so it reports DEGRADE for a class the harness already ships built in, and would wrongly call the method stage empty",
-   "state": "done",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_toolkit.py"
-   ],
-   "done_check": "render_route resolves to the native floor with RESOLVED line, NO-DATA when siblings unconfirmed; test green at the A3 commit"
-  },
-  {
-   "id": "M7",
-   "title": "two degrade sentences promise more than the machine delivers: the tdd path names a test-first law that exists nowhere, and the security path claims secret scanning is already in the gate when no suite scans the tree",
-   "state": "queued",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_toolkit.py",
-    "tools/toolkit_routes.json"
-   ],
-   "done_check": "every degrade sentence names only capabilities that exist, proven by resolving each named artifact"
-  },
-  {
-   "id": "M8",
-   "title": "the guided walkthrough stops at the project brief: no skill, command or reference tells anyone to create tasks, so next reads a queue the flow never fills",
-   "state": "done",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "skills/start/SKILL.md"
-   ],
-   "done_check": "scripted walkthrough test proves the start flow leaves a ready task that next serves; test green at the A3 commit"
-  },
-  {
-   "id": "M9",
-   "title": "the progress-page check reports OWED forever on a page that was deliberately frozen: it compares mtimes and cannot follow the pointer GANTT.html carries to COMMAND-CENTER.html, so every session is told to refresh a retired record REOPENED 2026-08-21 by an audit of items marked done. tools/bm_progress_check.py contains ZERO occurrences of successor, pointer, COMMAND-CENTER or frozen, counted directly, while this item's own done_check requires that a page carrying a successor pointer reports the successor's freshness or a NO-DATA naming the pointer, NEVER a bare OWED. Reproduced live: a frozen GANTT.html pointing in its own text at a fresh COMMAND-CENTER.html still produces exit 1 and 'progress page: OWED (stale)'. The commit history is candid that the original symptom stopped reproducing and a DIFFERENT underlying bug was fixed instead, but that reasoning lives only in a commit message: the machine-readable record still carries the original done_check with state done and no note of the substitution. Same shape as M14 and M16. Evidence: docs/evidence/night-2026-08-21-closed-item-audit.md",
-   "state": "queued",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_progress_check.py"
-   ],
-   "done_check": "a page carrying an explicit successor pointer reports the successor's freshness, or reports NO-DATA naming the pointer it could not resolve, never a bare OWED"
-  },
-  {
-   "id": "M10",
-   "title": "verify-close cannot give any verdict to a session that claimed no record, so a session with a full pack gets NO-DATA and its pack checks never run; the code comment's stated assumption, that a session with no claims has no pack to close, was disproven by the 2026-08-15 session [BLOCKED 2026-08-19: tools/bm_handover.py is under a live fence, FENCE F5, agent fleet-export, session ae1ced66. Do not write across it; ask that owner or close the fence with evidence.]",
-   "state": "done",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_handover.py"
-   ],
-   "done_check": "verify-close gives a real verdict to a claimless full pack via the env-derived session path, typo guard kept; test green at the A3 commit"
-  },
-  {
-   "id": "M11",
-   "state": "done",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "title": "a synthetic probe of the fence hook disagrees with the hook itself: feeding it a hand-built payload returned exit 0 ALLOW for a file the real PreToolUse hook then refused by name. A second way of asking a control is a second implementation of it, and this one was wrong in the dangerous direction",
-   "files": [
-    "docs/KNOWN-LIMITS.md",
-    "tools/bm_fence_hook.py"
-   ],
-   "done_check": "python3 tools/test_bm_fence_hook.py QueryVerb green: tools/bm_fence_hook.py ships a `query PATH [--session-id ID]` verb that calls decide(), the same function cmd_hook() calls, and QueryVerb pins its verdict equal to decide()'s own verdict on four cases (unclaimed path allow, foreign claim deny, own claim allow, unreadable store fail-open with reason printed)"
-  },
-  {
-   "id": "M12",
-   "title": "the two one-writer registries disagree: the BrotherSBE scope reconcile reads only .sbe tasks and STATE.md fence lines and cannot see BrotherMode store claims, so a path correctly claimed in the store is named undeclared at every peer session stop (measured 2026-08-20 by the mandate session against claim day-run-step1-board; break-glass day-run-board-registry-mismatch-2026-08-20 covers stops until fixed)",
-   "state": "done",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "store claims render an agent-bearing fence line the INSTALLED sbe reconcile parses; regression test drives the installed read_declarations and fails on the pre-fix render; peer break-glass record deleted in the same change"
-  },
-  {
-   "id": "M13",
-   "title": "the same two registries still cannot recognise each other's OWNER, which is the half M12 did not close: the installed sbe_fence_hook.same_session prefix-matches the raw harness session id against the derived bm1- label bm_store.py writes, and neither is a prefix of the other, so the hook refuses the rightful owner out of their own fence (measured 2026-08-20 by the day-run closing session, which was refused its own claimed write of docs/plan/GANTT.html and continued under the hook's documented BROTHERSBE_FENCE_SESSION identity override, never its off switch)",
-   "state": "queued",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "a fence line written by bm_store.py claim carries an identity the INSTALLED sbe_fence_hook.same_session matches for the harness session that made the claim, proven by a regression test that fails on the current single-label render, plus one real edit the hook refused before the fix and allows after it, both verdicts quoted"
-  },
-  {
-   "id": "R1",
-   "title": "the defect refusal is enforced by the command line, not by the store: add_reality_record accepts any non-empty intent_ref, so a direct caller can pass a queue id that never existed (codex debate F4, 2026-08-20, BLOCKER, disclosed in the 3.3.2 changelog rather than silently carried)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "a reality row of kind defect cannot be written with an intent_ref that does not resolve to a real queue item, proven by a test that writes a fake id through the store API and is refused, and that fails on the current shape"
-  },
-  {
-   "id": "R2",
-   "title": "the queue write and the reality row are two writes, not one: a crash between them leaves a queue item with no record, and the queue file is never fsynced so power loss can keep the row and lose the rename (codex debate F2, 2026-08-20, BLOCKER)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 180,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "a simulated failure between the two writes leaves the pair consistent in both directions, proven by a test that injects the failure at each point"
-  },
-  {
-   "id": "R3",
-   "title": "a caller mints its own record_id for a reality row, so identifier provenance is caller controlled even though an existing row cannot be overwritten (codex debate F6, 2026-08-20, MAJOR)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "record ids are minted inside the store only, proven by a test that a caller-supplied id is refused or ignored"
-  },
-  {
-   "id": "R4",
-   "title": "bm_reality defect validates only that the queue holds a list, so a queue missing schema or min_depth is accepted, rewritten and followed by a reality commit; and a relative --queue resolves against the process working directory rather than --root, while a symlinked queue is read through but replaced as a directory entry (codex debate F7 and F8, 2026-08-20, MAJOR)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 120,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "the canonical queue validator runs before the file is modified, a relative --queue anchors to root, and a symlinked queue is either refused or deliberately resolved, each with a test that fails on the current shape"
-  },
-  {
-   "id": "R5",
-   "title": "bm_reality writes its result to a locale-dependent stdout after committing, so on a non-UTF-8 console an unencodable release id commits and then exits 2, inviting a duplicate retry (codex debate F9, 2026-08-20, MAJOR; same family as the subprocess-locale lesson of 2026-08-19)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "output is encoding safe before any write, proven by a test under a non-UTF-8 stdout encoding that still exits 0 after a successful commit"
-  },
-  {
-   "id": "R6",
-   "title": "reusing a project id after purge aliases the dead project's reality history to the new one, because reality_records deliberately carries no foreign key so the audit trail outlives the project (codex debate F10, 2026-08-20, MAJOR; the no-foreign-key choice itself was confirmed correct by the same review)",
-   "state": "queued",
-   "stage": "verified-reality",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_reality.py",
-    "tools/bm_store.py",
-    "tools/test_bm_reality.py"
-   ],
-   "done_check": "a purged project id cannot be reused, or every reality row carries an immutable incarnation identifier, proven by a test that reuses an id and shows the old rows do not follow it"
-  },
-  {
-   "id": "M14",
-   "title": "the installed sbe fence hook reads STATE.md's HUMAN PROSE section as live fence lines: six historical narrative bullets (finish-and-ship, docs-refresh, loop0-builder and three closure notes) are each parsed as a live fence with no readable files: scope, and the hook then FAILS OPEN on every one, printing a warning per line on every single write. Enforcement is silently absent for those lines, and six warnings per write is exactly the volume that teaches a reader to stop reading them (measured 2026-08-20 by the day-run closing session by invoking the installed hook directly) MEASURED AND REOPENED 2026-08-21: this item had been RETIRED by an earlier session on evidence about the WRONG HOOK, and the retirement was then repeated in a handover pack without re-testing. M14 names sbe_fence_hook.py (the BrotherSBE plugin's hook); the retirement evidence is entirely about bm_fence_hook.py and a schema mismatch repaired by pointing an install clone at origin/main. One identical PreToolUse payload sent to both: sbe_fence_hook emitted 34 warning lines each saying STATE.md carries a live fence line with no readable files scope so it did NOT enforce it, while bm_fence_hook emitted one line and never parses STATE.md text at all. WORSE than first reported: 34 warnings per write rather than six, spanning every historical Wave section, not only Wave 7. Evidence: docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md",
-   "state": "queued",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "STATE.md",
-    "tools/bm_store.py"
-   ],
-   "done_check": "invoking the installed sbe_fence_hook against any path in this repository prints ZERO no-readable-scope warnings, proven by the quoted output before and after, and a test pins that STATE.md's human prose outside the generated markers is not parsed as a fence"
-  },
-  {
-   "id": "M15",
-   "title": "NOT ESTABLISHED, kept as an open question rather than a claim: whether the installed fence hook treats a PARKED store record as live. The day-run first session reports parking day-run-step1-board before this session was refused on docs/plan/GANTT.html by that same fence, which would make it a second defect beside the prefix-match one, but the attempt to measure it directly was swamped by M14's fail-open warnings and returned ALLOW for both a parked-only path and an actively fenced one, so nothing was established in either direction",
-   "state": "done",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "with M14 fixed so the warnings no longer swamp the output, the installed hook is invoked against a path covered ONLY by a parked record and its verdict is quoted; a refusal confirms the defect and gets its own regression test, an allow closes this item as measured and not a defect"
-  },
-  {
-   "id": "M16",
-   "title": "a bm_ tool run from inside a git worktree walks UP and finds the MAIN checkout's .brothermode marker, so it reads and writes the shared project instead of the worktree: measured 2026-08-20 when a worktree agent's skeleton run wrote a real handover pack into the main checkout, outside its own sandbox, and could not clean it up afterwards. Worktree isolation is the control that lets parallel writers exist at all, and root resolution silently escapes it unless BROTHERMODE_ROOT is set by hand MEASURED AND CONFIRMED OPEN 2026-08-21, after the run brief stated a merged branch held M16 while the queue said queued. The contradiction resolves cleanly and the queue was right: commit 153392e's own message reads 'the worktree escape queued as M16', so that branch carried the QUEUE ENTRY, not a fix, and neither commit mentioning M16 touches bm_store.py or bm_fence_hook.py. Reproduced on a throwaway nested clone: with BROTHERMODE_ROOT unset, bm_store init inside the worktree printed 'root resolved via marker' and initialised the MAIN checkout's store; with it set, 'root resolved via env' and the worktree's own. CALLER INVENTORY, counted by hand: 0 production callers in tools/ and scripts/ pass refuse_past_git_boundary=True, and the only 5 call sites that do live in tools/test_bm_store.py, wired to nothing. tools/bm_escalate.py carries a separate reimplementation of the same walk with no such parameter, so it cannot opt in even in principle. Nesting is what triggers it: a sibling-layout worktree did NOT reproduce, and this project's own agent worktrees live at .claude/worktrees/<name>, nested. Evidence: docs/evidence/night-2026-08-21-m16-worktree-escape.md",
-   "state": "queued",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 75,
-   "files": [
-    "tools/bm_store.py",
-    "tools/test_bm_store.py"
-   ],
-   "done_check": "root resolution refuses to cross a worktree boundary, or names it: a bm_ tool invoked with cwd inside .claude/worktrees/<name> resolves to that worktree, or exits naming the ambiguity and the BROTHERMODE_ROOT override; a regression test drives a tool from a worktree fixture and fails on the pre-fix walk-up behaviour"
-  },
-  {
-   "id": "M17",
-   "title": "the doctor's fence liveness check proves liveness against a THROWAWAY project's store, never against the project it is run in, so it returned PASS on 2026-08-20 while the installed hook was failing open on every write in this repository: the store was at schema 21 and the installed copy understood at most schema 20, so the fence was not checked at all and the doctor still reported the write-protection check wired and live",
-   "state": "done",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "scripts/doctor.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "the doctor's fence check exercises THIS project's own store and goes RED when the installed hook cannot read it: point the check at a store one schema ahead of the installed copy and observe FAIL rather than PASS, and confirm the pre-fix code passes the same fixture so the test is not asserting something already true"
-  },
-  {
-   "id": "M18",
-   "title": "scripts/migrate_install.py answers only whether a fence hook is WIRED, never whether that wired copy can reach a verdict, so on 2026-08-20 its dry-run printed NOTHING TO DO and it is not stranded about an install whose hook failed open on every write in the repository: wiring was intact and the code behind it was hundreds of commits stale",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "scripts/migrate_install.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "migrate_install.py dry-run against an install whose copy cannot read the project's store prints a repair plan naming the version gap instead of NOTHING TO DO; a regression test drives it with a schema-ahead fixture store and fails on the pre-fix wiring-only verdict"
-  },
-  {
-   "id": "M19",
-   "title": "the handover pack's board copy is captured at skeleton time and never refreshed, so `zip` re-archives a stale board: measured 2026-08-20 when a session generated its pack, then folded that night's finding into docs/plan/GANTT.html, re-ran zip, and shipped a board copy whose sha256 differed from the live board. This is the SAME defect the ceremony session fixed one layer up that evening (the pack was copying a COMMAND-CENTER.html three days stale) reappearing one layer down, and it is silent: nothing compares the two files",
-   "state": "done",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "tools/bm_handover.py",
-    "tools/test_bm_handover.py"
-   ],
-   "done_check": "zip refreshes the board copy from the live board, or verify-close FAILS naming the drift: edit docs/plan/GANTT.html after skeleton, run zip, and confirm the archived copy's sha256 equals the live board's; a regression test fails on the pre-fix capture-once behaviour"
-  },
-  {
-   "id": "M20",
-   "title": "doctor does not run the wired hook command with SHELL semantics, so a configured command carrying a redirection is judged on output the real harness would have thrown away: reproduced 2026-08-21, shlex.split keeps the redirection as a literal token, doctor's non-shell run captures the full deny JSON and reports 0 problems, while the same command under a real shell returns exit 0 with empty stdout for BOTH the deny and the allow case, making them indistinguishable. PRE-EXISTING, not introduced by M17; found by the cross-family debate of 2026-08-21 (finding 6, BLOCKER) and reproduced by command",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "scripts/doctor.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "a wired command carrying a redirection is judged the way the harness would actually run it, or doctor reports that it cannot tell; a regression test wires such a command and fails on the pre-fix argument-list execution"
-  },
-  {
-   "id": "M21",
-   "title": "zip reconciles a board that APPEARED or DISAPPEARED since skeleton, not only one that changed: if skeleton copied the older COMMAND-CENTER.html candidate and GANTT.html appears before zip, the pack ends up carrying both while the generated read-me still points at the stale one; if the board disappears entirely, board_abs is None and the old copy is archived unchanged. Cross-family debate 2026-08-21 (finding 9, MAJOR)",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/bm_handover.py",
-    "tools/test_bm_handover.py"
-   ],
-   "done_check": "a pack whose board candidate changed name, or whose board vanished, is reported rather than silently archived; regression tests cover both directions and fail on the pre-fix behaviour"
-  },
-  {
-   "id": "M22",
-   "title": "reading SCHEMA_VERSION out of a source file as text can certify a runtime version that is not real: the constant may be shadowed, computed, or overridden at import, so the text parser answers about the literal rather than about what the module would actually use. Cross-family debate 2026-08-21 (finding 10, MAJOR). The text read was a deliberate choice, because importing a stale or foreign copy runs its module level code, so the fix is a better question rather than an import",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "scripts/migrate_install.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "the reported version is one the wired copy would actually use, or is reported as NO-DATA; a regression test plants a source file whose literal and effective values differ and fails on the pre-fix text read"
-  },
-  {
-   "id": "M23",
-   "title": "the doctor's real-store verify turns ANY nonzero exit into the definitive claim that the wired hook cannot read the store: another process committing a park between the store write and the STATE.md regeneration makes verify report view drift, and doctor then names a false cause and a false remedy (upgrade your hook) for a hook that is healthy. Fails toward FAIL, which is the safer direction, but the diagnosis and the instruction are both wrong. Cross-family debate 2026-08-21 (finding 11, MAJOR)",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "scripts/doctor.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "a nonzero verify is distinguished by its reason before a cause is named, or the message says which reasons it could not distinguish; a regression test drives a view-drift verify and fails on the pre-fix blanket message"
-  },
-  {
-   "id": "M24",
-   "title": "subprocess output is decoded with the machine locale in the doctor and installer paths that do not pass an explicit encoding: under a non UTF-8 locale a child emitting a path with an accented character raises UnicodeDecodeError, and in migrate_install --apply that happens AFTER the install directory has been removed, leaving it deleted. M18's two install subprocesses do specify UTF-8; M17's init, session-label, claim, hook-query and real-store verify calls do not. Cross-family debate 2026-08-21 (finding 12, MAJOR); this estate has been burned by this exact class on another platform before",
-   "state": "queued",
-   "stage": "method",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "scripts/doctor.py",
-    "scripts/migrate_install.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "every subprocess reading text in these two scripts names its encoding and handles a decode failure without losing state; a regression test drives a child emitting non-ASCII under a forced locale and fails on the pre-fix calls"
-  },
-  {
-   "id": "M25",
-   "title": "the doctor's simulation claims nothing outside its temporary directory is written, but its subprocesses can create or refresh a bytecode cache beside the installed hook when PYTHONDONTWRITEBYTECODE is unset and that directory is writable. Small in effect, listed because the docstring makes an explicit promise the code does not keep. Cross-family debate 2026-08-21 (finding 13, MINOR)",
-   "state": "done",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "scripts/doctor.py",
-    "tools/test_bm.py"
-   ],
-   "done_check": "the simulation either writes nothing outside its temporary directory or its docstring stops promising that; a regression test asserts no new bytecode cache appears beside a fixture install"
-  },
-  {
-   "id": "M26",
-   "title": "the M17 and M18 regression suites are green without covering the property they claim: neither M18 test creates a real store at a schema the wired copy cannot open, so both pass on a SOURCE version comparison rather than on the wired copy being able to reach a verdict, and both wire only the same skill directory the code already assumes. Cross-family debate 2026-08-21 (finding 14, MAJOR)",
-   "state": "queued",
-   "stage": "required-proof",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/test_bm.py"
-   ],
-   "done_check": "each test drives a real store the wired copy genuinely cannot open, and fails when the code is changed to compare source constants only"
-  },
-  {
-   "id": "M27",
-   "title": "the reviewed write-site inventory cannot see two write shapes, so a site can enter a scanned file without ever being reviewed: its mode regex is open\\([^)]*[\"']w[\"'] which matches a bare w and NOT wb, and the compensating .write( pattern does not match .writelines( or shutil.copyfileobj(. Verified 2026-08-21 by running the two patterns directly: open(p, \"wb\") returns False, fh.writelines(lines) returns False, shutil.copyfileobj(src, fh) returns False. NOT currently a live hole in this repository: the one binary open in tools/bm_handover.py is followed on the next line by fh.write(data), which IS matched, so that site is counted. Found while fixing the M19 defects, by the writer that had to touch the inventory twice",
-   "state": "done",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 30,
-   "files": [
-    "tools/test_bm.py",
-    "tools/write_sites.json"
-   ],
-   "done_check": "a file planted with open(p, \"wb\") plus writelines, and one with shutil.copyfileobj, are both counted by the scanner; the regression test fails on the pre-fix patterns"
-  },
-  {
-   "id": "M28",
-   "title": "one write-site shape stays invisible to the widened scanner and it was found by the writer that widened it, not by a later audit: the mode pattern uses [^)]* to reach the mode string, which cannot cross a NESTED closing paren, so open(os.path.join(root, \".git\", \"info\", \"exclude\"), \"a\") at scripts/benchmark.py line 116 does not match. Verified 2026-08-21 by running the widened pattern against that exact line: False. LATENT, not live: a .write( two lines below it is matched, so the site is counted today and nothing goes unreviewed. It becomes live the moment such a site has no matched write beside it. Left unfixed on purpose because closing it means changing how the scanner parses rather than widening a character class, and that is restructuring",
-   "state": "done",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 45,
-   "files": [
-    "tools/test_bm.py",
-    "tools/write_sites.json"
-   ],
-   "done_check": "a planted file whose open() call wraps its path in a nested call, with no .write beside it, is counted by the scanner; the regression test fails on the current [^)]* pattern"
-  },
-  {
-   "id": "M29",
-   "title": "json.dump(obj, fh) is a write verb the reviewed inventory has never matched, in any generation of its patterns: verified 2026-08-21 by running the LIVE WRITE_PATTERNS tuple against the line json.dump(payload, fh, indent=2), which matched none of the nine. The eight sites in scripts/benchmark_comparative.py that became visible under M28 became visible through their open() line, which the widened nesting pattern now reaches, NOT through the json.dump call itself, so a json.dump into a handle opened elsewhere, or handed in as an argument, is still invisible. This is the THIRD generation of the same blind spot found in one night (M27 the mode string, M28 the nested paren, M29 the write verb), which is the finding worth more than the fix: the inventory has been widened three times by whoever happened to be working inside it, and never by an audit of it",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/test_bm.py",
-    "tools/write_sites.json"
-   ],
-   "done_check": "a planted file calling json.dump into a handle it did not open is counted by the scanner; the regression test fails on the current nine patterns. Consider whether the honest fix is a pattern list at all, or a check that every file-handle-taking call in the scanned tree is enumerated"
-  },
-  {
-   "id": "M30",
-   "title": "worktrees accumulate with uncommitted deltas and nothing reconciles them: measured 2026-08-21, this repository carries SEVEN stale worktrees under .claude/worktrees/ left by earlier agent sessions, and every one holds uncommitted changes, 25 files in total. Compared byte for byte against origin/main, 19 of the 25 are IDENTICAL and therefore landed by the ordinary route, leaving the worktree as residue; 6 are not identical (agent-a3959916: tools/bm_handover.py and tools/test_bm_handover.py; agent-a8eac56a: pyproject.toml, tools/bm_store.py, tools/write_sites.json; agent-ac527406: CHANGELOG.md), and for four of those main simply moved past them, three by the session that measured this. PO-3 works on the way IN (a worktree agent returns a delta, the orchestrator integrates, re-gates and commits) and has no counterpart on the way OUT. Compounding factor: these worktrees are NESTED, which is the exact layout M16 proves makes a bm_ tool write into the main checkout instead of the worktree",
-   "state": "queued",
-   "stage": "provenance",
-   "clock": "agent",
-   "forecast_minutes": 60,
-   "files": [
-    "tools/bm_handover.py",
-    "tools/test_bm_handover.py"
-   ],
-   "done_check": "a reconciliation command compares each worktree's uncommitted files against the commit it branched from and reports LANDED or UNLANDED per file, refusing to offer removal for any worktree with an UNLANDED file; a regression test drives a fixture worktree in both states. Removal itself stays a founder gate"
-  },
-  {
-   "id": "M31",
-   "title": "done_checks rot silently and nothing notices: an audit of 14 of the 50 items marked done found ONE wrongly closed (M9) and FOUR whose done_check no longer means what it said. M28's own title claims the gap was left unfixed on purpose when the code and a passing test show it was closed. M15's done_check states the precondition with M14 fixed, and M14 is not fixed. O15's done_check names doctor check 9, which today means project store health rather than the CHECKSUMS check O15 was about, now check 11: the pointer silently stopped meaning what it meant when written. M2 names a test class that does not exist verbatim, though the real test exists under another name and passes. Three separate wrong verdicts were found in one night (M9, M14, M16), all three by accident rather than by any control, which is what makes this systemic rather than three unlucky items",
-   "state": "queued",
-   "stage": "evidence-integrity",
-   "clock": "agent",
-   "forecast_minutes": 90,
-   "files": [
-    "tools/bm_idle.py",
-    "tools/test_bm_idle.py"
-   ],
-   "done_check": "a command re-evaluates every done item whose done_check names a runnable check, and reports CONFIRMED, STILL OPEN or CANNOT VERIFY per item, refusing to report CONFIRMED for any item whose done_check it could not execute; a regression test drives a fixture queue holding one wrongly closed item and fails when that item is reported CONFIRMED"
-  }
- ]
+  "schema": 1,
+  "_comment": "The machine-readable work queue. tools/bm_idle.py reads THIS file and nothing else to answer whether the machine is about to sit idle. Depth is the count of items in state 'queued'. Ordering is the array order: the next item to start is the first 'queued' item. An item is startable only if it needs no founder answer; anything that does carries state 'blocked' with a reason and is NOT counted toward depth, because a blocked item cannot save a night. Edit by hand or with bm_idle.py mark.",
+  "window": {
+    "label": "toolkit focus, week of 2026-08-12",
+    "opened": "2026-08-12T09:00:00+09:00",
+    "hard_stop": "2026-08-15T18:00:00+09:00",
+    "unattended": false
+  },
+  "min_depth": 5,
+  "idle_window_minutes": 25,
+  "watch_paths": [
+    "tools",
+    "docs/plan",
+    "docs/team",
+    "docs/handover"
+  ],
+  "items": [
+    {
+      "id": "TK10",
+      "title": "purge_project leaves orphaned capability_receipts rows; disclosed by the TK5a builder, deliberately out of its scope",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "purging a project removes its capability_receipts, proven by a test written failing first; the exact-dict-shape removed map and dry-run semantics still hold",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK11",
+      "title": "CLI surface for receipts: bm_project.py add and list capability receipts, plus an evidence criterion_id flag",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "tools/bm_project.py",
+        "tools/test_bm_project.py"
+      ],
+      "done_check": "a receipt can be filed and listed from the command line without touching the store directly",
+      "stage": "required-proof",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK1",
+      "title": "T1 Inventory: bm_toolkit.py inventory, builds on claude plugin details, adds skills, settings layers, CLIs, cross-plugin view",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 150,
+      "files": [
+        "tools/bm_toolkit.py",
+        "tools/test_bm_toolkit.py"
+      ],
+      "done_check": "python3 tools/bm_toolkit.py inventory run against this machine, output quoted",
+      "closed_note": "landed at d382ca5; 17 tests, three hostile fixtures, five registries; real machine reports 8 marketplaces, 69 plugins, 37 skills, 12 MCP servers",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK2",
+      "title": "T2 Conflict detection with severity data file; fixtures: 7 Stop hooks, 10 PreToolUse layers, dual brothersbe versions; includes the hookify ordering experiment",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 150,
+      "files": [
+        "tools/bm_toolkit.py",
+        "tools/toolkit_conflict_classes.json",
+        "tools/test_bm_toolkit.py"
+      ],
+      "done_check": "python3 tools/bm_toolkit.py conflicts finds the known fixtures by itself; NO-DATA on unreadable surface",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK3",
+      "title": "T3 Capability records with static DECLARED reach derived from artifacts",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "tools/bm_toolkit.py",
+        "tools/bm_store.py",
+        "tools/test_bm_toolkit.py"
+      ],
+      "done_check": "a hand-asserted record is visibly marked; derived records name their source files",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK4",
+      "title": "T4 Routing table plus route command; BMAD route DISABLED until footprint confirmed",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "tools/toolkit_routes.json",
+        "tools/bm_toolkit.py"
+      ],
+      "done_check": "route command names capability, reason, degrade path when absent",
+      "stage": "method"
+    },
+    {
+      "id": "TK5",
+      "title": "T5 Receipts: nine fields, NO-DATA path, plus criterion-linked verification (R1.2 pulled into this arc per decision 32, the receipt backbone)",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 210,
+      "files": [
+        "brotherme/core/schema.py",
+        "tools/bm_store.py",
+        "tools/bm_toolkit.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "suite proves the nine-field receipt, the NO-DATA path, and that a verification row cannot be filed without naming its criterion",
+      "closed_note": "TK5a storage half landed: schema 20, capability_receipts, criterion links, 1075 store tests. CLI surface and packet rendering remain.",
+      "note": "done: TK5a storage plus criterion-linked verification landed 2026-08-12 at e0341cb; TK11 CLI landed 2026-08-15; in_flight owner session died and its handover was acknowledged",
+      "stage": "required-proof",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "TK6",
+      "title": "T6 The five-step pipeline on O4, real cargo, one evidence packet",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 240,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "pipeline completes; receipt per external step; the review step uses the named core falsification brief when Code Review is absent; O4 done-check green: claim then park from two shells",
+      "stage": "required-proof"
+    },
+    {
+      "id": "TK7",
+      "title": "T7 Retention proposals from receipts, founder ratifies",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_toolkit.py"
+      ],
+      "done_check": "retention command proposes per capability used in TK6",
+      "stage": "human-decision"
+    },
+    {
+      "id": "TK8",
+      "title": "T8 Doctor and gate integration, five-registry sweep per PF-3",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "scripts/doctor.py",
+        "tools/test_all.py",
+        ".github/workflows/tests.yml",
+        "tools/write_sites.json",
+        "pyproject.toml"
+      ],
+      "done_check": "doctor reports undeclared use and conflicts; suite in gate and CI",
+      "stage": "provenance"
+    },
+    {
+      "id": "TK9",
+      "title": "BMAD footprint follow-up: repo-tree read, enable or reject its route",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/toolkit_routes.json"
+      ],
+      "done_check": "the route is enabled with the footprint named, or rejected with the reason",
+      "note": "done 2026-08-15: footprint confirmed from bmad-code-org source (install-paths.js): _bmad/ and _bmad-output/ at project root, no .brothermode or STATE.md collision; .claude/skills only on explicit IDE opt-in with bmad- prefix. Verdict ENABLE recorded; flipping the shipped default (constant plus json, byte-identical pair) is a one-line data change deliberately deferred to the next session with the guard: skip the installer .claude/skills opt-in or diff filenames first.",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O4",
+      "title": "Zero-tax adoption: a fence claimed from one shell is parkable from another (the design landed at 8949ffd; this is the build)",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "claim then park from two separate shell invocations, no refusal, regression test failing first",
+      "blocked_reason": "reserved as TK6 pipeline cargo per decision 26; runs INSIDE the toolkit E2E, not standalone",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O5",
+      "title": "Adversarial read of the first-day pack as somebody who has never used any of this",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "docs/evidence/tester-pack/ADVERSARIAL-READ.md"
+      ],
+      "done_check": "every step that assumes knowledge it never gave is listed with the missing knowledge named",
+      "note": "done 2026-08-16: adversarial newcomer read executed commands per PO-5; 2 critical findings (unsatisfiable sbe version check, stale v3.1.0 pin) plus 2 fixed inline and 1 deferred; fixes landed same session",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O6",
+      "title": "Re-probe the three defects found on 2026-08-11 against the released v3.2.0 tree",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/evidence/v3.2.0/DEFECT-REPROBE.md"
+      ],
+      "done_check": "each defect carries a reproduction attempt and its verbatim result",
+      "stage": "verified-reality"
+    },
+    {
+      "id": "O7",
+      "title": "Documentation link sweep, every relative link resolved",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "a script lists zero unresolved relative links across the docs tree",
+      "note": "done 2026-08-15: haiku sweep found zero unresolved relative links in docs and README; nothing to fix",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O8",
+      "title": "Re-read docs/KNOWN-LIMITS.md against the current tree, file every limit now false or newly true",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/KNOWN-LIMITS.md"
+      ],
+      "done_check": "every limit in the file either still reproduces or is marked resolved with the commit that resolved it",
+      "stage": "verified-reality"
+    },
+    {
+      "id": "O9",
+      "title": "The booklet under docs/book/, one release stale on the command surface",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "docs/book/brothermode-solo-builder-booklet.html"
+      ],
+      "done_check": "every command named in the booklet exists in commands/ or is removed",
+      "stage": "method"
+    },
+    {
+      "id": "O10",
+      "title": "Seed bm_forecast with every measurable historic estimate found in the plan docs",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        ".brothermode/forecasts.jsonl"
+      ],
+      "done_check": "python3 tools/bm_forecast.py calibrate reports n greater than 6",
+      "stage": "business-impact"
+    },
+    {
+      "id": "O11",
+      "title": "BrotherSBE parity read: what BrotherMode enforces that BrotherSBE only states",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/evidence/parity/SBE-PARITY-2026-08-12.md"
+      ],
+      "done_check": "each law names checked-by-tool or human, verified by opening the tool",
+      "note": "done 2026-08-16: parity read landed as docs/plan/PARITY-READ-2026-08-15.md with proving lines and the three integration moves",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O12",
+      "title": "R1.1 outcome contract columns, per the long range WBS",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "brotherme/core/schema.py",
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "the suite proves a record carries its outcome contract and refuses one without",
+      "stage": "behaviour"
+    },
+    {
+      "id": "O13",
+      "title": "R1.2 criterion-linked verification, per the long range WBS",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a verification row cannot be filed without naming the criterion it satisfies",
+      "stage": "required-proof"
+    },
+    {
+      "id": "O14",
+      "title": "Pick the oldest parking lot item, give it an objective or write down why it cannot have one",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "docs/plan/LONG-RANGE-PLAN-2026-08-11.md"
+      ],
+      "done_check": "the item either names its north star objective or carries a written reason it cannot",
+      "stage": "intent"
+    },
+    {
+      "id": "O15",
+      "title": "Regenerate CHECKSUMS and prove doctor check 9 passes",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": [
+        "CHECKSUMS.sha256"
+      ],
+      "done_check": "python3 scripts/doctor.py reports check 9 PASS",
+      "note": "done: manifest regenerated at every commit today; doctor check 9 reads SKIP on a dirty tree by design and PASS on the committed tree, quoted in the session record",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O16",
+      "title": "Loop back to O6 and re-run the whole overflow tier. The queue does not end",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "not applicable, this item exists so depth never reaches zero",
+      "stage": "verified-reality"
+    },
+    {
+      "id": "G1",
+      "title": "Cut v3.3.0",
+      "state": "done",
+      "blocked_reason": "a release is a founder gate. He is asleep. This never enters the queue and never counts toward depth",
+      "clock": "wall",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "founder says yes",
+      "note": "done: v3.3.0 cut, tagged, pushed 2026-08-15; tag peels to e795f78 local and remote",
+      "stage": "human-decision",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "G2",
+      "title": "First cold tester install on somebody else's machine",
+      "state": "blocked",
+      "blocked_reason": "needs another person and their machine. Wall clock, cannot be compressed or started by an agent",
+      "clock": "wall",
+      "forecast_minutes": 0,
+      "files": [],
+      "done_check": "a tester reports the two version numbers from their own shell",
+      "stage": "verified-reality",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O18",
+      "title": "bm_forecast.py refuses --help on every verb; file and fix, the project has this exact precedent",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "tools/bm_forecast.py",
+        "tools/test_bm_forecast.py"
+      ],
+      "done_check": "python3 tools/bm_forecast.py record --help prints usage and exits 0",
+      "note": "done 2026-08-15: every verb answers --help exit 0, bm_project.py parse pattern mirrored, 23 forecast tests OK, red quoted in session record",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O19",
+      "title": "Wire bm_idle.py check into tools/bm_sessionstart.sh so the verdict arrives unasked",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_sessionstart.sh"
+      ],
+      "done_check": "a session start prints the idle verdict line the way it already prints the progress-page one",
+      "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
+      "stage": "intent",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O20",
+      "title": "Record actuals for L6, L7 and L8 so the calibration sample grows past n=4",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 5,
+      "files": [
+        ".brothermode/forecasts-log.jsonl"
+      ],
+      "done_check": "python3 tools/bm_forecast.py calibrate --clock agent --basis judged reports n greater than 6",
+      "note": "done-as-overtaken: calibration sample is n=14 with check PASS and 0 open forecasts; L6 and L7 carry measured actuals; L8-close-pack has no measured actual and a retroactive guess is refused by the never-invent law",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A4",
+      "title": "Put the calibration number on the session start line, beside the progress-page verdict",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_sessionstart.sh"
+      ],
+      "done_check": "session start prints the current multiplier and n, or NO-DATA when the sample is thin",
+      "note": "done 2026-08-15: bm_idle check and forecast calibrate wired into bm_sessionstart.sh, fail open; proven exit 0 with both lines printed, quoted in session record",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A5",
+      "title": "R1.5 pulled forward: retire the prose fence claims that no file enforces",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "docs/KNOWN-LIMITS.md",
+        "SKILL.md"
+      ],
+      "done_check": "every fence claim in the docs names its enforcing file or is marked UNENFORCED",
+      "stage": "provenance"
+    },
+    {
+      "id": "A6",
+      "title": "Teach bm_idle.py to read the forecast log so IDLE can cite what should have been in flight",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "the IDLE verdict names the open forecast whose actual never arrived",
+      "stage": "business-impact"
+    },
+    {
+      "id": "A9",
+      "title": "Give the memory design its missing third alternative: extend learning_rules, argued against properly",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/MEMORY-ARCHITECTURE-2026-08-12.md"
+      ],
+      "done_check": "the document contests the design that actually competes with it, per REFUTE-2026-08-12.md finding 1",
+      "stage": "method"
+    },
+    {
+      "id": "A10",
+      "title": "Resolve the intake-versus-intent contradiction between the one-change doc and TEAM-ADOPTION.md",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/design/ONE-CHANGE-IDENTIFIER-2026-08-12.md"
+      ],
+      "done_check": "the default minter agrees with the published nine-step order, or the order is changed on purpose",
+      "stage": "intent"
+    },
+    {
+      "id": "L1",
+      "title": "The aggressive replan and this queue",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "docs/plan/PLAN-2026-08-12-AGGRESSIVE.md",
+        "docs/plan/QUEUE.json"
+      ],
+      "done_check": "python3 -c \"import json;json.load(open('docs/plan/QUEUE.json'))\"",
+      "stage": "intent",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L2",
+      "title": "Forecast telemetry tool, tests written first",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "tools/bm_forecast.py",
+        "tools/test_bm_forecast.py"
+      ],
+      "done_check": "python3 tools/test_bm_forecast.py",
+      "closed_note": "landed and verified: 18 tests OK, adversarial NO-DATA probe at n=0,1,2 all refused",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L3",
+      "title": "Idle check tool, tests written first",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "python3 tools/test_bm_idle.py",
+      "closed_note": "landed and verified: 16 tests OK, hostile fixtures fired QUEUE-EMPTY, IDLE, WINDOW-CLOSED, NO-DATA",
+      "stage": "intent",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L4",
+      "title": "Register both tools in the gate, the write inventory and CI",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "tools/test_all.py",
+        "tools/write_sites.json",
+        ".github/workflows/tests.yml",
+        "pyproject.toml"
+      ],
+      "done_check": "python3 tools/test_all.py --list 2>&1 | grep -c bm_forecast",
+      "closed_note": "SUITES, bm_effects registry, write_sites inventory and CI workflow all updated; write-site gate green",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L5",
+      "title": "Tester package covering both products in one bundle",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "docs/team/TESTER-PACK.md",
+        "docs/team/INSTALL-CARD.md"
+      ],
+      "done_check": "every command block in the pack was executed and its output quoted in docs/evidence/tester-pack/",
+      "closed_note": "tester pack, evidence file and a corrected install card landed",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L6",
+      "title": "Progress page under the absolute structure, delivered not merely written",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/plan/GANTT.html"
+      ],
+      "done_check": "python3 tools/bm_progress_check.py status",
+      "closed_note": "docs/plan/GANTT.html delivered and bm_progress_check reports current, exit 0",
+      "stage": "human-decision",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L7",
+      "title": "Full battery at the final tree",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 13,
+      "files": [],
+      "done_check": "python3 tools/test_all.py",
+      "closed_note": "gate ran twice: first exit 1 on my own pyproject omission plus a dirty tree, both fixed; second exit 1 on a test_bm_handover flake that will not reproduce in 5 isolated runs, filed as DEFECT-handover-suite-flake-2026-08-12.md",
+      "stage": "required-proof",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "L8",
+      "title": "Push, close pack, verify-close",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "docs/handover/2026-08-12-aggressive-replan"
+      ],
+      "done_check": "python3 tools/bm_handover.py verify-close --pack docs/handover/2026-08-12-aggressive-replan",
+      "closed_note": "pack written, all 6 by-hand slots filled, zipped, verify-close PASS after parking 8 records; pushed at dfc3d02",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O1",
+      "title": "Memory architecture design document, two genuinely rejected alternatives",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/MEMORY-ARCHITECTURE.md"
+      ],
+      "done_check": "a reader can name what was rejected and the condition that would flip the decision",
+      "closed_note": "done by a concurrent session at 2b93b98 as docs/design/MEMORY-ARCHITECTURE-2026-08-12.md",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O2",
+      "title": "Toolkit broker design document: trust tiers and quarantine",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/TOOLKIT-BROKER.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 1851b13 as docs/design/TOOLKIT-BROKER-2026-08-12.md",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O3",
+      "title": "Connector model design document and the per-connector gate",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/design/CONNECTOR-MODEL.md"
+      ],
+      "done_check": "same shape as O1",
+      "closed_note": "done by a concurrent session at 66666c4 as docs/design/CONNECTOR-MODEL-2026-08-12.md",
+      "stage": "method",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O17",
+      "title": "Pin BrotherSBE README install to a tag, matching BrotherMode's pinned form",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": [
+        "../BrotherSBE/README.md"
+      ],
+      "done_check": "the README install block reads khalilmaaouni/BrotherSBE@v3.1.0",
+      "closed_note": "BrotherSBE README.md and TESTERS.md both pinned to @v3.1.0, matching BrotherMode's pinned form",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O21",
+      "title": "Read the four design documents the concurrent session wrote and refute one claim in each",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 35,
+      "files": [
+        "docs/evidence/design-review/REFUTE-2026-08-12.md"
+      ],
+      "done_check": "each of the four carries either a named broken claim or the words COULD NOT BREAK with the attack that was run",
+      "closed_note": "opus reviewer, 6 blocking 10 significant 9 minor, 4 load-bearing citations re-verified by hand; docs/evidence/design-review/REFUTE-2026-08-12.md",
+      "stage": "intent",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A1",
+      "title": "R1.1 pulled forward: outcome contract columns on the record",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "brotherme/core/schema.py",
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "the suite proves a record refuses to close without its outcome contract",
+      "closed_note": "R1.1 landed and folded into the canonical shape; store 1047, project 50, schema 20 green",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A2",
+      "title": "R1.3 pulled forward: wire the ceremony opening half so detect runs unasked at session start",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_sessionstart.sh",
+        "hooks/hooks.json"
+      ],
+      "done_check": "a fresh session prints the detect verdict without anybody typing it",
+      "closed_note": "tools/bm_sessionstart.sh wired, 0.08s measured, 2 new tests in test_bm_consent.py, suite 46 OK",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A3",
+      "title": "Wire bm_forecast.py check into verify-close so a session cannot close on an unclosed forecast",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "verify-close refuses a pack whose session left a forecast open past the window",
+      "closed_note": "verify-close FAILs on a forecast open past 12h; one shared implementation via bm_forecast.open_forecasts; 3 tests including the no-log case",
+      "stage": "required-proof",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A7",
+      "title": "Re-run the battery with --artifacts to catch the handover flake's real assertion if it recurs",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [],
+      "done_check": "either a green gate, or the flake's actual assertion text captured on disk",
+      "closed_note": "--artifacts produced the swallowed assertion on the first run that carried it; the failure was a real bug in the zip freshness check, now fixed with a deterministic regression test",
+      "stage": "required-proof",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "A8",
+      "title": "Read tools/test_bm_handover.py:278-282 for the BROTHERMODE_ROOT restore leak named in the defect file",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "either the leak is proven and fixed with a failing-first test, or ruled out in writing",
+      "closed_note": "the BROTHERMODE_ROOT restore-leak hypothesis was RULED OUT in writing; the real cause was mtime embedded in zip entry headers",
+      "stage": "provenance",
+      "stage_note_2026_08_20": "stage stamped by the A4 hygiene pass from the item text; done items keep the stage they served"
+    },
+    {
+      "id": "O21",
+      "title": "FIRST-DAY.md Exercise 2 step 1 never names the command that claims ownership; a newcomer cannot execute it. Found by the O5 adversarial read (MEDIUM 3). Name the actual claiming action in the exercise.",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [
+        "docs/team/FIRST-DAY.md"
+      ],
+      "done_check": "the exercise names a runnable claiming command a newcomer can paste; docs suite green",
+      "stage": "provenance"
+    },
+    {
+      "id": "O23",
+      "title": "Sibling ownership overlap, the architecture 6.5: take the one decision the parity map ranks first (retire sbe_fence_hook.py in favour of bm_fence_hook.py behind BrotherSBE coordination), designed with BrotherSBE, founder-ratified",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "docs/plan/PARITY-READ-2026-08-15.md"
+      ],
+      "done_check": "a ratified ownership decision recorded in both repositories naming the single fence owner",
+      "stage": "passport"
+    },
+    {
+      "id": "SBE1",
+      "title": "P1 The installed clone and the repository can disagree while both report VERSION 3.3.0; measured 22 commits of source skew with real differences in bm_store, bm_effects, bm_project, bm_toolkit, bm_sessionstart and write_sites. Every green gate binds to code that is not the code running the hooks. Stamp the git SHA into the installed tree and add a doctor check comparing it to the source tree",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "scripts/doctor.py",
+        "scripts/install.py"
+      ],
+      "done_check": "doctor names both SHAs and FAILs when they differ; proven by pointing it at two trees at different commits",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE2",
+      "title": "P0 The install suite is killed at the 900 second SILENCE budget while it is still making progress, three times in one night. ROOT CAUSE PROVEN 2026-08-16 and it is not what the first review guessed: tools/test_all.py reads the child by LINES (for line in p.stdout) while unittest writes one dot per test with NO newline, so a whole suite emits no complete line until its dot row ends. Any suite whose row takes longer than the budget reads as silent and is killed with 0 tests. Disproven on the way: adding -u changes nothing, both buffered and unbuffered first reached the reader only when a newline arrived (measured, 3.03s in both arms). Fix candidates: read by chunk instead of line, or run suites at verbosity 2 so each test emits its own line. The .claude copytree exclusion already landed and is worth keeping on its own merits but did NOT fix this",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/test_install.py",
+        ".gitignore"
+      ],
+      "done_check": "a suite that runs longer than the budget while emitting dots is NOT killed, proven by a fixture suite that sleeps past the budget and still reports its real test count",
+      "note": "root cause corrected 2026-08-16 by an executed experiment after the first fix failed; the earlier 678 MB copytree diagnosis was incomplete, and the honest record of that is the point",
+      "stage": "required-proof"
+    },
+    {
+      "id": "SBE3",
+      "title": "P2 The effects registry is a control only at gate time: no runtime caller imports bm_effects, so declared() never refuses an undeclared command in production. Call it at dispatch in brothermode_cli.py or record in KNOWN-LIMITS that it is a test-time control only",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/brothermode_cli.py",
+        "tools/bm_effects.py",
+        "docs/KNOWN-LIMITS.md"
+      ],
+      "done_check": "an undeclared command fails at runtime with the registry's own refusal, proven by a test that adds one",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "required-proof"
+    },
+    {
+      "id": "SBE4",
+      "title": "P2 Three sources of truth for work items with no reconciliation: docs/plan/QUEUE.json, the store tasks table, and the prose plans. bm_idle's depth verdict is only as true as a hand-edited file. Make QUEUE.json a generated view of the store, or the store read the queue, one direction only",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "docs/plan/QUEUE.json",
+        "tools/bm_store.py",
+        "tools/bm_idle.py"
+      ],
+      "done_check": "one direction is authoritative and a check refuses divergence, proven by diverging them deliberately",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE5",
+      "title": "P2 bm_store.py is a god module: 19,132 lines, one Store class with 258 methods, about 50 tables spanning nine unrelated contexts, and its 0.10s import is paid by three separate processes on every Bash PreToolUse (measured Bash chain median 471ms, worst 853ms). Split the ownership and claims tables onto a small hook-path module, or collapse the three Bash hooks into one process; write the latency budget down first",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 180,
+      "files": [
+        "tools/bm_store.py",
+        "hooks/hooks.json",
+        "docs/PERFORMANCE.md"
+      ],
+      "done_check": "a written p90 hook budget exists and the measured chain meets it after the change",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "method"
+    },
+    {
+      "id": "SBE6",
+      "title": "P3 tools/bm_project_facts.py reads the SUITES registry by regex over source text, which is why test_all.py carries nine apostrophe warnings and has gone red once for exactly that. Replace with ast.literal_eval on the assignment node",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "tools/bm_project_facts.py"
+      ],
+      "done_check": "the facts tool parses SUITES without regex and the apostrophe warnings are deleted; suites count unchanged, quoted",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE7",
+      "title": "P3 Registry drift across the install boundary is unchecked: write_sites.json differs between trees and toolkit_routes.json is absent from the installed clone entirely. Teach verify-install to compare or at least report the registries it ships",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "scripts/verify-install.sh"
+      ],
+      "done_check": "verify-install names a missing or differing registry, proven against a tree with one removed",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE8",
+      "title": "P4 Five STATE.md.bak files sit untracked at the repository root, inflating every tree copy the install suite makes. Delete them once no session is mid-recovery",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 10,
+      "files": [
+        "STATE.md"
+      ],
+      "done_check": "the repository root carries no .bak litter and the store still renders STATE.md",
+      "note": "filed 2026-08-16 from the BrotherSBE adversarial architecture review; priority prefix P1 to P4 in the title is the founder-facing rank",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE9",
+      "title": "P0 purge_project CRASHES for any project whose capability receipt names a task: receipts are deleted 100 lines after tasks under foreign keys ON, so a bare sqlite IntegrityError escapes to the command line and the founder's erasure request fails with no path forward. Reproduced by the reviewer. Fix: move the receipts delete above the tasks delete, and add a task-linked receipt to the purge fixture, which never set task_id and is why the T5 tests missed it",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a project with a task-linked receipt purges cleanly, proven by a test written failing first",
+      "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
+      "stage": "behaviour"
+    },
+    {
+      "id": "SBE10",
+      "title": "P0 purge_project leaves the four sentinel tables behind, and they are the ones holding raw founder prose stored deliberately unscrubbed. Reproduced: after a purge reporting 21 cleared keys, sentinel_knowledge still held rows and their verbatim text was readable; add_knowledge also accepts a project that never existed. The method's own docstring claims it erases every row that belongs to the project. Fix: purge the four tables and check project existence on the four writers",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "after purge, all four sentinel tables hold zero rows for that project, proven failing first; a write against a nonexistent project is refused by name",
+      "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE11",
+      "title": "P1 The STATE.md integrity check is one-directional, so a completed record can still be listed as active while verify() reports healthy; reproduced. The rendered block also carries no timestamp, store fingerprint or schema version since the stamp was removed, so staleness cannot be seen by inspection either. Fix: make the check two-directional, or stamp the block with a content hash verify() recomputes",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a stale generated view is reported by verify(), proven by rendering, transitioning, and re-verifying",
+      "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
+      "stage": "provenance"
+    },
+    {
+      "id": "SBE12",
+      "title": "P2 A capability receipt can certify nothing and contradict its twin: executor identity and verification evidence are not required even when the state is verified, two contradicting receipts on one capability are both accepted, a future-dated receipt sorts last, changed_artifacts carries no digest, and the attribution row for receipt.added passes no evidence reference so the kept trail cannot name which receipt a purge destroyed",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a verified receipt without executor identity or evidence is refused by name, and the attribution row resolves to its receipt",
+      "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE13",
+      "title": "P3 Alerts have no project grain but are purged per project and listed store-wide, so any per-project risk display shows other projects' alerts as its own; runtime_runs likewise carries no project and is never purged",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "tools/bm_store.py"
+      ],
+      "done_check": "alert listing scoped to a project returns only that project's alerts, proven with two seeded projects",
+      "note": "filed 2026-08-16 from the BrotherSBE data-plane review, every finding executed and reproduced by the reviewer. NOTE for whoever takes SBE9 to SBE12: tools/test_bm_store.py sits inside live fence L2 of session b2f17984; open a fence or adopt per the hook's own instructions before editing it",
+      "stage": "behaviour"
+    },
+    {
+      "id": "SBE14",
+      "title": "P0 The redaction funnel can be switched off by the very content it redacts: any line equal to the human-block open marker starts a block, an unterminated block deliberately runs to end of file, and the marker is a fixed literal with no escaping anywhere. Executed proof: a generated document redacted line 1 and wrote the following lines verbatim. Fix: treat an unterminated marker as NO human block, and neutralize marker-looking lines found outside a real pair before splicing",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a generated document containing the marker inside untrusted text redacts the whole tail, proven failing first",
+      "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE15",
+      "title": "P1 bm_project.py writes CANVAS.md and DELIVERY-PACKET.md with raw=True, bypassing the withholding policy and leaving the funnel as the only guard, which is exactly the guard SBE14 disables. DELIVERY-PACKET.md is by name a shareable artifact. Fix: route the raw lane through the same safe display bm_packs uses, or justify raw in the file",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 40,
+      "files": [
+        "tools/bm_project.py"
+      ],
+      "done_check": "the raw lane either passes safe display or carries a written justification naming what it would leak",
+      "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE16",
+      "title": "P1 The handover zip carries whatever is in the pack with no content scan: containment is a path control only, the FILL-BY-HAND slots are written by hand AFTER the redaction funnel ran, and the archive lands outside the repository past the commit-time secret scan, in a Documents folder that is commonly cloud synced. Fix: scan every member at zip time and refuse on a hit, naming file and line",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_handover.py"
+      ],
+      "done_check": "zipping a pack whose hand-written slot contains a secret pattern is refused by name, proven failing first",
+      "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE17",
+      "title": "P3 Telemetry redacts secrets from artifact paths but never masks absolute paths, which every store export pairs with it, so absolute client and machine paths land verbatim in the local ledger",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 20,
+      "files": [
+        "tools/bm_telemetry.py"
+      ],
+      "done_check": "a recorded artifact path is masked the same way the store export masks it",
+      "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "SBE18",
+      "title": "P2 FOUNDER DECISION, not an engineering fix: 199 committed files carry the founder's home path in 2721 occurrences, concentrated in the evidence tree, including a raw agent transcript with session identifiers and full tool payloads. No credentials and no other-project data were found. Decide before the repository is public: scrub the tree, or record that the username is already public and leave it",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/program/absolute-lead/evidence"
+      ],
+      "done_check": "a recorded founder decision exists naming scrub or leave, with its reason",
+      "note": "filed 2026-08-16 from the BrotherSBE security and privacy review; the funnel and zip findings were executed, not reasoned. The review also confirmed COULD NOT BREAK on fence token identity, pack path escape, consent gating, secrets in tree, and marker injection through the packs and view renderers",
+      "stage": "human-decision"
+    },
+    {
+      "id": "SBE19",
+      "title": "P2 tools/bm_escalate.py writes the founder's own objective and reason text to its ledger without passing it through redact_text, the same posture the sentinel tables had before SBE10 closed them. The file is owner-only at mode 0600 in a 0700 directory and local, so this is a decision for the module's author rather than an emergency: redact on the way in, or record why raw is right for a local ledger",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 25,
+      "files": [
+        "tools/bm_escalate.py"
+      ],
+      "done_check": "either the ledger write passes redaction, or the module carries a written justification naming what it holds raw",
+      "note": "found 2026-08-16 while reviewing the module's write sites, which the gate forced because a concurrent session committed it to main without registering it. Raised for its author rather than changed underneath them",
+      "stage": "evidence-integrity"
+    },
+    {
+      "id": "H3",
+      "title": "evidence binds to a commit and never to what is running; this is how a week of review went into a build generations behind with no verdict noticing",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "set a deployed ref one commit behind the evidence commit, status prints DRIFT naming both refs",
+      "stage": "production-observation"
+    },
+    {
+      "id": "H4",
+      "title": "a defect cannot be entered as a defect: intake has no origin field, so a fix carries no link to the behaviour that failed",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "a defect intake naming a regression row proceeds at T1; one naming no row refuses and prints what is missing",
+      "stage": "intent"
+    },
+    {
+      "id": "H5",
+      "title": "nothing records what happened after merge, so no tier can ever be compared with its real outcome",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "a fixture of six closed changes prints the tier against outcome table, a fixture of four prints NO-DATA",
+      "stage": "verified-reality"
+    },
+    {
+      "id": "H6",
+      "title": "a requirement discovered during the build has no event; a rule added after a sheet was generated leaves that sheet short one case, silently",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "add a behaviour row after generating a sheet, the sheet reports stale naming the new id",
+      "stage": "intent"
+    },
+    {
+      "id": "H7",
+      "title": "reviewer and tester concentration is invisible to the router, which selects by capability and prints no load",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "route three changes to one reviewer, the third prints a count of three",
+      "stage": "accountability"
+    },
+    {
+      "id": "H8",
+      "title": "no change carries an opened-at and closed-at pair, so the cost of a tier has no measurement on either side",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "a fixture prints a median duration for T1 and NO-DATA for T3",
+      "stage": "business-impact"
+    },
+    {
+      "id": "H9",
+      "title": "the one-writer control is inert in the assurance repository: about twenty legacy claim lines it cannot parse, each reported as not enforced",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "the fence subcommand prints zero unenforceable lines on a clean tree, and one after a malformed line is added",
+      "stage": "provenance"
+    },
+    {
+      "id": "D4",
+      "title": "three proposed refusals (P3 gate, P6 strict, P7 fail) have no exception path with an owner and an expiry, which the owned list requires",
+      "state": "done",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "an exception carrying an owner and an expiry date suppresses the refusal, and an expired one stops suppressing it",
+      "stage": "required-proof",
+      "done_at": "2026-08-22",
+      "done_evidence": "Run 2026-08-22 09:3x JST by the overnight session in a temp dossier (tier T1, no 01-purpose.md) against the sibling at 5a2edee, PYTHONDONTWRITEBYTECODE=1 python3 tools/sbe_design.py artifacts <dir> --strict: with `.sbe-exempt` carrying checks: artifacts, owner: the founder, expires: 2027-01-01, reason: ... the output reads `dossier WAIVED ... [owner: the founder; expires: 2027-01-01]` and `artifacts WAIVED`, exit 0; with expires: 2020-01-01 it reads `dossier FAIL . carries a .sbe-exempt that does not exempt anything: its expires: 2020-01-01 is in the past; an expired exemption is refused, not honored` and `artifacts FAIL tier T1 requires 01, 08; missing: ...`, exit 1. Landed in the sibling as 25d7128 (tools/sbe_design.py:3172-3177, mirrored in tools/sbe_gate.py). SIDE FINDING for the sibling: owner: and expires: lines placed AFTER reason: are swallowed into the reason text and an expired date there still waives, silently.",
+      "stage_note_2026_08_22": "moved by the overnight session on its own done_check, run and quoted above; not on a plan document's word"
+    },
+    {
+      "id": "H1",
+      "title": "no command computes the five queue numbers that decide whether any of this worked; hand counted once, cannot be recomputed",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/"
+      ],
+      "done_check": "run it against the 7 August export and reproduce 41, 22, 23, 11, 48, or name which of the five it cannot supply",
+      "stage": "verified-reality"
+    },
+    {
+      "id": "H2",
+      "title": "there is no accepted state: the chain ends at a green gate and a merge, and whether a person accepted the result is not represented",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "BrotherSBE"
+      ],
+      "done_check": "an all-green change reports acceptance NO-DATA, and reports accepted once a record naming who and when exists",
+      "stage": "human-decision"
+    },
+    {
+      "id": "M1",
+      "title": "BrotherMode's hooks do not load on THIS MACHINE because it carries a skill-directory copy rather than a plugin install; the packaging is correct and identical to the sibling's, which fires. Fix is the documented marketplace install, and the clone must be removed first or every hook fires twice",
+      "state": "blocked",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "scripts/install.py",
+        "docs/KNOWN-LIMITS.md"
+      ],
+      "done_check": "after removing the clone install and running the two documented commands, one of this product's OWN hooks is observed firing (for example its fence hook refusing a write across a live claim by name), or the limits page states the shape difference, which it now does",
+      "note_2026_08_20": "scriptable half DONE at the A3 commit: doctor check 8 install_shape (PASS quoted) and scripts/migrate_install.py with dry-run default, --apply double-gated, fixture-home tests. The LIVE swap of this machine install stays FOUNDER-GATED and is the open half."
+    },
+    {
+      "id": "M2",
+      "title": "deliver certifies a project that did nothing: three commands with no goal, no acceptance check, no build, no review and no evidence produce a success message and a written packet reading (no evidence recorded)",
+      "state": "done",
+      "stage": "human-decision",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_project.py"
+      ],
+      "done_check": "a hollow project is refused by deliver naming its holes; test_bm_project TestDeliverRefusesHollow green at the A3 commit"
+    },
+    {
+      "id": "M3",
+      "title": "a task created through the CLI can never be served by next: task add writes status planned and next reads only ready, so the guided flow's own handoff from planning to work is broken",
+      "state": "done",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_project.py"
+      ],
+      "done_check": "task add then next returns that task rather than 'no recommended next task'"
+    },
+    {
+      "id": "M4",
+      "title": "a task may be born in any of the ten lifecycle states because cmd_task_add passes --status straight through, so the ordering law the whole method rests on is bypassed by one flag",
+      "state": "done",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_project.py"
+      ],
+      "done_check": "already fixed pre-A3: BIRTH_STATES guard in cmd_task_add with pinned test test_a_task_cannot_be_born_past_the_start_of_the_lifecycle, verified green 2026-08-20"
+    },
+    {
+      "id": "M5",
+      "title": "acceptance checks enforce nothing: the criterion link is opt-in, so a review that names no criterion verifies a task whose acceptance checks were never examined",
+      "state": "done",
+      "stage": "required-proof",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_store.py"
+      ],
+      "done_check": "review_task returns the acceptance gap and cmd_review prints the warning; store-level test green at the A3 commit"
+    },
+    {
+      "id": "M6",
+      "title": "the capability detector cannot tell installed from absent in either direction: it reads only ~/.claude/skills and the plugin caches, so it reports DEGRADE for a class the harness already ships built in, and would wrongly call the method stage empty",
+      "state": "done",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_toolkit.py"
+      ],
+      "done_check": "render_route resolves to the native floor with RESOLVED line, NO-DATA when siblings unconfirmed; test green at the A3 commit"
+    },
+    {
+      "id": "M7",
+      "title": "two degrade sentences promise more than the machine delivers: the tdd path names a test-first law that exists nowhere, and the security path claims secret scanning is already in the gate when no suite scans the tree",
+      "state": "queued",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_toolkit.py",
+        "tools/toolkit_routes.json"
+      ],
+      "done_check": "every degrade sentence names only capabilities that exist, proven by resolving each named artifact"
+    },
+    {
+      "id": "M8",
+      "title": "the guided walkthrough stops at the project brief: no skill, command or reference tells anyone to create tasks, so next reads a queue the flow never fills",
+      "state": "done",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "skills/start/SKILL.md"
+      ],
+      "done_check": "scripted walkthrough test proves the start flow leaves a ready task that next serves; test green at the A3 commit"
+    },
+    {
+      "id": "M9",
+      "title": "the progress-page check reports OWED forever on a page that was deliberately frozen: it compares mtimes and cannot follow the pointer GANTT.html carries to COMMAND-CENTER.html, so every session is told to refresh a retired record REOPENED 2026-08-21 by an audit of items marked done. tools/bm_progress_check.py contains ZERO occurrences of successor, pointer, COMMAND-CENTER or frozen, counted directly, while this item's own done_check requires that a page carrying a successor pointer reports the successor's freshness or a NO-DATA naming the pointer, NEVER a bare OWED. Reproduced live: a frozen GANTT.html pointing in its own text at a fresh COMMAND-CENTER.html still produces exit 1 and 'progress page: OWED (stale)'. The commit history is candid that the original symptom stopped reproducing and a DIFFERENT underlying bug was fixed instead, but that reasoning lives only in a commit message: the machine-readable record still carries the original done_check with state done and no note of the substitution. Same shape as M14 and M16. Evidence: docs/evidence/night-2026-08-21-closed-item-audit.md",
+      "state": "queued",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_progress_check.py"
+      ],
+      "done_check": "a page carrying an explicit successor pointer reports the successor's freshness, or reports NO-DATA naming the pointer it could not resolve, never a bare OWED"
+    },
+    {
+      "id": "M10",
+      "title": "verify-close cannot give any verdict to a session that claimed no record, so a session with a full pack gets NO-DATA and its pack checks never run; the code comment's stated assumption, that a session with no claims has no pack to close, was disproven by the 2026-08-15 session [BLOCKED 2026-08-19: tools/bm_handover.py is under a live fence, FENCE F5, agent fleet-export, session ae1ced66. Do not write across it; ask that owner or close the fence with evidence.]",
+      "state": "done",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_handover.py"
+      ],
+      "done_check": "verify-close gives a real verdict to a claimless full pack via the env-derived session path, typo guard kept; test green at the A3 commit"
+    },
+    {
+      "id": "M11",
+      "state": "done",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "title": "a synthetic probe of the fence hook disagrees with the hook itself: feeding it a hand-built payload returned exit 0 ALLOW for a file the real PreToolUse hook then refused by name. A second way of asking a control is a second implementation of it, and this one was wrong in the dangerous direction",
+      "files": [
+        "docs/KNOWN-LIMITS.md",
+        "tools/bm_fence_hook.py"
+      ],
+      "done_check": "python3 tools/test_bm_fence_hook.py QueryVerb green: tools/bm_fence_hook.py ships a `query PATH [--session-id ID]` verb that calls decide(), the same function cmd_hook() calls, and QueryVerb pins its verdict equal to decide()'s own verdict on four cases (unclaimed path allow, foreign claim deny, own claim allow, unreadable store fail-open with reason printed)"
+    },
+    {
+      "id": "M12",
+      "title": "the two one-writer registries disagree: the BrotherSBE scope reconcile reads only .sbe tasks and STATE.md fence lines and cannot see BrotherMode store claims, so a path correctly claimed in the store is named undeclared at every peer session stop (measured 2026-08-20 by the mandate session against claim day-run-step1-board; break-glass day-run-board-registry-mismatch-2026-08-20 covers stops until fixed)",
+      "state": "done",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "store claims render an agent-bearing fence line the INSTALLED sbe reconcile parses; regression test drives the installed read_declarations and fails on the pre-fix render; peer break-glass record deleted in the same change"
+    },
+    {
+      "id": "M13",
+      "title": "the same two registries still cannot recognise each other's OWNER, which is the half M12 did not close: the installed sbe_fence_hook.same_session prefix-matches the raw harness session id against the derived bm1- label bm_store.py writes, and neither is a prefix of the other, so the hook refuses the rightful owner out of their own fence (measured 2026-08-20 by the day-run closing session, which was refused its own claimed write of docs/plan/GANTT.html and continued under the hook's documented BROTHERSBE_FENCE_SESSION identity override, never its off switch)",
+      "state": "queued",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "a fence line written by bm_store.py claim carries an identity the INSTALLED sbe_fence_hook.same_session matches for the harness session that made the claim, proven by a regression test that fails on the current single-label render, plus one real edit the hook refused before the fix and allows after it, both verdicts quoted"
+    },
+    {
+      "id": "R1",
+      "title": "the defect refusal is enforced by the command line, not by the store: add_reality_record accepts any non-empty intent_ref, so a direct caller can pass a queue id that never existed (codex debate F4, 2026-08-20, BLOCKER, disclosed in the 3.3.2 changelog rather than silently carried)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "a reality row of kind defect cannot be written with an intent_ref that does not resolve to a real queue item, proven by a test that writes a fake id through the store API and is refused, and that fails on the current shape"
+    },
+    {
+      "id": "R2",
+      "title": "the queue write and the reality row are two writes, not one: a crash between them leaves a queue item with no record, and the queue file is never fsynced so power loss can keep the row and lose the rename (codex debate F2, 2026-08-20, BLOCKER)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 180,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "a simulated failure between the two writes leaves the pair consistent in both directions, proven by a test that injects the failure at each point"
+    },
+    {
+      "id": "R3",
+      "title": "a caller mints its own record_id for a reality row, so identifier provenance is caller controlled even though an existing row cannot be overwritten (codex debate F6, 2026-08-20, MAJOR)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "record ids are minted inside the store only, proven by a test that a caller-supplied id is refused or ignored"
+    },
+    {
+      "id": "R4",
+      "title": "bm_reality defect validates only that the queue holds a list, so a queue missing schema or min_depth is accepted, rewritten and followed by a reality commit; and a relative --queue resolves against the process working directory rather than --root, while a symlinked queue is read through but replaced as a directory entry (codex debate F7 and F8, 2026-08-20, MAJOR)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "the canonical queue validator runs before the file is modified, a relative --queue anchors to root, and a symlinked queue is either refused or deliberately resolved, each with a test that fails on the current shape"
+    },
+    {
+      "id": "R5",
+      "title": "bm_reality writes its result to a locale-dependent stdout after committing, so on a non-UTF-8 console an unencodable release id commits and then exits 2, inviting a duplicate retry (codex debate F9, 2026-08-20, MAJOR; same family as the subprocess-locale lesson of 2026-08-19)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "output is encoding safe before any write, proven by a test under a non-UTF-8 stdout encoding that still exits 0 after a successful commit"
+    },
+    {
+      "id": "R6",
+      "title": "reusing a project id after purge aliases the dead project's reality history to the new one, because reality_records deliberately carries no foreign key so the audit trail outlives the project (codex debate F10, 2026-08-20, MAJOR; the no-foreign-key choice itself was confirmed correct by the same review)",
+      "state": "queued",
+      "stage": "verified-reality",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_reality.py",
+        "tools/bm_store.py",
+        "tools/test_bm_reality.py"
+      ],
+      "done_check": "a purged project id cannot be reused, or every reality row carries an immutable incarnation identifier, proven by a test that reuses an id and shows the old rows do not follow it"
+    },
+    {
+      "id": "M14",
+      "title": "the installed sbe fence hook reads STATE.md's HUMAN PROSE section as live fence lines: six historical narrative bullets (finish-and-ship, docs-refresh, loop0-builder and three closure notes) are each parsed as a live fence with no readable files: scope, and the hook then FAILS OPEN on every one, printing a warning per line on every single write. Enforcement is silently absent for those lines, and six warnings per write is exactly the volume that teaches a reader to stop reading them (measured 2026-08-20 by the day-run closing session by invoking the installed hook directly) MEASURED AND REOPENED 2026-08-21: this item had been RETIRED by an earlier session on evidence about the WRONG HOOK, and the retirement was then repeated in a handover pack without re-testing. M14 names sbe_fence_hook.py (the BrotherSBE plugin's hook); the retirement evidence is entirely about bm_fence_hook.py and a schema mismatch repaired by pointing an install clone at origin/main. One identical PreToolUse payload sent to both: sbe_fence_hook emitted 34 warning lines each saying STATE.md carries a live fence line with no readable files scope so it did NOT enforce it, while bm_fence_hook emitted one line and never parses STATE.md text at all. WORSE than first reported: 34 warnings per write rather than six, spanning every historical Wave section, not only Wave 7. Evidence: docs/evidence/night-2026-08-21-m14-which-hook-was-measured.md",
+      "state": "queued",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "STATE.md",
+        "tools/bm_store.py"
+      ],
+      "done_check": "invoking the installed sbe_fence_hook against any path in this repository prints ZERO no-readable-scope warnings, proven by the quoted output before and after, and a test pins that STATE.md's human prose outside the generated markers is not parsed as a fence"
+    },
+    {
+      "id": "M15",
+      "title": "NOT ESTABLISHED, kept as an open question rather than a claim: whether the installed fence hook treats a PARKED store record as live. The day-run first session reports parking day-run-step1-board before this session was refused on docs/plan/GANTT.html by that same fence, which would make it a second defect beside the prefix-match one, but the attempt to measure it directly was swamped by M14's fail-open warnings and returned ALLOW for both a parked-only path and an actively fenced one, so nothing was established in either direction",
+      "state": "done",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "with M14 fixed so the warnings no longer swamp the output, the installed hook is invoked against a path covered ONLY by a parked record and its verdict is quoted; a refusal confirms the defect and gets its own regression test, an allow closes this item as measured and not a defect"
+    },
+    {
+      "id": "M16",
+      "title": "a bm_ tool run from inside a git worktree walks UP and finds the MAIN checkout's .brothermode marker, so it reads and writes the shared project instead of the worktree: measured 2026-08-20 when a worktree agent's skeleton run wrote a real handover pack into the main checkout, outside its own sandbox, and could not clean it up afterwards. Worktree isolation is the control that lets parallel writers exist at all, and root resolution silently escapes it unless BROTHERMODE_ROOT is set by hand MEASURED AND CONFIRMED OPEN 2026-08-21, after the run brief stated a merged branch held M16 while the queue said queued. The contradiction resolves cleanly and the queue was right: commit 153392e's own message reads 'the worktree escape queued as M16', so that branch carried the QUEUE ENTRY, not a fix, and neither commit mentioning M16 touches bm_store.py or bm_fence_hook.py. Reproduced on a throwaway nested clone: with BROTHERMODE_ROOT unset, bm_store init inside the worktree printed 'root resolved via marker' and initialised the MAIN checkout's store; with it set, 'root resolved via env' and the worktree's own. CALLER INVENTORY, counted by hand: 0 production callers in tools/ and scripts/ pass refuse_past_git_boundary=True, and the only 5 call sites that do live in tools/test_bm_store.py, wired to nothing. tools/bm_escalate.py carries a separate reimplementation of the same walk with no such parameter, so it cannot opt in even in principle. Nesting is what triggers it: a sibling-layout worktree did NOT reproduce, and this project's own agent worktrees live at .claude/worktrees/<name>, nested. Evidence: docs/evidence/night-2026-08-21-m16-worktree-escape.md",
+      "state": "queued",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 75,
+      "files": [
+        "tools/bm_store.py",
+        "tools/test_bm_store.py"
+      ],
+      "done_check": "root resolution refuses to cross a worktree boundary, or names it: a bm_ tool invoked with cwd inside .claude/worktrees/<name> resolves to that worktree, or exits naming the ambiguity and the BROTHERMODE_ROOT override; a regression test drives a tool from a worktree fixture and fails on the pre-fix walk-up behaviour"
+    },
+    {
+      "id": "M17",
+      "title": "the doctor's fence liveness check proves liveness against a THROWAWAY project's store, never against the project it is run in, so it returned PASS on 2026-08-20 while the installed hook was failing open on every write in this repository: the store was at schema 21 and the installed copy understood at most schema 20, so the fence was not checked at all and the doctor still reported the write-protection check wired and live",
+      "state": "done",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "scripts/doctor.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "the doctor's fence check exercises THIS project's own store and goes RED when the installed hook cannot read it: point the check at a store one schema ahead of the installed copy and observe FAIL rather than PASS, and confirm the pre-fix code passes the same fixture so the test is not asserting something already true"
+    },
+    {
+      "id": "M18",
+      "title": "scripts/migrate_install.py answers only whether a fence hook is WIRED, never whether that wired copy can reach a verdict, so on 2026-08-20 its dry-run printed NOTHING TO DO and it is not stranded about an install whose hook failed open on every write in the repository: wiring was intact and the code behind it was hundreds of commits stale",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "scripts/migrate_install.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "migrate_install.py dry-run against an install whose copy cannot read the project's store prints a repair plan naming the version gap instead of NOTHING TO DO; a regression test drives it with a schema-ahead fixture store and fails on the pre-fix wiring-only verdict"
+    },
+    {
+      "id": "M19",
+      "title": "the handover pack's board copy is captured at skeleton time and never refreshed, so `zip` re-archives a stale board: measured 2026-08-20 when a session generated its pack, then folded that night's finding into docs/plan/GANTT.html, re-ran zip, and shipped a board copy whose sha256 differed from the live board. This is the SAME defect the ceremony session fixed one layer up that evening (the pack was copying a COMMAND-CENTER.html three days stale) reappearing one layer down, and it is silent: nothing compares the two files",
+      "state": "done",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "zip refreshes the board copy from the live board, or verify-close FAILS naming the drift: edit docs/plan/GANTT.html after skeleton, run zip, and confirm the archived copy's sha256 equals the live board's; a regression test fails on the pre-fix capture-once behaviour"
+    },
+    {
+      "id": "M20",
+      "title": "doctor does not run the wired hook command with SHELL semantics, so a configured command carrying a redirection is judged on output the real harness would have thrown away: reproduced 2026-08-21, shlex.split keeps the redirection as a literal token, doctor's non-shell run captures the full deny JSON and reports 0 problems, while the same command under a real shell returns exit 0 with empty stdout for BOTH the deny and the allow case, making them indistinguishable. PRE-EXISTING, not introduced by M17; found by the cross-family debate of 2026-08-21 (finding 6, BLOCKER) and reproduced by command",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "scripts/doctor.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "a wired command carrying a redirection is judged the way the harness would actually run it, or doctor reports that it cannot tell; a regression test wires such a command and fails on the pre-fix argument-list execution"
+    },
+    {
+      "id": "M21",
+      "title": "zip reconciles a board that APPEARED or DISAPPEARED since skeleton, not only one that changed: if skeleton copied the older COMMAND-CENTER.html candidate and GANTT.html appears before zip, the pack ends up carrying both while the generated read-me still points at the stale one; if the board disappears entirely, board_abs is None and the old copy is archived unchanged. Cross-family debate 2026-08-21 (finding 9, MAJOR)",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "a pack whose board candidate changed name, or whose board vanished, is reported rather than silently archived; regression tests cover both directions and fail on the pre-fix behaviour"
+    },
+    {
+      "id": "M22",
+      "title": "reading SCHEMA_VERSION out of a source file as text can certify a runtime version that is not real: the constant may be shadowed, computed, or overridden at import, so the text parser answers about the literal rather than about what the module would actually use. Cross-family debate 2026-08-21 (finding 10, MAJOR). The text read was a deliberate choice, because importing a stale or foreign copy runs its module level code, so the fix is a better question rather than an import",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "scripts/migrate_install.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "the reported version is one the wired copy would actually use, or is reported as NO-DATA; a regression test plants a source file whose literal and effective values differ and fails on the pre-fix text read"
+    },
+    {
+      "id": "M23",
+      "title": "the doctor's real-store verify turns ANY nonzero exit into the definitive claim that the wired hook cannot read the store: another process committing a park between the store write and the STATE.md regeneration makes verify report view drift, and doctor then names a false cause and a false remedy (upgrade your hook) for a hook that is healthy. Fails toward FAIL, which is the safer direction, but the diagnosis and the instruction are both wrong. Cross-family debate 2026-08-21 (finding 11, MAJOR)",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "scripts/doctor.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "a nonzero verify is distinguished by its reason before a cause is named, or the message says which reasons it could not distinguish; a regression test drives a view-drift verify and fails on the pre-fix blanket message"
+    },
+    {
+      "id": "M24",
+      "title": "subprocess output is decoded with the machine locale in the doctor and installer paths that do not pass an explicit encoding: under a non UTF-8 locale a child emitting a path with an accented character raises UnicodeDecodeError, and in migrate_install --apply that happens AFTER the install directory has been removed, leaving it deleted. M18's two install subprocesses do specify UTF-8; M17's init, session-label, claim, hook-query and real-store verify calls do not. Cross-family debate 2026-08-21 (finding 12, MAJOR); this estate has been burned by this exact class on another platform before",
+      "state": "queued",
+      "stage": "method",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "scripts/doctor.py",
+        "scripts/migrate_install.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "every subprocess reading text in these two scripts names its encoding and handles a decode failure without losing state; a regression test drives a child emitting non-ASCII under a forced locale and fails on the pre-fix calls"
+    },
+    {
+      "id": "M25",
+      "title": "the doctor's simulation claims nothing outside its temporary directory is written, but its subprocesses can create or refresh a bytecode cache beside the installed hook when PYTHONDONTWRITEBYTECODE is unset and that directory is writable. Small in effect, listed because the docstring makes an explicit promise the code does not keep. Cross-family debate 2026-08-21 (finding 13, MINOR)",
+      "state": "done",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "scripts/doctor.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "the simulation either writes nothing outside its temporary directory or its docstring stops promising that; a regression test asserts no new bytecode cache appears beside a fixture install"
+    },
+    {
+      "id": "M26",
+      "title": "the M17 and M18 regression suites are green without covering the property they claim: neither M18 test creates a real store at a schema the wired copy cannot open, so both pass on a SOURCE version comparison rather than on the wired copy being able to reach a verdict, and both wire only the same skill directory the code already assumes. Cross-family debate 2026-08-21 (finding 14, MAJOR)",
+      "state": "queued",
+      "stage": "required-proof",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/test_bm.py"
+      ],
+      "done_check": "each test drives a real store the wired copy genuinely cannot open, and fails when the code is changed to compare source constants only"
+    },
+    {
+      "id": "M27",
+      "title": "the reviewed write-site inventory cannot see two write shapes, so a site can enter a scanned file without ever being reviewed: its mode regex is open\\([^)]*[\"']w[\"'] which matches a bare w and NOT wb, and the compensating .write( pattern does not match .writelines( or shutil.copyfileobj(. Verified 2026-08-21 by running the two patterns directly: open(p, \"wb\") returns False, fh.writelines(lines) returns False, shutil.copyfileobj(src, fh) returns False. NOT currently a live hole in this repository: the one binary open in tools/bm_handover.py is followed on the next line by fh.write(data), which IS matched, so that site is counted. Found while fixing the M19 defects, by the writer that had to touch the inventory twice",
+      "state": "done",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/test_bm.py",
+        "tools/write_sites.json"
+      ],
+      "done_check": "a file planted with open(p, \"wb\") plus writelines, and one with shutil.copyfileobj, are both counted by the scanner; the regression test fails on the pre-fix patterns"
+    },
+    {
+      "id": "M28",
+      "title": "one write-site shape stays invisible to the widened scanner and it was found by the writer that widened it, not by a later audit: the mode pattern uses [^)]* to reach the mode string, which cannot cross a NESTED closing paren, so open(os.path.join(root, \".git\", \"info\", \"exclude\"), \"a\") at scripts/benchmark.py line 116 does not match. Verified 2026-08-21 by running the widened pattern against that exact line: False. LATENT, not live: a .write( two lines below it is matched, so the site is counted today and nothing goes unreviewed. It becomes live the moment such a site has no matched write beside it. Left unfixed on purpose because closing it means changing how the scanner parses rather than widening a character class, and that is restructuring",
+      "state": "done",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [
+        "tools/test_bm.py",
+        "tools/write_sites.json"
+      ],
+      "done_check": "a planted file whose open() call wraps its path in a nested call, with no .write beside it, is counted by the scanner; the regression test fails on the current [^)]* pattern"
+    },
+    {
+      "id": "M29",
+      "title": "json.dump(obj, fh) is a write verb the reviewed inventory has never matched, in any generation of its patterns: verified 2026-08-21 by running the LIVE WRITE_PATTERNS tuple against the line json.dump(payload, fh, indent=2), which matched none of the nine. The eight sites in scripts/benchmark_comparative.py that became visible under M28 became visible through their open() line, which the widened nesting pattern now reaches, NOT through the json.dump call itself, so a json.dump into a handle opened elsewhere, or handed in as an argument, is still invisible. This is the THIRD generation of the same blind spot found in one night (M27 the mode string, M28 the nested paren, M29 the write verb), which is the finding worth more than the fix: the inventory has been widened three times by whoever happened to be working inside it, and never by an audit of it",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/test_bm.py",
+        "tools/write_sites.json"
+      ],
+      "done_check": "a planted file calling json.dump into a handle it did not open is counted by the scanner; the regression test fails on the current nine patterns. Consider whether the honest fix is a pattern list at all, or a check that every file-handle-taking call in the scanned tree is enumerated"
+    },
+    {
+      "id": "M30",
+      "title": "worktrees accumulate with uncommitted deltas and nothing reconciles them: measured 2026-08-21, this repository carries SEVEN stale worktrees under .claude/worktrees/ left by earlier agent sessions, and every one holds uncommitted changes, 25 files in total. Compared byte for byte against origin/main, 19 of the 25 are IDENTICAL and therefore landed by the ordinary route, leaving the worktree as residue; 6 are not identical (agent-a3959916: tools/bm_handover.py and tools/test_bm_handover.py; agent-a8eac56a: pyproject.toml, tools/bm_store.py, tools/write_sites.json; agent-ac527406: CHANGELOG.md), and for four of those main simply moved past them, three by the session that measured this. PO-3 works on the way IN (a worktree agent returns a delta, the orchestrator integrates, re-gates and commits) and has no counterpart on the way OUT. Compounding factor: these worktrees are NESTED, which is the exact layout M16 proves makes a bm_ tool write into the main checkout instead of the worktree",
+      "state": "queued",
+      "stage": "provenance",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "a reconciliation command compares each worktree's uncommitted files against the commit it branched from and reports LANDED or UNLANDED per file, refusing to offer removal for any worktree with an UNLANDED file; a regression test drives a fixture worktree in both states. Removal itself stays a founder gate"
+    },
+    {
+      "id": "M31",
+      "title": "done_checks rot silently and nothing notices: an audit of 14 of the 50 items marked done found ONE wrongly closed (M9) and FOUR whose done_check no longer means what it said. M28's own title claims the gap was left unfixed on purpose when the code and a passing test show it was closed. M15's done_check states the precondition with M14 fixed, and M14 is not fixed. O15's done_check names doctor check 9, which today means project store health rather than the CHECKSUMS check O15 was about, now check 11: the pointer silently stopped meaning what it meant when written. M2 names a test class that does not exist verbatim, though the real test exists under another name and passes. Three separate wrong verdicts were found in one night (M9, M14, M16), all three by accident rather than by any control, which is what makes this systemic rather than three unlucky items",
+      "state": "queued",
+      "stage": "evidence-integrity",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "tools/bm_idle.py",
+        "tools/test_bm_idle.py"
+      ],
+      "done_check": "a command re-evaluates every done item whose done_check names a runnable check, and reports CONFIRMED, STILL OPEN or CANNOT VERIFY per item, refusing to report CONFIRMED for any item whose done_check it could not execute; a regression test drives a fixture queue holding one wrongly closed item and fails when that item is reported CONFIRMED"
+    }
+  ]
 }
