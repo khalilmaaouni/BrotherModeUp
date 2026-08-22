@@ -1617,6 +1617,282 @@
         "tools/test_bm_idle.py"
       ],
       "done_check": "a command re-evaluates every done item whose done_check names a runnable check, and reports CONFIRMED, STILL OPEN or CANNOT VERIFY per item, refusing to report CONFIRMED for any item whose done_check it could not execute; a regression test drives a fixture queue holding one wrongly closed item and fails when that item is reported CONFIRMED"
+    },
+    {
+      "id": "MERGE-P1",
+      "title": "ADR P1: O23 decided, one fence owner (retire tools/sbe_fence_hook.py behind tools/bm_fence_hook.py through the assurance product's coordination module, or the reverse); design by the strongest tier, founder window; blocked on his decision",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "docs/plan/PARITY-READ-2026-08-15.md",
+        "hooks/hooks.json"
+      ],
+      "done_check": "a ratified ownership decision recorded in both repositories naming the single fence owner",
+      "stage": "passport",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P3",
+      "title": "ADR P3: the passport's second read-only consumer (BrotherDS) named in this repository's docs/PASSPORT.md and in the assurance product's seam contract; founder granted 2026-08-22 in the question UI",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/PASSPORT.md"
+      ],
+      "done_check": "grep -n 'read-only consumer' docs/PASSPORT.md hits, the sibling's seam contract carries the same sentence, and BrotherDS's passport verb no longer prints its UNAUTHORISED cap on the canonical fixture",
+      "stage": "passport",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P4",
+      "title": "ADR P4: the five-item handoff package wire format written by the assurance product as contracts/handoff-package.v1.json with a fixture and a test; this repository carries nothing but the pointer; founder granted 2026-08-22",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "schema/fixtures/"
+      ],
+      "done_check": "the assurance product's schema test is green, BrotherDS's handoff verb is not capped at NO-DATA on the ratified fixture, and python3 evals/test_no_data_class.py there prints 0 failure(s)",
+      "stage": "passport",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P5",
+      "title": "ADR P5: passport conformance on the same fixture bytes on all three sides: each repository's suite prints the canonical fixture's sha256 and a recorded digest file pins it",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "schema/fixtures/change-passport.v1.canonical.json",
+        "tools/test_bm_passport.py"
+      ],
+      "done_check": "python3 tools/test_bm_passport.py prints the canonical fixture digest e6d68b76 and the sibling's and BrotherDS's suites print the same digest; a byte changed in any copy reddens that repository's suite",
+      "stage": "passport",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P6",
+      "title": "ADR P6: the five delivery scans (secret patterns, assignment shapes, attribution, dashes, private terms over newly reachable blobs) as one host-neutral script in every tree, reading ~/.brothersbe-private-names from outside the repository",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "scripts/delivery-scans.sh"
+      ],
+      "done_check": "sh scripts/delivery-scans.sh origin/main..HEAD exits 0 on a clean range, exits 1 naming the hit on a planted fixture, and exits 2 when the list file is unreadable",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P7",
+      "title": "ADR P7: the release invariant the assurance product enforces (VERSION must move in any range that changes a distributable file) adopted here beside CHANGELOG rule 1; BrotherDS gains VERSION, CHANGELOG.md, CHECKSUMS.sha256 and .claude-plugin/plugin.json under its own queue item plugin-surface",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "scripts/release_invariant.py",
+        "tools/test_bm.py"
+      ],
+      "done_check": "python3 scripts/release_invariant.py --strict prints PASS on the head, prints FAIL on a fixture range that changes a distributable file without a VERSION move, and sh scripts/verify-install.sh CHECKSUMS.sha256 . prints MISSING 0 MISMATCH 0 in all three repositories",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P8",
+      "title": "ADR P8: one ceremony shape: the assurance and claim products adopt the generated pack's checks (first-line verdict, non-empty files, zero-difference zip) as a by-hand checklist documented beside this repository's paper ceremony; no new verb",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "docs/HANDOVER-BY-HAND.md"
+      ],
+      "done_check": "the next pack in each of the other two repositories has a first-line FINISHED or UNFINISHED verdict, every file non-empty and a zip diffed at zero difference, quoted in its close report",
+      "stage": "provenance",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P9",
+      "title": "ADR P9: one board structure checked by one checker: this repository's progress check run against the assurance product's and BrotherDS's GANTT.html",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [
+        "tools/bm_progress_check.py"
+      ],
+      "done_check": "python3 tools/bm_progress_check.py run with each of the three board paths passes on all three",
+      "stage": "human-decision",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P11",
+      "title": "ADR P11, BrotherDS: internal context separated (two files remain at 8084340 after last night's de-naming commit: the research file whose name carries two terms, and the scope directive; claims and receipts kept gitignored) so it can join a public tree after a clean extraction; founder decided yes on 2026-08-22 as a precondition of the merge (timing gate condition 3)",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 45,
+      "files": [],
+      "done_check": "in BrotherDS, git grep -c -i -F -f ~/.brothersbe-private-names over the tracked tree prints nothing and /usr/bin/python3 bds.py selftest prints SELFTEST PASS",
+      "stage": "evidence-integrity",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P12",
+      "title": "ADR P12: one vault space for the three products proposed under the vault's AGENTS.md rule (propose, build only on approval); BrotherDS vault decision 6",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "the proposal note exists in the vault's 50-Reference and no folder is created before the founder's yes",
+      "stage": "human-decision",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P13",
+      "title": "ADR P13: Bitbucket parity proven once per product the deliberate free-tier way (one custom pipeline run each); blocked on the keychain item bitbucket-api-token and the test workspace's seat limit, both the founder's hand",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "bitbucket-pipelines.yml",
+        "docs/BITBUCKET.md"
+      ],
+      "done_check": "security find-generic-password -s bitbucket-api-token exits 0, then each product's one run has its id and verdict quoted and docs/BITBUCKET.md marks the pipeline EXECUTED",
+      "stage": "required-proof",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P14",
+      "title": "ADR P14, BrotherDS: PROJECT.md's status line brought current (it still reads nothing pushed and no remote)",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "BrotherDS PROJECT.md names the remote, the branch feature/north-star-chain-and-native-seam, the sha and PR 1 in its status line",
+      "stage": "provenance",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-M1",
+      "title": "ADR M1, phase 3, after MERGE-P16: the clean-extraction rehearsal into a throwaway PRIVATE repository laid out per the ADR, each product's battery and the four delivery scans run there, nothing deleted; blocked on timing gate conditions 1 to 4",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 180,
+      "files": [],
+      "done_check": "the rehearsal's signed receipt per product reads result: success at the extraction sha, and each of the five delivery scans exits 0 over the extracted tree; the receipts and exits are filed in the roadmap's phase 3 section (the filing is not the check)",
+      "stage": "required-proof",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-M2",
+      "title": "ADR M2, phase 4: the real Brother repository created PRIVATE by clean extraction at named commits; the contracts equality test and the root runner green; blocked on the timing gate reading green",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [],
+      "done_check": "the root runner's signed receipt at the extraction sha reads success and the contracts equality test prints one digest per copy",
+      "stage": "human-decision",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-M3",
+      "title": "ADR M3, phase 4: one deliberate Bitbucket run of the root runner on the merged shape (timing gate condition 6)",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 30,
+      "files": [],
+      "done_check": "the one custom pipeline run on the merged shape exits 0 with its readiness artifact archived; the run id and verdict are filed in the roadmap (the filing is not the check)",
+      "stage": "required-proof",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-M4",
+      "title": "ADR M4, phase 4: cutover: marketplace manifests and READMEs point at the new repository, the team's reinstall path documented and walked once on this machine, the repository made public by the founder",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [],
+      "done_check": "claude plugin marketplace add of the new repository followed by one install per product and each product's doctor green on this machine, quoted",
+      "stage": "human-decision",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-M5",
+      "title": "ADR M5, phase 4: the three old repositories archived read-only with pointer READMEs, the founder's hand; nothing deleted",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "gh repo view of each old repository prints isArchived true and its README's first line points at the new repository",
+      "stage": "human-decision",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan (docs/plan/ROADMAP-2026-08-23-REPLAN.md); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P16",
+      "title": "ADR P16: the batteries made relocatable before any rehearsal: the assurance product's scripts/local-gates.sh hardcodes TRUSTED_REF=origin/main and resolves its workflow path from the repository root, so a fresh extraction refuses with exit 2; the ref and the path become inputs read from the plugin's own root; the root runner gets a poll ceiling sized to three batteries (this repository's PO-1 loop caps at 800 seconds and its own battery measured 516) and one receipt per plugin",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 90,
+      "files": [
+        "scripts/local-gates.sh",
+        "CLAUDE.md"
+      ],
+      "done_check": "each runner, invoked from a fresh extraction with no origin/main, runs its battery and signs its receipt; the root runner's poll loop outlasts the sum of the three measured runtimes, quoted",
+      "stage": "required-proof",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan after the adversarial gate of 2026-08-22; the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P17",
+      "title": "ADR P17: the root ceremony and board paths decided and tested: tools/bm_handover.py and the board tools resolve docs/plan/GANTT.html and docs/handover/ from the working directory, so the family root and plugins/brothermode/ both hold a board and packs in the merged layout; decide which suite checks which and test it",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "tools/bm_handover.py",
+        "tools/bm_progress_check.py",
+        "tools/test_bm_handover.py"
+      ],
+      "done_check": "python3 tools/test_bm_handover.py green from inside plugins/brothermode/ in the rehearsal, and python3 tools/bm_handover.py detect run from the merged root names the root pack",
+      "stage": "provenance",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan after the adversarial gate of 2026-08-22; the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P18",
+      "title": "ADR P18: the harmony layer designed (one entry point that routes a person to the right capability, one vocabulary: chain stages, the verdict tuple, the assertion object with three subtypes; the seams as plumbing nobody touches) and the combined surface measured BEFORE in skills, commands and agents (19 plus 16 plus 1, 15, 13 today) so phase 5's shrink-by-a-third is checkable; the entry point ships only after the founder amends the freeze",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 120,
+      "files": [
+        "docs/plan/ADR-2026-08-23-one-brother-repository.md"
+      ],
+      "done_check": "the design page names the entry point's routing table (what a person is doing, which capability answers) and quotes the before-measurement of the surface per product; the founder's amendment of the freeze is landed by him before any entry point ships",
+      "stage": "intent",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan after the founder's round four (2026-08-22); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-G7",
+      "title": "Timing gate condition 7, a promotion gate inside the merged repository: BrotherDS's capability stays routed as experimental by the entry point until its first claim is scored against a real outcome (its own queue item first-scored-claim)",
+      "state": "blocked",
+      "clock": "agent",
+      "forecast_minutes": 15,
+      "files": [],
+      "done_check": "/usr/bin/python3 bds.py ledger in the claim product reports at least one resolved claim, quoted",
+      "stage": "verified-reality",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan after the founder's round four (2026-08-22); the ADR docs/plan/ADR-2026-08-23-one-brother-repository.md names the item"
+    },
+    {
+      "id": "MERGE-P19",
+      "title": "ADR P19: the context budget of the merged product: the front door injects ONE small digest at session start and the products' digests load on demand; the bytes of each digest measured and quoted before and after (from the delivering session's soundness design of 2026-08-22)",
+      "state": "queued",
+      "clock": "agent",
+      "forecast_minutes": 60,
+      "files": [
+        "DIGEST.md",
+        "hooks/hooks.json"
+      ],
+      "done_check": "the session-start injection of the merged shape measured in bytes and below the sum of today's three digests, the figures quoted",
+      "stage": "method",
+      "stage_note_2026_08_22": "added by the 2026-08-23 replan after the delivering session's companion design; the ADR names the item"
     }
   ]
 }
