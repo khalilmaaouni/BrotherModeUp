@@ -3673,10 +3673,10 @@ class TestLoop6ConflictSemantics(unittest.TestCase):
                 "trigger_text": "pushing to GitHub", "action_text": self.ALWAYS}
         other = dict(same, action_text=self.NEVER)
         self.assertEqual(bl.conflict_verdict(same, other)["verdict"], "contradiction")
-        narrow = dict(other, scope_type="project", scope_key="Tonari")
+        narrow = dict(other, scope_type="project", scope_key="SampleApp")
         self.assertEqual(bl.conflict_verdict(same, narrow)["verdict"], "narrowing")
         elsewhere = dict(other, scope_type="project", scope_key="Other")
-        far = dict(same, scope_type="project", scope_key="Tonari")
+        far = dict(same, scope_type="project", scope_key="SampleApp")
         self.assertEqual(bl.conflict_verdict(far, elsewhere)["verdict"], "unrelated")
 
     def test_a_verdict_shows_its_working(self):

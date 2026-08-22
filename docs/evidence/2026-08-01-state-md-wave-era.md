@@ -147,7 +147,7 @@ which WRITES only to this repo's .brothermode store after backing it up.
   Every impl round REFUTED by refuters, every fix round re-verified UPHELD.
   Store: 5 inbox rows backfilled; founder decided by windows 2026-07-29: 2 global
   rules approved (3dad1a78 Desktop-push GATE, eeb754ad question-window UI), 5
-  rejected with reasons (4 Tonari strays kept in inbox, 1 empty). First live
+  rejected with reasons (4 strays from another project kept in inbox, 1 empty). First live
   correction processed end to end same day (18c41e2a captured and approved).
   Scans: dashes 0, private paths in diff 0, trailers 0, secret shapes all fixtures.
   OWED: 14a dogfood window (founder calendar time), 11B gated on it; push via

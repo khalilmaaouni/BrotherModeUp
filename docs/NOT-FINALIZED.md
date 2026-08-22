@@ -757,7 +757,7 @@ What is honestly limited, and why each limit was chosen rather than missed:
   conflict the detector cannot see. A declared conflict counts exactly as much
   as a detected one everywhere downstream.
 - OPEN: containment between two non-global scopes is not inferred. Nothing in
-  the store says artifact `executive-update` lives inside project `Tonari`, so
+  the store says artifact `executive-update` lives inside project `SampleApp`, so
   two different non-global scopes report as disjoint and coexist. Guessing here
   would decide whether an approval is blocked, on no evidence.
 - OPEN: of the plan's four founder resolutions, three are commands (supersede,

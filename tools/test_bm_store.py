@@ -7272,7 +7272,7 @@ class TestLearningApi(unittest.TestCase):
                     store, trigger="deploying this specific project",
                     action="run the project-specific release checklist",
                     because="", scope_type="project",
-                    scope_key="tonari")["candidate_uuid"],
+                    scope_key="sampleapp")["candidate_uuid"],
                     founder_ref="yes", severity="gate")
                 unrelated = _approved(store, self._cap(
                     store, trigger="an entirely unrelated situation",
@@ -7280,7 +7280,7 @@ class TestLearningApi(unittest.TestCase):
                     because="")["candidate_uuid"],
                     founder_ref="yes", severity="gate")
                 res = store.retrieve_learning_rules(
-                    "colour of the orb", context={"project": "tonari"})
+                    "colour of the orb", context={"project": "sampleapp"})
                 rows = {r["rule_uuid"]: r for r in res["results"]}
                 self.assertEqual(rows[narrow["rule_uuid"]]["presentation"], "expanded")
                 self.assertEqual(rows[narrow["rule_uuid"]]["expansion_reason"],
@@ -7782,7 +7782,7 @@ class TestLoop6ConflictGraph(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with bs.Store(d) as store:
                 self._rule(store, self.ALWAYS, scope_type="project",
-                           scope_key="TonariSimple")
+                           scope_key="SampleApp")
                 self._rule(store, self.NEVER, scope_type="project",
                            scope_key="BrotherModeUp")
                 self.assertEqual(len(store.list_learning_rules()), 2,
@@ -7796,7 +7796,7 @@ class TestLoop6ConflictGraph(unittest.TestCase):
             with bs.Store(d) as store:
                 self._rule(store, self.ALWAYS, scope_type="global")
                 narrow = self._rule(store, self.NEVER, scope_type="project",
-                                    scope_key="TonariSimple")
+                                    scope_key="SampleApp")
                 self.assertEqual(narrow["state"], "approved")
                 self.assertEqual(store.learning_conflicts()["contradictions"], [])
 

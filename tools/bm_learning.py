@@ -196,7 +196,7 @@ def lexical_overlap(query, *fields):
 def scope_matches(rule_scope_type, rule_scope_key, context):
     """Is a rule ELIGIBLE for this task context?
 
-    `context` maps scope type to key, e.g. {"project": "TonariSimple",
+    `context` maps scope type to key, e.g. {"project": "SampleApp",
     "artifact": "executive-update"}. Global always matches. Every other scope
     matches only when the context supplies that exact key, compared on the
     normalized lowercase form so "Executive-Update" and "executive-update" are
@@ -833,7 +833,7 @@ def scope_relation(a_type, a_key, b_type, b_key):
     """How A's scope relates to B's: same, broader, narrower or disjoint.
 
     Containment between two NON-global scopes is not inferred. This store holds
-    no map saying artifact 'executive-update' lives inside project 'Tonari', so
+    no map saying artifact 'executive-update' lives inside project 'SampleApp', so
     claiming one narrows the other would be a guess, and a guess here decides
     whether an approval is blocked. Unknown containment reports 'disjoint',
     which coexists rather than blocks."""

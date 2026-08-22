@@ -90,7 +90,7 @@ Bridge: ~/.claude/bin/or_ask.py (reads keychain service `openrouter`, exit 44 on
 - One distinct key, 73 characters (its fingerprint is deliberately NOT recorded here: this
   repository is public, and a credential fingerprint is credential metadata). 72 occurrences across 10
   transcript and session files in five project directories: `BrotherModeUp` (2), BrotherSBE (2),
-  BrotherDS (1), Tonari (3), slop-gate session state (2).
+  BrotherDS (1), another project (3), slop-gate session state (2).
 - Persistence property of how the harness records sessions, not a session's mistake.
   NOT scrubbable by any session; no session edits transcripts. Rotation is the fix and it is
   the founder's hand.
