@@ -13,6 +13,7 @@ test depends on how fast the machine runs.
 Standard library only. Run: python3 tools/test_bm_idle.py
 """
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -73,12 +74,13 @@ def stamp(path, mtime):
     os.utime(path, (mtime, mtime))
 
 
-def item(item_id, state, title=None, done_check=""):
+def item(item_id, state, title=None, done_check="", files=None):
     return {
         "id": item_id,
         "title": title or ("title of %s" % item_id),
         "state": state,
         "done_check": done_check,
+        "files": files or [],
     }
 
 
@@ -427,6 +429,110 @@ class TestChainStage(unittest.TestCase):
             result = run_cli("check", "--queue", queue, "--root", tmp,
                              "--now", iso(NOW))
             self.assertNotEqual(0, result.returncode)
+
+
+class ReconcileTests(unittest.TestCase):
+    """M31's own done_check, verbatim: a command re-evaluates every done
+    item whose done_check names a runnable check and reports CONFIRMED,
+    STILL OPEN or CANNOT VERIFY per item, refusing to report CONFIRMED for
+    any item whose done_check it could not execute. This fixture holds one
+    wrongly closed item (references that no longer exist), one item whose
+    reference resolves, and one item whose done_check names nothing at all
+    to check, mirroring the real "doctor check 9" drift M31 describes."""
+
+    def _fixture(self, tmp):
+        write_text(tmp, "tools/existing_helper.py",
+                   "def test_helper_example():\n    pass\n")
+        good = item("GOOD1", "done", done_check=(
+            "run tools/existing_helper.py and confirm "
+            "test_helper_example passes"))
+        wrong = item("WRONG1", "done", done_check=(
+            "run tools/does_not_exist.py and confirm "
+            "TestNoSuchClass passes"))
+        no_ref = item("NOREF1", "done", done_check="doctor check 9")
+        data = {
+            "schema": 1,
+            "min_depth": 1,
+            "items": [good, wrong, no_ref, item("Q1", "queued")],
+        }
+        return write_queue(tmp, data)
+
+    def test_wrongly_closed_item_is_still_open_and_never_confirmed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = self._fixture(tmp)
+            result = run_cli("reconcile", "--queue", queue, "--root", tmp)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WRONG1 STILL OPEN", result.stdout)
+        self.assertIn("tools/does_not_exist.py", result.stdout)
+        self.assertIn("TestNoSuchClass", result.stdout)
+        # This is the assertion M31 names by name: the wrongly closed item
+        # must never be reported CONFIRMED.
+        self.assertNotIn("WRONG1 CONFIRMED", result.stdout)
+        self.assertFalse(
+            any(line.startswith("WRONG1") and "CONFIRMED" in line
+                for line in result.stdout.splitlines()),
+            "a wrongly closed item was reported CONFIRMED: " + result.stdout)
+
+    def test_item_with_no_extractable_reference_is_cannot_verify(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = self._fixture(tmp)
+            result = run_cli("reconcile", "--queue", queue, "--root", tmp)
+        self.assertIn("NOREF1 CANNOT VERIFY", result.stdout)
+        self.assertNotIn("NOREF1 CONFIRMED", result.stdout)
+
+    def test_item_with_a_resolving_reference_is_confirmed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = self._fixture(tmp)
+            result = run_cli("reconcile", "--queue", queue, "--root", tmp)
+        self.assertNotIn("GOOD1 STILL OPEN", result.stdout)
+        self.assertNotIn("GOOD1 CANNOT VERIFY", result.stdout)
+        self.assertIn(
+            "reconcile: 3 done items, 1 confirmed, 1 still open, "
+            "1 cannot verify", result.stdout)
+
+    def test_files_entry_that_is_not_path_shaped_is_cannot_verify(self):
+        # A "files" entry with no "/" and no dot-extension, like the name
+        # of a sibling repository ("BrotherSBE"), is not a path in this
+        # tree. It must contribute zero references, so an item whose only
+        # files entry looks like that falls to CANNOT VERIFY, never to
+        # CONFIRMED (absent evidence is never a pass) and never to a false
+        # STILL OPEN against a path that was never real to begin with.
+        with tempfile.TemporaryDirectory() as tmp:
+            bare_name = item("BARE1", "done", done_check="see the sibling",
+                             files=["BrotherSBE"])
+            data = {
+                "schema": 1,
+                "min_depth": 1,
+                "items": [bare_name],
+            }
+            queue = write_queue(tmp, data)
+            result = run_cli("reconcile", "--queue", queue, "--root", tmp)
+        self.assertIn("BARE1 CANNOT VERIFY", result.stdout,
+                       "a non-path-shaped files entry must yield no "
+                       "reference, routing the item to CANNOT VERIFY: "
+                       + result.stdout)
+        self.assertNotIn("BARE1 CONFIRMED", result.stdout,
+                         "an item with zero extractable references must "
+                         "never be reported CONFIRMED: " + result.stdout)
+
+    def test_output_carries_the_wrote_nothing_sentence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = self._fixture(tmp)
+            result = run_cli("reconcile", "--queue", queue, "--root", tmp)
+        self.assertIn(
+            "This command proposes and does not dispose. It wrote nothing.",
+            result.stdout)
+
+    def test_real_queue_file_is_untouched_by_a_reconcile_run(self):
+        real_queue = os.path.join(ROOT, "docs", "plan", "QUEUE.json")
+        with io.open(real_queue, "rb") as handle:
+            before = hashlib.sha256(handle.read()).hexdigest()
+        result = run_cli("reconcile", "--root", ROOT)
+        with io.open(real_queue, "rb") as handle:
+            after = hashlib.sha256(handle.read()).hexdigest()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(before, after,
+                         "reconcile must never write to the real queue file")
 
 
 if __name__ == "__main__":

@@ -30,11 +30,14 @@ THE CONTRACT
   pile up. This is the load-bearing rule of the whole tool; see the
   comment at compute_counts() below for where it is enforced.
 
-  Four verbs:
-    depth   report the count, always exit 0 unless the file is unusable.
-    next    the first queued item in array order.
-    check   the gate verb; see check_queue() for its exact precedence.
-    list    one line per item plus a summary.
+  Five verbs:
+    depth      report the count, always exit 0 unless the file is unusable.
+    next       the first queued item in array order.
+    check      the gate verb; see check_queue() for its exact precedence.
+    list       one line per item plus a summary.
+    reconcile  re-evaluate every done item's done_check against the tree;
+               see cmd_reconcile() for the CONFIRMED / STILL OPEN /
+               CANNOT VERIFY contract.
   check is also the default when no verb is given.
 
   Exit codes are load bearing everywhere: 0 nothing wrong, 1 a real defect
@@ -61,10 +64,11 @@ Python 3.9, standard library only. No network. No subprocess.
 No em or en dashes anywhere in this file or its output.
 
 Usage:
-  python3 tools/bm_idle.py depth [--queue PATH] [--root PATH]
-  python3 tools/bm_idle.py next  [--queue PATH] [--root PATH]
-  python3 tools/bm_idle.py check [--queue PATH] [--root PATH] [--now ISO]
-  python3 tools/bm_idle.py list  [--queue PATH] [--root PATH]
+  python3 tools/bm_idle.py depth     [--queue PATH] [--root PATH]
+  python3 tools/bm_idle.py next      [--queue PATH] [--root PATH]
+  python3 tools/bm_idle.py check     [--queue PATH] [--root PATH] [--now ISO]
+  python3 tools/bm_idle.py list      [--queue PATH] [--root PATH]
+  python3 tools/bm_idle.py reconcile [--queue PATH] [--root PATH]
 
 `check` is also the default when no verb is given.
 """
@@ -72,6 +76,7 @@ Usage:
 import datetime
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -415,10 +420,170 @@ def check_queue(data, root, now_ts):
 
 
 # ---------------------------------------------------------------------------
+# reconcile: M31's done_check rot detector. A done_check is English prose
+# that REFERENCES concrete artifacts (a file path, a test function or class
+# name). Re-evaluating it means extracting those references and checking
+# they still resolve in the tree, which needs nothing but file reads: no
+# subprocess (this file is not on tools/test_bm.py's allowlist), no shell.
+# ---------------------------------------------------------------------------
+
+#: Path-like token, with or without a directory: "tools/bm_toolkit.py" or
+#: bare "SECURITY.md". The extension list is exactly the one named by M31.
+_PATH_REF_RE = re.compile(
+    r"[A-Za-z0-9_./-]+\.(?:py|sh|json|md|html|yml|yaml)\b")
+
+#: Test function and test class names: test_foo, TestFoo. Matched against
+#: done_check text with every already-extracted path span masked out first
+#: (see extract_references), so a filename like tools/test_bm_idle.py never
+#: also yields a spurious symbol reference "test_bm_idle" that means nothing
+#: on its own.
+_SYMBOL_REF_RE = re.compile(r"\b(?:test_[A-Za-z0-9_]+|Test[A-Za-z0-9_]+)\b")
+
+#: The tail of a "files" entry that makes it path shaped: a dot then 1 to 5
+#: alphanumeric characters, anchored to the end of the string.
+_FILES_ENTRY_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{1,5}$")
+
+
+def _is_path_shaped(entry):
+    """True if a "files" list entry looks like a path inside this tree
+    rather than a bare name. Path shaped means it contains a "/" separator
+    or ends in a dot-extension. A bare word like "BrotherSBE" is neither:
+    it is the name of a sibling repository, not a path in this tree, and
+    treating it as one is a false STILL OPEN finding."""
+    return "/" in entry or bool(_FILES_ENTRY_EXTENSION_RE.search(entry))
+
+
+def extract_references(done_check, files):
+    """Return an ordered, de-duplicated list of ("path", ref) / ("symbol",
+    ref) tuples pulled from `done_check` text and from `files` (an item's
+    own "files" list). A "files" entry is taken as a reference only when it
+    is path shaped (see _is_path_shaped); a bare name that is neither a
+    directory-qualified path nor a dot-extension is not resolvable in this
+    tree and contributes nothing, per _is_path_shaped's contract."""
+    text = done_check or ""
+    refs = []
+    seen = set()
+
+    for match in _PATH_REF_RE.finditer(text):
+        key = ("path", match.group(0))
+        if key not in seen:
+            seen.add(key)
+            refs.append(key)
+
+    # Mask out the path spans before hunting for symbols, so a symbol name
+    # that only exists as a substring of a filename is never extracted as
+    # its own reference.
+    masked = _PATH_REF_RE.sub(lambda m: " " * len(m.group(0)), text)
+    for match in _SYMBOL_REF_RE.finditer(masked):
+        key = ("symbol", match.group(0))
+        if key not in seen:
+            seen.add(key)
+            refs.append(key)
+
+    for entry in files or []:
+        if not isinstance(entry, str) or not entry:
+            continue
+        if not _is_path_shaped(entry):
+            continue
+        key = ("path", entry)
+        if key not in seen:
+            seen.add(key)
+            refs.append(key)
+
+    return refs
+
+
+def _collect_py_sources(root):
+    """(list_of_file_contents, undecodable_count) for every .py file under
+    root/tools and root/scripts. Never raises: a file that cannot be opened
+    or decoded is skipped and counted rather than crashing the reconcile
+    run, per the module's BE SILENT-SAFE contract."""
+    contents = []
+    undecodable = 0
+    for rel_base in ("tools", "scripts"):
+        abs_base = os.path.join(root, rel_base)
+        if not os.path.isdir(abs_base):
+            continue
+        for dirpath, dirnames, filenames in os.walk(abs_base):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for name in filenames:
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        contents.append(handle.read())
+                except (OSError, UnicodeDecodeError):
+                    undecodable += 1
+    return contents, undecodable
+
+
+def _resolve_reference(kind, ref, root, py_sources):
+    if kind == "path":
+        return os.path.exists(os.path.join(root, ref))
+    return any(ref in src for src in py_sources)
+
+
+def cmd_reconcile(data, root, queue_path):
+    """The gate verb for M31: re-evaluate every done item's done_check (and
+    its files list) against the tree, without executing anything. Returns
+    exactly one of CONFIRMED, STILL OPEN or CANNOT VERIFY per done item; the
+    CANNOT VERIFY branch below is the refusal clause and is checked FIRST,
+    as its own branch, not folded into the resolution loop, so an item
+    whose done_check yielded no reference can never fall through to
+    CONFIRMED. Exit code is always 0: this reports findings, it never fails
+    the command, because absent evidence is a finding, not a crash. A queue
+    the tool cannot even read is already NO-DATA/exit 2 before this
+    function is reached (see _run)."""
+    done_items = [it for it in data["items"] if it["state"] == "done"]
+    py_sources, undecodable = _collect_py_sources(root)
+
+    lines = []
+    confirmed = still_open = cannot_verify = 0
+
+    for it in done_items:
+        refs = extract_references(it.get("done_check", ""), it.get("files"))
+
+        # Refusal clause (the heart of M31): zero extracted references means
+        # this done_check could not be re-evaluated at all, and that must
+        # NEVER read as CONFIRMED.
+        if not refs:
+            cannot_verify += 1
+            lines.append(
+                "%s CANNOT VERIFY: no path or test-symbol reference could "
+                "be extracted from its done_check or files" % it["id"])
+            continue
+
+        unresolved = [ref for kind, ref in refs
+                      if not _resolve_reference(kind, ref, root, py_sources)]
+        if unresolved:
+            still_open += 1
+            lines.append("%s STILL OPEN: unresolved reference(s): %s" % (
+                it["id"], ", ".join(unresolved)))
+        else:
+            confirmed += 1
+
+    undecodable_suffix = ""
+    if undecodable:
+        undecodable_suffix = (
+            " (%d file(s) under tools/scripts could not be decoded and "
+            "were skipped)" % undecodable)
+
+    out = ["RECONCILE %s: %d done item(s) examined%s" % (
+        queue_path, len(done_items), undecodable_suffix)]
+    out.extend(lines)
+    out.append(
+        "reconcile: %d done items, %d confirmed, %d still open, %d cannot "
+        "verify" % (len(done_items), confirmed, still_open, cannot_verify))
+    out.append("This command proposes and does not dispose. It wrote nothing.")
+    return "\n".join(out), 0
+
+
+# ---------------------------------------------------------------------------
 # CLI.
 # ---------------------------------------------------------------------------
 
-_VERBS = ("depth", "next", "check", "list")
+_VERBS = ("depth", "next", "check", "list", "reconcile")
 
 
 def _parse_argv(argv):
@@ -484,6 +649,8 @@ def _run(argv):
         line, exit_code = cmd_next(data)
     elif verb == "list":
         line, exit_code = cmd_list(data)
+    elif verb == "reconcile":
+        line, exit_code = cmd_reconcile(data, root, queue_path)
     else:
         if now_arg:
             now_ts = parse_iso(now_arg).timestamp()
