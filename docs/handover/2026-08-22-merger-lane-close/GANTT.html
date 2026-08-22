@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrotherMode, BrotherSBE, BrotherDS: the one Brother repository board</title>
+<style>
+:root{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:Seravek,"Gill Sans Nova",Ubuntu,Calibri,"DejaVu Sans",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+    --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+    --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+    --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+    --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+    --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+    --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
+  }
+}
+:root[data-theme="dark"]{
+  --bm-page:#0E1216; --bm-paper:#141B22; --bm-body:#E8EBEE; --bm-muted:#9AA4AE;
+  --bm-rule:#2A343D; --bm-accent:#3AA893; --bm-accent-tint:#16302C;
+  --bm-settled-ink:#6FD3AE; --bm-settled-rule:#009E73; --bm-settled-tint:#12281F;
+  --bm-needs-you-ink:#FF9C63; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#2E1810;
+  --bm-at-risk-ink:#E5B75C; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#2A2212;
+  --bm-for-info-ink:#6FB8E8; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#101F2C;
+  --bm-idle-ink:#98A1AB; --bm-idle-rule:#767B84; --bm-idle-tint:#1B2128;
+}
+:root[data-theme="light"]{
+  --bm-page:#FFFFFF; --bm-paper:#F7F8F6; --bm-body:#1A1D21; --bm-muted:#575E68;
+  --bm-rule:#DDE2E0; --bm-accent:#0E7A6F; --bm-accent-tint:#E4EFED;
+  --bm-settled-ink:#00543A; --bm-settled-rule:#009E73; --bm-settled-tint:#E8F6F0;
+  --bm-needs-you-ink:#8C2D00; --bm-needs-you-rule:#D55E00; --bm-needs-you-tint:#FDEFE8;
+  --bm-at-risk-ink:#6B4400; --bm-at-risk-rule:#A06A00; --bm-at-risk-tint:#FFF6E5;
+  --bm-for-info-ink:#00436B; --bm-for-info-rule:#0072B2; --bm-for-info-tint:#EAF3FA;
+  --bm-idle-ink:#3F4650; --bm-idle-rule:#767B84; --bm-idle-tint:#F0F1F2;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bm-page);color:var(--bm-body);font-family:var(--sans);
+  font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 20px 80px}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--bm-accent);margin:0 0 10px}
+h1{font-family:var(--serif);font-size:clamp(30px,5vw,46px);line-height:1.1;margin:0 0 12px;
+  font-weight:600;text-wrap:balance}
+.stamp{font-family:var(--mono);font-size:12.5px;color:var(--bm-muted);border-left:3px solid var(--bm-accent);
+  padding:6px 0 6px 12px;margin:0 0 28px}
+h2{font-family:var(--serif);font-size:25px;margin:44px 0 6px;font-weight:600;text-wrap:balance}
+h2 .n{font-family:var(--mono);font-size:13px;color:var(--bm-muted);font-weight:400;margin-left:8px}
+h3{font-family:var(--sans);font-size:16px;margin:24px 0 8px;font-weight:600}
+.lede{color:var(--bm-muted);margin:0 0 16px;max-width:76ch}
+.northstar{background:var(--bm-accent-tint);border:1px solid var(--bm-accent);border-radius:10px;
+  padding:18px 20px;margin:0 0 30px}
+.northstar .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-accent);display:block;margin-bottom:6px}
+.northstar p{margin:0;font-family:var(--serif);font-size:19px;line-height:1.45}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:14px;margin:0 0 12px}
+.card{background:var(--bm-paper);border:1px solid var(--bm-rule);border-radius:10px;padding:15px 16px}
+.card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bm-muted);display:block;margin-bottom:7px}
+.card p{margin:0 0 6px;font-size:14.5px;line-height:1.45}
+.card p:last-child{margin-bottom:0}
+.card.now{border-left:4px solid var(--bm-settled-rule)}
+.card.you{border-left:4px solid var(--bm-needs-you-rule)}
+.card.risk{border-left:4px solid var(--bm-at-risk-rule)}
+.card.fc{border-left:4px solid var(--bm-for-info-rule)}
+.big{font-family:var(--serif);font-size:27px;line-height:1.1;display:block;margin-bottom:4px;
+  font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--bm-rule);
+  border-radius:10px;background:var(--bm-paper);padding:14px}
+table.gantt{border-collapse:collapse;width:100%;min-width:840px;font-size:13px}
+table.gantt th{font-family:var(--mono);font-size:10.5px;font-weight:400;color:var(--bm-muted);
+  text-align:center;padding:0 0 8px;border-bottom:1px solid var(--bm-rule)}
+table.gantt th.lbl{text-align:left;width:300px;padding-left:2px}
+table.gantt td{padding:4px 0;border-bottom:1px solid var(--bm-rule)}
+table.gantt td.lbl{padding-right:14px;font-size:13.5px;line-height:1.35}
+table.gantt td.lbl .cnt{font-family:var(--mono);font-size:10.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:9px;padding:1px 7px;margin-right:7px;
+  font-variant-numeric:tabular-nums}
+.bar{height:17px;border-radius:4px;position:relative}
+.bar.done{background:var(--bm-settled-rule)}
+.bar.sched{background:repeating-linear-gradient(45deg,var(--bm-accent) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-accent);opacity:.85}
+.bar.est{background:var(--bm-accent);opacity:.16;border:1px dashed var(--bm-accent)}
+.bar.wall{background:repeating-linear-gradient(45deg,var(--bm-needs-you-rule) 0 4px,transparent 4px 8px);
+  border:1px solid var(--bm-needs-you-rule);opacity:.85}
+.key{display:flex;flex-wrap:wrap;gap:16px;font-family:var(--mono);font-size:11px;
+  color:var(--bm-muted);margin:12px 0 0;align-items:center}
+.key i{display:inline-block;width:22px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.deck{border:1px solid var(--bm-rule);border-radius:10px;padding:16px 17px;background:var(--bm-paper)}
+.deck.you{border-left:4px solid var(--bm-needs-you-rule);background:var(--bm-needs-you-tint)}
+.deck.done{border-left:4px solid var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.deck h4{margin:0 0 8px;font-size:15.5px;font-family:var(--sans);font-weight:600}
+.deck p{margin:0 0 8px;font-size:14px;line-height:1.5}
+.deck p:last-child{margin-bottom:0}
+.deck .tag{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  display:inline-block;margin-bottom:7px}
+.deck.you .tag{color:var(--bm-needs-you-ink)}
+.deck.done .tag{color:var(--bm-settled-ink)}
+.alert{border:1px solid var(--bm-rule);border-left:4px solid var(--bm-at-risk-rule);
+  background:var(--bm-at-risk-tint);border-radius:10px;padding:15px 17px;margin:0 0 13px}
+.alert.info{border-left-color:var(--bm-for-info-rule);background:var(--bm-for-info-tint)}
+.alert.good{border-left-color:var(--bm-settled-rule);background:var(--bm-settled-tint)}
+.alert h4{margin:0 0 7px;font-size:15.5px;font-weight:600}
+.alert dl{margin:0;display:grid;grid-template-columns:88px 1fr;gap:4px 12px;font-size:14px}
+.alert dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--bm-muted);padding-top:3px}
+.alert dd{margin:0;line-height:1.5}
+.phase{margin:26px 0 0}
+.chip{font-family:var(--mono);font-size:11.5px;background:var(--bm-accent-tint);color:var(--bm-accent);
+  border:1px solid var(--bm-accent);border-radius:11px;padding:2px 9px;margin-left:9px;vertical-align:2px;
+  font-variant-numeric:tabular-nums}
+ul.ledger{list-style:none;margin:10px 0 0;padding:0}
+ul.ledger li{border-bottom:1px solid var(--bm-rule);padding:11px 0 11px 30px;position:relative}
+ul.ledger li::before{position:absolute;left:0;top:10px;font-family:var(--mono);font-size:14px}
+ul.ledger li.tick::before{content:"[x]";color:var(--bm-settled-ink)}
+ul.ledger li.open::before{content:"[ ]";color:var(--bm-muted)}
+ul.ledger li.wall::before{content:"[!]";color:var(--bm-needs-you-ink)}
+ul.ledger .t{font-size:14.5px;display:block;margin-bottom:5px}
+ul.ledger .ev{font-family:var(--mono);font-size:11.5px;color:var(--bm-muted);
+  background:var(--bm-idle-tint);border-radius:5px;padding:6px 9px;display:block;
+  white-space:pre-wrap;word-break:break-word;line-height:1.45}
+ul.ledger li.tick .ev{color:var(--bm-settled-ink);background:var(--bm-settled-tint)}
+ul.ledger li.wall .ev{color:var(--bm-needs-you-ink);background:var(--bm-needs-you-tint)}
+footer{margin:56px 0 0;padding:20px 0 0;border-top:2px solid var(--bm-accent);font-size:13.5px;color:var(--bm-muted)}
+footer .contract{font-family:var(--serif);font-size:16.5px;color:var(--bm-body);margin:0 0 10px;max-width:74ch}
+code{font-family:var(--mono);font-size:.92em;background:var(--bm-idle-tint);padding:1px 5px;border-radius:4px}
+a{color:var(--bm-accent)}
+a:focus-visible,li:focus-visible{outline:2px solid var(--bm-accent);outline-offset:2px}
+details.carried{margin:0 0 13px}
+details.carried>summary{cursor:pointer;font-family:var(--sans);font-size:14px;font-weight:600;color:var(--bm-muted);padding:8px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="eyebrow">BrotherMode, BrotherSBE, BrotherDS</p>
+<h1>The one Brother repository: the replan of 2026-08-23</h1>
+<p class="stamp">Refreshed 2026-08-22 (JST afternoon) by session eab3d639, the merger-analysis session.<br>
+A box ticks only when its done-check ran after the last edit and its output is quoted beside it; percentages are counts of records, never impressions.</p>
+
+<div class="northstar">
+  <span class="k">North star, the founder's words of 2026-08-22</span>
+  <p>ONE Brother repository holding the three products: BrotherMode (execution provenance), BrotherSBE (assurance, the eight concerns, the change passport as the seam) and BrotherDS (the data science colleague that measures whether reality agreed). Merged at the right time, not now. FIRST the backlog is finished properly; MEANWHILE each repository is prepared so the merge is a move, not a rewrite.</p>
+</div>
+
+<h2>At a glance</h2>
+<div class="strip">
+  <div class="card now">
+    <span class="k">Now</span>
+    <p><span class="big">Phase 1</span>The 3.3.0 delivery to the sibling's main is driven by the sibling's own session (battery at its head in flight at this refresh); the replan's three documents are on disk.</p>
+  </div>
+  <div class="card you">
+    <span class="k">Waiting on Khalil</span>
+    <p><span class="big">7 items</span>The tag 3.3.0; the note to the two lead reviewers; landing the amendment by his hand; the Bitbucket keychain item and the seat; the O23 fence owner decision; BrotherDS's claim path and boundary question; the archive at cutover.</p>
+  </div>
+  <div class="card risk">
+    <span class="k">Risk watch</span>
+    <p><span class="big">6 named below</span>The published v3.2.0 tag and its manifest; the two fence hooks and two registries; BrotherDS's 30 name matches; the 44 pull request refs; two sessions in one tree today; Bitbucket's 50 minute monthly budget. Full detail in section 6.</p>
+  </div>
+  <div class="card fc">
+    <span class="k">Forecast</span>
+    <p><span class="big">Ranges, not points</span>Phase 1 subtotal: 1,740 briefed agent minutes, 2,420 optimistic to 3,898 calibrated (about sixteen agent sessions, eight to ten of wall clock with two lanes). Phase 2: about nine agent sessions, four to five wall clock. Phases 3 and 4 together, after the gate: 646 to 1042 agent minutes. Calibration: 2.24 judged (n=14) is the EXPECTATION; 1.39 any (n=17) is the OPTIMISTIC bound, not a low end from the same population (`python3 tools/bm_forecast.py calibrate --clock agent --basis judged`).</p>
+  </div>
+</div>
+
+<h2>Short range: 2026-08-22 to 2026-08-29<span class="n">by day</span></h2>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Row</th><th>22</th><th>23</th><th>24</th><th>25</th><th>26</th><th>27</th><th>28</th><th>29</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">0/1</span>1.1 deliver 3.3.0 to main</td><td><div class="bar sched"></div></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/6</span>1.2 pull request convergence</td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>1.3 install check from the pushed head</td><td></td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/7</span>1.5 the review's rows S2 to S8</td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/3</span>1.8 M22, M18, M26</td><td></td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>P3 the passport's second consumer</td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>P5 passport conformance, three sides</td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>P14 BrotherDS PROJECT.md current</td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>P18 the harmony layer designed</td><td></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+</tbody>
+</table>
+<p class="key"><span><i class="bar sched"></i>scheduled, in flight</span><span><i class="bar est"></i>estimate, faint on purpose</span></p>
+</div>
+
+<h2>Long range: 2026-08-22 to 2026-10-31<span class="n">by phase, not by date; dates beyond 2026-08-29 are estimates</span></h2>
+<div class="scroll">
+<table class="gantt">
+<thead><tr><th class="lbl">Row</th><th>8/22</th><th>8/29</th><th>9/12</th><th>9/26</th><th>10/10</th><th>10/31</th></tr></thead>
+<tbody>
+<tr><td class="lbl"><span class="cnt">0/9</span>Phase 1: finish the backlog</td><td><div class="bar sched"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">4/6</span>1.9 BrotherDS decisions, 4/6 answered</td><td><div class="bar done"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">2/18</span>Phase 2: prepare (P10 and P15 done; P16, P17, P18 added)</td><td><div class="bar done"></div></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/8</span>Phase 3: the timing gate and the rehearsal (seven conditions plus the rehearsal; condition 2 partial, condition 7 NOT MET)</td><td></td><td></td><td><div class="bar est"></div></td><td><div class="bar est"></div></td><td></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/5</span>Phase 4: the merge</td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td><td></td></tr>
+<tr><td class="lbl"><span class="cnt">0/1</span>Phase 5: one product to the person using it (after the merge)</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td></tr>
+<tr><td class="lbl"><span class="cnt">0/5</span>Then, after the four phases</td><td></td><td></td><td></td><td></td><td></td><td><div class="bar est"></div></td></tr>
+</tbody>
+</table>
+<p class="key"><span><i class="bar done"></i>settled to date, check quoted</span><span><i class="bar sched"></i>scheduled, running now</span><span><i class="bar est"></i>estimate, faint on purpose</span></p>
+</div>
+<p class="lede">Counters count rows of the roadmap and the ADR's tables, never impressions. Dates beyond 2026-08-29 are estimates and are drawn faint by design; nothing moves until the timing gate reads green.</p>
+
+<h2>Decisions waiting on Khalil<span class="n">12</span></h2>
+<div class="decks">
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>The tag 3.3.0 and the Release object</h4>
+    <p><b>Default if silent:</b> prepared, never cut; the rollback test stays on v3.2.0 and names its defect. <b>Recommended:</b> tag after the push, then the next battery reads 52 of 52 against v3.3.0.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>The note to the two lead reviewers</h4>
+    <p><b>Default if silent:</b> not sent; condition 1 stays NOT MET. <b>Recommended:</b> send it the day the tag exists.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>PR 48 merge timing</h4>
+    <p><b>Default if silent:</b> waits until the tag is pushed; the lane is briefed and not dispatched. <b>Recommended:</b> the same, after the tag is pushed.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>Bitbucket keychain item and the seat limit</h4>
+    <p><b>Default if silent:</b> every Bitbucket leg NO-DATA by name. <b>Recommended:</b> his hand, any time before the seal.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>The amendment's landing</h4>
+    <p><b>Default if silent:</b> stays PROPOSED in the ADR and the vault note. <b>Recommended:</b> land after the comparison round fixes the shape sentence.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>O23, the one fence owner</h4>
+    <p><b>Default if silent:</b> M13 keeps the two registries interoperating; two hooks stay. <b>Recommended:</b> decide in a founder window with the parity map's recommendation.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>The vault space (BrotherDS decision 6)</h4>
+    <p><b>Default if silent:</b> no folder created. <b>Recommended:</b> one space proposed under AGENTS.md.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>The claim path (decision 1) and the boundary question (decision 2)</h4>
+    <p><b>Default if silent:</b> BrotherDS stays at V1, presuming Option A as its spec states. <b>Recommended:</b> the boundary study's split recommendation.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>Archiving the three old repositories</h4>
+    <p><b>Default if silent:</b> never; they stay installable. <b>Recommended:</b> after cutover, his hand.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>Codex credits</h4>
+    <p><b>Default if silent:</b> the cross family gate is NO-DATA, recorded. <b>Recommended:</b> add credits before the next release seal.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>Deletions (agent worktrees, stale worktrees, break glass records)</h4>
+    <p><b>Default if silent:</b> nothing deleted. <b>Recommended:</b> his hand, per the M30 reconciliation report.</p>
+  </div>
+  <div class="deck you">
+    <span class="tag">Gate</span>
+    <h4>PR 48 merge timing: after the tag is pushed</h4>
+    <p><b>Default if silent:</b> the lane stays briefed and not dispatched. <b>Recommended:</b> merge once the tag is pushed and the battery is green at the merge commit.</p>
+  </div>
+</div>
+
+<h2>Risk management, insights and alerts<span class="n">10</span></h2>
+
+<div class="alert">
+  <h4>The published tag v3.2.0 does not verify against its own manifest</h4>
+  <dl>
+    <dt>What</dt><dd>Two files mismatch; an adopter pinning v3.2.0 sees MISMATCH rather than a clean install.</dd>
+    <dt>Why it matters</dt><dd>The public tag is the team's install path (inventory R14); a mismatched manifest is the first thing a fresh clone hits.</dd>
+    <dt>The action</dt><dd>The 3.3.0 tag and its CHANGELOG line, cut at the push.</dd>
+    <dt>When</dt><dd>At the push, his hand.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Two fence hooks fire on every write, against two registries that cannot recognise each other</h4>
+  <dl>
+    <dt>What</dt><dd>With both plugins installed on this machine, every write runs both fence hooks against two one-writer registries that cannot recognise each other's owner (inventory R3).</dd>
+    <dt>Why it matters</dt><dd>M12 is only half closed: the assurance side can read a BrotherMode fence line but still cannot recognise who owns it.</dd>
+    <dt>The action</dt><dd>P1 (O23, the founder decides the single fence owner) then P2 (M13, the two registries recognise each other), first in phase 2.</dd>
+    <dt>When</dt><dd>P1 is a founder window; P2 follows it.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>BrotherDS's private-term figure improved to 30 matches in 2 files, still open</h4>
+  <dl>
+    <dt>What</dt><dd>30 matches in 2 files at the sibling checkout's 8084340, down from 104 in 9 files at 8840c2d after last night's de-naming (roadmap P11).</dd>
+    <dt>Why it matters</dt><dd>A merged public repository is a clean extraction; a tree that still carries these terms cannot join one, even at 2 files.</dd>
+    <dt>The action</dt><dd>P11: the remaining tracked files rewritten to roles, real claims kept gitignored, before any public tree. Founder said yes on 2026-08-22, a precondition of the merge (timing gate condition 3).</dd>
+    <dt>When</dt><dd>Phase 2, before the timing gate is re-read.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>This repository's remote still serves 44 pull request refs anchoring removed content</h4>
+  <dl>
+    <dt>What</dt><dd>44 pull request refs anchor a file and identifiers removed on 2026-08-18 (inventory R12).</dd>
+    <dt>Why it matters</dt><dd>Extraction takes the tree at a chosen commit and leaves the history behind; these refs are not reachable by any push and are not removed by extraction either.</dd>
+    <dt>The action</dt><dd>Accepted as a known gap, founder call on 2026-08-18; flip condition is the repository being named for extraction.</dd>
+    <dt>When</dt><dd>Standing; re-checked when this repository is named for extraction.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Two sessions worked in one tree today</h4>
+  <dl>
+    <dt>What</dt><dd>The sibling's 3.3.0 delivery was handed to the sibling's own session since 2026-08-22 12:2x JST, handover recorded in both registries, while this session ran the merger analysis.</dd>
+    <dt>Why it matters</dt><dd>One writer per repository is law; every measurement in this replan binds to one sha, named where it was read.</dd>
+    <dt>The action</dt><dd>Registry lanes and the hold protocol apply every session; this board names the sibling's session as the driver of 1.1 rather than claiming it.</dd>
+    <dt>When</dt><dd>Standing practice, not a one time call.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Bitbucket's free plan gives about 50 minutes a month</h4>
+  <dl>
+    <dt>What</dt><dd>The keychain item bitbucket-api-token is absent at every check since 2026-08-18, and the test workspace's seat limit is unresolved (inventory R11).</dd>
+    <dt>Why it matters</dt><dd>Four Bitbucket legs (one per product plus the merged shape) cannot run casually inside a 50 minute monthly budget.</dd>
+    <dt>The action</dt><dd>One custom (manual) pipeline running the root battery, once per release candidate and on the founder's request. Set 2026-08-22.</dd>
+    <dt>When</dt><dd>Deliberate, rare, never on every push.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Forecasts are ranges, not points</h4>
+  <dl>
+    <dt>What</dt><dd>`python3 tools/bm_forecast.py calibrate --clock agent --basis judged` printed CALIBRATED clock=agent basis=judged n=14 median=2.24; the any basis printed clock=any basis=any n=17 median=1.39 (roadmap section 3).</dd>
+    <dt>Why it matters</dt><dd>2.24 judged is the EXPECTATION; 1.39 any is the OPTIMISTIC bound, not a low end from the same population (the gate of 2026-08-22 caught the earlier wording). Table ranges read optimistic to calibrated.</dd>
+    <dt>The action</dt><dd>Every estimate on this board is stated as a range; the short range table's dates beyond 8/29 are drawn faint for the same reason.</dd>
+    <dt>When</dt><dd>Standing, re-measured as the sample grows.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The context stop line sits at 70 percent, with the handover reserved</h4>
+  <dl>
+    <dt>What</dt><dd>Sessions on this machine stop at about 70 percent of context, reserving time for the baton ceremony's close.</dd>
+    <dt>Why it matters</dt><dd>A session that runs to auto-compact instead of handing over loses the checkpoint discipline this replan depends on.</dd>
+    <dt>The action</dt><dd>Checkpoint at every green; hand over at the stop line rather than grinding past it.</dd>
+    <dt>When</dt><dd>Standing, every session.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>Two documents in the estate disagreed on the shape</h4>
+  <dl>
+    <dt>What</dt><dd>The BrotherDS one-product page and the ADR read differently: the BrotherDS page recommends one product under the BrotherMode name with the seams dissolved in code, while the ADR's round three had already decided Option B, three plugins under one marketplace.</dd>
+    <dt>Why it matters</dt><dd>Two live documents naming two different end shapes is exactly the kind of drift that costs a rewrite later if it is not reconciled before the merge.</dd>
+    <dt>The action</dt><dd>Surfaced to the founder in round four and reconciled in the ADR: packaging stays Option B, the BrotherDS document's harmony ideas are adopted on top of it rather than replacing it. The amendment he lands carries the harmony sentence.</dd>
+    <dt>When</dt><dd>Reconciled 2026-08-22, round four; stands until he says otherwise.</dd>
+  </dl>
+</div>
+
+<div class="alert">
+  <h4>The BrotherDS checkout was verified against a stale tracking ref, not ls-remote</h4>
+  <dl>
+    <dt>What</dt><dd>A verify step read the local tracking ref rather than the remote directly; the remote was five commits ahead of what the tracking ref showed.</dd>
+    <dt>Why it matters</dt><dd>A verify block that trusts a stale local ref can report a tree current when the remote has already moved past it.</dd>
+    <dt>The action</dt><dd>Rule: ls-remote in every verify block, never the local tracking ref alone.</dd>
+    <dt>When</dt><dd>Found this session; standing rule from now on.</dd>
+  </dl>
+</div>
+
+<h2>The ledger</h2>
+
+<div class="phase">
+<h3>Part 1, pushes<span class="chip">3/5 ticked</span></h3>
+<ul class="ledger">
+  <li class="open"><span class="t">1a the sibling push</span>
+    <span class="ev">check: `git rev-list --left-right --count origin/main...HEAD` prints `0	0`, driven by the sibling's session</span></li>
+  <li class="open"><span class="t">1b pull request convergence</span>
+    <span class="ev">check: `gh pr list --state open` prints nothing</span></li>
+  <li class="tick"><span class="t">1c BrotherDS verify</span>
+    <span class="ev">`git status -sb` first line reads "## feature/north-star-chain-and-native-seam...origin/feature/north-star-chain-and-native-seam", no ahead or behind</span></li>
+  <li class="tick"><span class="t">1d the vault push</span>
+    <span class="ev">"HEAD 43bc9a0 remote 43bc9a0", visibility PRIVATE</span></li>
+  <li class="tick"><span class="t">1e this repository verify</span>
+    <span class="ev">"e0d604e e0d604e 0"</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Part 2, analysis<span class="chip">3/3 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">The inventory</span>
+    <span class="ev">126 lines, dash scan 0, private-term scan 0</span></li>
+  <li class="tick"><span class="t">The ADR</span>
+    <span class="ev">Status DECIDED; scans 0</span></li>
+  <li class="tick"><span class="t">The roadmap</span>
+    <span class="ev">status line present; `python3 tools/bm_idle.py check` printed "OK: depth 80, attended session"</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Part 3, replan<span class="chip">2/2 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">The queue</span>
+    <span class="ev">21 items added, total 141</span></li>
+  <li class="tick"><span class="t">The three founder rounds</span>
+    <span class="ev">12 answers, verbatim in the ADR</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Part 4, founder windows<span class="chip">1/5 ticked</span></h3>
+<ul class="ledger">
+  <li class="tick"><span class="t">The two adversarial gates</span>
+    <span class="ev">ADR gate (principal-architect, briefed to refute): REVISE, 1 blocker, 4 major, 3 minor, then revised once, residue named (C6 stays NO-DATA until one run is timed; P17 is a decision, not yet a design; the equal weights are a method choice under human review). Roadmap gate (qa-reviewer, briefed to refute): REVISE, 3 blockers, 6 major, 5 minor, then revised once in the roadmap's own revision section.</span></li>
+  <li class="open"><span class="t">The Codex gate</span>
+    <span class="ev">NO-DATA, quoted "ERROR: Your workspace is out of credits"</span></li>
+  <li class="open"><span class="t">This board's own check</span>
+    <span class="ev">check: `python3 tools/bm_progress_check.py` passes</span></li>
+  <li class="open"><span class="t">BrotherDS's board</span>
+    <span class="ev">not yet rebuilt to the absolute structure this session</span></li>
+  <li class="open"><span class="t">The sibling's board</span>
+    <span class="ev">delegated to the sibling's session</span></li>
+</ul>
+</div>
+
+<div class="phase">
+<h3>Part 5, handover<span class="chip">0/1 ticked</span></h3>
+<ul class="ledger">
+  <li class="open"><span class="t">The packs and the vault logs</span>
+    <span class="ev">open, this session's close</span></li>
+</ul>
+</div>
+
+<h2>Decisions recorded<span class="n">18</span></h2>
+<div class="decks">
+  <div class="deck done">
+    <span class="tag">Round one, 2026-08-22 about 12:0x JST, question UI, his words</span>
+    <h4>The shape</h4>
+    <p>"Same as superpowers model optimized through Fable planning and risk management". Not a pick among A, B and C: an instruction to compare the shape with the superpowers model first. Recorded as open; the comparison round of the same session answered it.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round one, his words</span>
+    <h4>BrotherDS</h4>
+    <p>"Yes: separate the internal context, then public MIT, before it joins (Recommended)". Decision taken: P11 is a precondition of the merge (timing gate condition 3).</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round one, his words</span>
+    <h4>The verified-reality owner</h4>
+    <p>"Compare to Superpower and the other leading plugins then come with the better idea with fable max". Not a pick: the comparison round informs it.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round one, his words</span>
+    <h4>The amendment</h4>
+    <p>"Land it now, as drafted in the ADR (Recommended)". Decision taken: he lands it by his own hand; PRODUCT-DIRECTION.md is not edited by any session.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round two, 2026-08-22, question UI</span>
+    <h4>Push now, the defect named rather than fixed</h4>
+    <p>The battery reads 51 of 52 at the sibling's bddbc63; the tag gate's default names the rollback test's remaining defect in the CHANGELOG rather than holding for it (roadmap section 5).</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round two, his words, roadmap 1.2</span>
+    <h4>PR 48: merge it</h4>
+    <p>"Merge it", only after the tag is pushed, conflicts resolved by one lane, battery green at the merge commit.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round two, 2026-08-22</span>
+    <h4>The passport's second read-only consumer: yes</h4>
+    <p>Founder said yes 2026-08-22 in the question UI (ADR P3); BrotherDS named in this repository's docs/PASSPORT.md and the assurance product's seam contract.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round two, 2026-08-22</span>
+    <h4>The handoff package wire format: written by the assurance product</h4>
+    <p>Founder said yes 2026-08-22 (ADR P4); contracts/handoff-package.v1.json with a fixture and a test, BrotherDS reads the ratified marker.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round three, 2026-08-22 about 12:5x JST, question UI, his words</span>
+    <h4>The shape, final: Option B</h4>
+    <p>"B: one repository, three plugins under one marketplace, the Anthropic and ruflo shape (Recommended)". The amendment's shape sentence stays as drafted.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round three, his words</span>
+    <h4>The verified-reality owner: split by unit</h4>
+    <p>"Split by unit, ledger owned by BrotherDS (Recommended)". BrotherMode records a change's outcome, BrotherSBE judges a change's verified reality, BrotherDS owns the stage's ledger for claims and the change-level reopen rate.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round three, his words</span>
+    <h4>The vault spaces</h4>
+    <p>"Propose one space 10-Projects/brother at the merge, keep three until then (Recommended)". P12 writes the proposal note; nothing created before his yes at the merge.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round three, his words</span>
+    <h4>The Bitbucket shape</h4>
+    <p>"One custom (manual) pipeline running the root battery, run once per release candidate and on your request (Recommended)".</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round four, 2026-08-22 about 13:3x JST, question UI, his words</span>
+    <h4>On which governs: Merge them under Brother new repo</h4>
+    <p>"Merge them under Brother new repo". Read as: the target is a NEW repository named Brother, created by clean extraction, which is what Option B builds; the three existing repositories are archived with pointers afterwards.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round four, his words</span>
+    <h4>On the seventh gate condition: find the right approach as Fable</h4>
+    <p>"Find the right approach as Fable and handle a harmony between all functions to be seamless like Superpowers". Read as a delegation: the strongest tier designs how the three products become one seamless product without breaking the laws, and decides the gate.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">Round four, the strongest tier's approach under that delegation</span>
+    <h4>Packaging stays B; harmony and the exit criterion added on top</h4>
+    <p>B stays the packaging (three whole plugins, one marketplace). Harmony: one entry point that routes, one vocabulary (the chain's stages, the verdict tuple, the assertion object with three subtypes), the seams as plumbing. The exit criterion for phase 5: the combined surface shrinks by at least a third in skills, commands and agents, measured before and after. BrotherDS is routed as experimental until its first scored claim (timing gate condition 7, a promotion gate).</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">This session's own decision, 2026-08-22</span>
+    <h4>The budget raise: 10,000,000 until 23:00 JST, per his word</h4>
+    <p>Applied as a raise in the brake file with that exact expiry, per the spend and autonomy laws.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">This session's own decision, 2026-08-22</span>
+    <h4>The sibling's delivery band handed to the sibling's own session</h4>
+    <p>1.1 (deliver 3.3.0 to main) is driven by that session under the recorded handover, not claimed by this one.</p>
+  </div>
+  <div class="deck done">
+    <span class="tag">This session's own decision, 2026-08-22</span>
+    <h4>The sibling board refresh delegated to that session</h4>
+    <p>This board carries this repository's and the replan's own ledger; the sibling's own GANTT.html is refreshed by the session holding that tree.</p>
+  </div>
+</div>
+
+<footer>
+  <p class="contract">A box ticks only when its done-check ran after the last edit and its output is quoted beside it; percentages are counts of records, never impressions.</p>
+  <p>Refreshed 2026-08-22 (JST afternoon) by session eab3d639, the merger-analysis session. This page names no client, no company and no reviewer. Roles only.</p>
+</footer>
+
+</div>
+</body>
+</html>
