@@ -290,9 +290,36 @@ def _run(cmd, cwd, env, stdin_text=None, timeout=120):
         universal_newlines=True, timeout=timeout)
 
 
-def blocked_write_simulation(command_words, tools_dir):
+def _run_shell(command, cwd, env, stdin_text=None, timeout=120):
+    """Runs `command` (a STRING, not an argv list) through a real shell.
+
+    This is how the wired hook command must be judged (queue M20, family
+    evidence-integrity): shell=True is required, not a shortcut, because it
+    is the exact way Claude Code hands this same command string to a shell,
+    established at tools/test_bm_consent.py's test_no_wired_command_of_any_
+    module_writes_before_consent ("the strings being run are the exact
+    command lines Claude Code hands to a shell") and reused unmodified at
+    tools/test_bm_hookperf.py's run_real(). An argv-list run
+    (subprocess.run([...])) leaves a redirection, pipe, or other shell
+    metacharacter as a literal extra word instead of applying it, so a
+    wired command carrying one was judged on output the real harness would
+    have thrown away."""
+    return subprocess.run(
+        command, shell=True, cwd=cwd, env=env, input=stdin_text,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, timeout=timeout)
+
+
+def blocked_write_simulation(command, command_words, tools_dir):
     """Ask the WIRED hook command to judge one foreign write and one own
     write, in a throwaway project this function builds and deletes itself.
+
+    `command` is the raw command STRING (settings.json's own text, or the
+    equivalent reconstructed for a loader-managed plugin copy); it is what
+    actually gets executed, through a real shell (_run_shell above), because
+    that is how Claude Code invokes it. `command_words` is that same command
+    already shlex.split, used only to LOCATE files (the fence path, the
+    interpreter name) on disk, never to execute anything.
 
     THIS PROJECT'S OWN real store is verified separately, by
     _verify_real_store() below, called from doctor(): the loop here (the
@@ -365,7 +392,7 @@ def blocked_write_simulation(command_words, tools_dir):
                 "tool_name": tool_name,
                 "tool_input": SIM_TOOL_INPUTS[tool_name](target),
             })
-            return _run(list(command_words), root, env, stdin_text=payload)
+            return _run_shell(command, root, env, stdin_text=payload)
 
         # Every supported write tool is simulated, not just Edit (fix-round
         # 2026-07-29). One shape per tool, because the four do not share a
@@ -603,8 +630,10 @@ def doctor(settings_path):
                     "hook error and continue, and writes proceed unfenced."
                     % (_mask_home(copy), FENCE_BASENAME)], notes)
             words = ["python3", fence]
+            loader_command = "python3 %s" % shlex.quote(fence)
             loader_tools_dir = os.path.dirname(fence)
-            problems.extend(blocked_write_simulation(words, loader_tools_dir))
+            problems.extend(blocked_write_simulation(
+                loader_command, words, loader_tools_dir))
             store_problems, store_notes = _verify_real_store(
                 loader_tools_dir, words)
             problems.extend(store_problems)
@@ -655,7 +684,7 @@ def doctor(settings_path):
             % (fence or "(no path found in the command)")], notes)
 
     tools_dir = os.path.dirname(os.path.abspath(fence))
-    problems.extend(blocked_write_simulation(words, tools_dir))
+    problems.extend(blocked_write_simulation(command, words, tools_dir))
     store_problems, store_notes = _verify_real_store(tools_dir, words)
     problems.extend(store_problems)
     notes.extend(store_notes)

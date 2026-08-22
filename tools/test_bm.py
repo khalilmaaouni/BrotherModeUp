@@ -5934,6 +5934,115 @@ class TestM17FenceLivenessAgainstRealStore(unittest.TestCase):
                              checks["fence"]["message"])
 
 
+class TestM20WiredHookRedirectionShellSemantics(unittest.TestCase):
+    """M20 (docs/plan/QUEUE.json, family evidence-integrity): scripts/
+    doctor.py's blocked-write simulation ran the wired hook command as an
+    argv LIST (subprocess.run([...]), no shell), so a wired command
+    carrying a shell redirection was never actually redirected. shlex.split
+    keeps a token like '>' or '>/tmp/log' as a literal extra word; a script
+    that tolerates unknown extra argv just ignores it and prints its real
+    output straight onto the pipe doctor reads, so a command that would
+    swallow its own stdout under a REAL shell looked exactly like a command
+    with no redirection at all, and doctor reported the fence live. Claude
+    Code hands this exact command STRING to a shell (established at
+    test_bm_consent.py's test_no_wired_command_of_any_module_writes_before_
+    consent and reused unmodified at tools/test_bm_hookperf.py's
+    run_real()); under that real shell the redirection is honoured, so
+    both the deny ask and the allow ask see EMPTY stdout, indistinguishable
+    from each other, and doctor must not call that a live fence.
+
+    Reproduced 2026-08-21; cross-family debate finding 6, BLOCKER."""
+
+    DOCTOR = os.path.join(HERE, "..", "scripts", "doctor.py")
+    INTRUDER_SESSION = "bm-doctor-intruder"
+
+    def _env(self, home):
+        env = dict(os.environ)
+        env["HOME"] = home
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for k in ("BROTHERMODE_VAULT", "BROTHERMODE_ROOT", "BROTHERME_CONFIG",
+                  "BM_FENCE_STRICT", "BM_FENCE_SESSION_ID", "CLAUDE_SESSION_ID"):
+            env.pop(k, None)
+        return env
+
+    def _run_doctor(self, home, project, settings):
+        return subprocess.run(
+            [sys.executable, "-B", self.DOCTOR, "--settings", settings,
+             "--json"],
+            cwd=project, env=self._env(home),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=300)
+
+    def _checks(self, stdout):
+        payload = json.loads(stdout)
+        return {c["key"]: c for c in payload["checks"]}
+
+    def _tools_dir_with_stub_fence(self, tmp):
+        """A real, working copy of every tools/*.py file (the dependency
+        closure bm_store.py's own lazy imports need, same technique
+        TestM17FenceLivenessAgainstRealStore uses), with bm_fence_hook.py
+        replaced by a STUB that is deliberately tolerant of extra argv: it
+        never looks at sys.argv for the hook path, only at the JSON on
+        stdin, exactly the shape a real hook script can have and exactly
+        why the pre-fix argv-list execution could not be trusted to expose
+        a redirection by accident (a strict CLI erroring on the stray
+        token would hide this bug behind a different, unrelated FAIL)."""
+        tools_dir = os.path.join(tmp, "tools")
+        os.makedirs(tools_dir)
+        for name in sorted(os.listdir(HERE)):
+            if name.endswith(".py") and not name.startswith("test_"):
+                shutil.copy2(os.path.join(HERE, name),
+                             os.path.join(tools_dir, name))
+        fence = os.path.join(tools_dir, "bm_fence_hook.py")
+        stub = (
+            "import json, sys\n"
+            "def main():\n"
+            "    argv = sys.argv[1:]\n"
+            "    if argv and argv[0] == 'session-label':\n"
+            "        print('stub-owner-label')\n"
+            "        return 0\n"
+            "    payload = json.loads(sys.stdin.read() or '{}')\n"
+            "    if payload.get('session_id') == %r:\n"
+            "        print(json.dumps({'hookSpecificOutput': {\n"
+            "            'hookEventName': 'PreToolUse',\n"
+            "            'permissionDecision': 'deny',\n"
+            "            'permissionDecisionReason': 'stub deny'}}))\n"
+            "    return 0\n"
+            "sys.exit(main())\n"
+        ) % (self.INTRUDER_SESSION,)
+        with io.open(fence, "w", encoding="utf-8") as fh:
+            fh.write(stub)
+        return tools_dir, fence
+
+    def test_redirected_wired_command_is_not_a_false_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            project = os.path.join(tmp, "project")
+            os.makedirs(home)
+            os.makedirs(project)
+            _tools_dir, fence = self._tools_dir_with_stub_fence(tmp)
+            sink = os.path.join(tmp, "swallowed.log")
+            command = "python3 %s > %s" % (fence, sink)
+            settings = os.path.join(tmp, "settings.json")
+            with io.open(settings, "w", encoding="utf-8") as fh:
+                json.dump({"hooks": {"PreToolUse": [{
+                    "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+                    "hooks": [{"type": "command", "command": command,
+                              "timeout": 10}]}]}}, fh)
+
+            r = self._run_doctor(home, project, settings)
+            checks = self._checks(r.stdout)
+            fence_check = checks["fence"]
+            self.assertEqual(
+                fence_check["status"], "FAIL",
+                "wired command %r carries a redirection a real shell would "
+                "honour, swallowing the fence's stdout so Claude Code could "
+                "never see a deny; doctor must not report this a live "
+                "fence: %s" % (command, fence_check["message"]))
+            self.assertIn("not enforcing", fence_check["message"],
+                         fence_check["message"])
+
+
 class TestM25BlockedWriteSimulationLeavesNoBytecodeCache(unittest.TestCase):
     """M25 (docs/plan/QUEUE.json, family provenance): scripts/doctor.py's
     module docstring for CHECK 1 promises the blocked-write simulation is
