@@ -276,8 +276,11 @@ run of it as a test of the runbook, not just of the code.
    1 and 2 are committed (the manifest must describe the exact tree being
    released, not an earlier one):
    ```bash
-   sh scripts/checksums.sh CHECKSUMS.sha256
+   git add -A && sh scripts/checksums.sh CHECKSUMS.sha256 && git add CHECKSUMS.sha256
    ```
+   The trailing `git add` is load bearing: the script rewrites the manifest on
+   disk AFTER the first add, so without it a plain commit ships the previous
+   manifest while reporting that it was regenerated.
    Commit `CHECKSUMS.sha256` itself in the same commit as the version bump,
    so the tag below covers the manifest along with the code it describes.
 4. **Run `sh scripts/verify-install.sh` against the repository root** as a

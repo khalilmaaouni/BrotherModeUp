@@ -54,8 +54,15 @@ prompt). Kill by PID after printing the target.
   2026-08-10, after a force-rewrite removed one). Enforced at commit time by
   `scripts/bm_commit_msg_hook.py`.
 - Touching tracked files: `git add` new ones first, regenerate the manifest
-  LAST: `sh scripts/checksums.sh CHECKSUMS.sha256`. Skipping this leaves
-  `scripts/doctor.py` check 9 FAILing, and no test catches it.
+  LAST, then STAGE THE MANIFEST:
+  `git add -A && sh scripts/checksums.sh CHECKSUMS.sha256 && git add CHECKSUMS.sha256`.
+  The trailing add is load bearing: the script rewrites the file on disk AFTER
+  the first add, so a plain `git commit` captures the index and ships the STALE
+  manifest under a message claiming it was regenerated. Reproduced 2026-08-23 in
+  two sessions independently; one of them was correct only by the accident of
+  splitting the command across two calls, which is why this is written down.
+  Skipping the regeneration entirely leaves `scripts/doctor.py` check 9 FAILing,
+  and no test catches it.
 - Push policy: direct to main. Every gate (secret scan, dash scan, green
   tests, command verification) stays mandatory.
 - Two-host law (founder order 2026-08-16, amended the same day when the
@@ -123,5 +130,6 @@ half is enforced by verify-close only when somebody runs it.
 ## Key commands (from PROJECT.md)
 
 - Full gate: `BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py`
-- Manifest, after `git add`: `sh scripts/checksums.sh CHECKSUMS.sha256`
+- Manifest, after `git add`, and stage it again afterwards:
+  `git add -A && sh scripts/checksums.sh CHECKSUMS.sha256 && git add CHECKSUMS.sha256`
 - Install check: `bash scripts/verify-install.sh`

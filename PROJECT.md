@@ -30,5 +30,7 @@ then record the answer here so it is never hunted again.
 ## Key commands
 
 - Full gate: BROTHERMODE_SESSION_CAP=99 python3 tools/test_all.py
-- Manifest, run after git add so new files are hashed: sh scripts/checksums.sh CHECKSUMS.sha256
+- Manifest, run after git add so new files are hashed, then stage the manifest itself
+  because the script rewrites it AFTER the add:
+  git add -A && sh scripts/checksums.sh CHECKSUMS.sha256 && git add CHECKSUMS.sha256
 - Install check: bash scripts/verify-install.sh
