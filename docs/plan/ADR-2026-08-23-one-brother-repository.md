@@ -95,7 +95,7 @@ Brother/
 ## Consequences
 
 - The backlog is finished IN PLACE first; nothing moves until the timing gate reads green. Every preparation item below is valuable on its own and none is wasted if the merge is postponed.
-- Three VERSION files, three CHANGELOGs and three tag prefixes (`brothermode-v`, `brothersbe-v`, `brotherds-v`) replace today's unprefixed tags; the root CHANGELOG is an index.
+- Three VERSION files, three CHANGELOGs and three tag prefixes replace today's unprefixed tags; the root CHANGELOG is an index. CORRECTED 2026-08-23 against https://code.claude.com/docs/en/plugin-dependencies: the prefixes are `brothermode--v`, `brothersbe--v` and `brotherds--v`, with TWO dashes, not one. The documented convention is `{plugin-name}--v{version}` where the version matches that commit's `plugin.json`, and the separator is parsed as a prefix match on the full plugin name so that names containing hyphens resolve correctly. A single dash prefix fails silently: the constraint finds no tag and the install fails with `no-matching-tag`. Every plugin name in this estate is one word today, which is exactly the condition under which the wrong separator would go unnoticed until a name gains a hyphen.
 - Two fence hooks stay two until O23 is decided; the layout does not decide it, the founder does, in phase 2.
 - BrotherDS joins a public tree only after its decision 5 (separate internal context, go public MIT) is answered yes and executed; if answered no, the repository holds two public plugins and BrotherDS stays a separate private repository (an Option C shaped exception for one product, recorded as such).
 - The three old repositories are archived read-only with a pointer README after cutover; the team's reinstall path is one marketplace add; nothing is deleted, and the archive flip is the founder's hand.
@@ -282,3 +282,135 @@ ADR gate (principal-architect, briefed to refute): REVISE, 1 BLOCKER, 4 MAJOR, 3
 
 Roadmap gate (qa-reviewer, briefed to refute): REVISE, 3 BLOCKER, 6 MAJOR, 5 MINOR, addressed in the roadmap's own revision section. Codex: NO-DATA (out of credits), recorded.
 
+
+## AMENDMENT, 2026-08-23: Option B PLUS, a thin bundle above the three
+
+Status: ACCEPTED. Founder decision of 2026-08-22, written into this file on 2026-08-23,
+verified against https://code.claude.com/docs/en/plugin-dependencies read the same day.
+This amendment does not replace Option B. It adds one artifact above it and changes
+nothing about the three capability plugins, their layout, or their independence.
+
+### What is added
+
+One thin `brother` bundle plugin, published in the same marketplace as the three, whose
+manifest carries essentially nothing but a `dependencies` array naming the three
+capabilities with semver ranges. Installing it resolves and installs all three. Not
+installing it changes nothing for anyone.
+
+```json
+{
+  "name": "brother",
+  "version": "1.0.0",
+  "description": "Verified reality for small teams: provenance, assurance and claims under one chain",
+  "dependencies": [
+    { "name": "brothermode", "version": "^3.3" },
+    { "name": "brothersbe",  "version": "^3.3" },
+    { "name": "brotherds",   "version": "^0.1" }
+  ]
+}
+```
+
+The mechanism is documented and supported rather than improvised: "Besides the required
+`name`, a plugin manifest can consist of only a `dependencies` array. Installing it pulls
+in every dependency, which makes it a way to package a curated plugin set behind one
+install."
+
+Ranges are caret ranges by choice. A tilde would hold each capability at a patch line and
+turn every minor release into a bundle release, which is administrative work buying no
+safety. A pinned `=` range is reserved for the case where one capability has actually
+broken a sibling, which has not happened. The claims capability sits at a `0.x` range on
+purpose: it is experimental by its own admission, and the range says so in the manifest
+rather than only in prose.
+
+### Why this does NOT break the no-dependency law (C3), stated because it looks like it does
+
+C3 reads: each product installable alone, whole, with nothing else installed; no
+product's hooks run because another was wanted. The context section states it more
+bluntly as "no plugin is a dependency of another".
+
+The bundle does not violate either sentence, and the distinction is the whole reason it
+is safe:
+
+- NO CAPABILITY DEPENDS ON ANOTHER. The dependency edges all run downward from one
+  artifact that contains nothing. `brothersbe` does not name `brothermode` and never will
+  under this record.
+- EACH REMAINS INSTALLABLE ALONE. Installing `brothersbe` by itself is unchanged, and a
+  person who does that runs assurance hooks only. The bundle is a second, optional door,
+  not a new floor under the existing one.
+- NOBODY'S HOOKS RUN BECAUSE ANOTHER WAS WANTED. They run because the person asked for
+  all three, which is what installing a bundle named `brother` means.
+
+What Option A broke was different in kind: one manifest made the three ONE INSTALL UNIT,
+so wanting assurance meant receiving provenance and claims with no way to decline. The
+bundle offers the combined install; it does not impose it. That is the line, and this
+amendment sits on the safe side of it.
+
+### The four consequences a future session must not rediscover
+
+1. THE TAG CONVENTION IS LOAD BEARING NOW. The corrected line above is not pedantry once
+   this bundle exists: the ranges resolve against git tags shaped `{plugin-name}--v{version}`,
+   and nothing else. MEASURED 2026-08-23: the assurance repository's newest tag reads
+   `v3.2.0`, the plain form, and `git tag -l 'brothersbe--v*'` returns nothing. Nothing
+   declares a constrained dependency on it today so nothing is broken today. The moment
+   this bundle declares `^3.3`, the plain tags become invisible to resolution and the
+   install fails with `no-matching-tag`. Whoever lands the bundle re-tags first.
+
+2. ONE MARKETPLACE IS NOW DOUBLY JUSTIFIED. Cross marketplace dependencies are refused by
+   default and require the root marketplace to list the target in
+   `allowCrossMarketplaceDependenciesOn`. Keeping all four plugins in one marketplace
+   means that field is never needed and no user is asked to trust a second source. This
+   argument came from reading the mechanism, not from the original comparison, and it
+   independently supports the half of Option B that was already chosen.
+
+3. DISABLING IS ASYMMETRIC, AND USERS MUST BE TOLD. Enabling the bundle enables all three.
+   Disabling one capability is REFUSED while the bundle that requires it is enabled; the
+   error names the blocker and hands over a chained command that disables in the right
+   order. A person who installs the bundle and then wants only one capability disables the
+   bundle first. That is correct behavior and it will still read as surprising, so the
+   front door says it plainly rather than letting a user meet it as an error.
+
+4. AUTO UPDATE IS OFF BY DEFAULT FOR THIS MARKETPLACE. A capability added to the bundle
+   does not reach existing users by itself: they either enable auto update for the
+   marketplace or run `claude plugin update brother` then `/reload-plugins`. Any claim
+   about what an installed base is running is NO-DATA until measured, and release notes
+   name which of the two actions a user must take.
+
+### One control this buys, worth naming because it caught a live defect
+
+`claude plugin tag --push` derives the tag from the manifest and REFUSES unless
+`plugin.json` and the marketplace entry agree on the version and the working tree under
+the plugin directory is clean. That refusal is a control this estate should want. On
+2026-08-23 the umbrella's own catalog claimed `brothersbe 3.2.1` while the product's
+manifest on main read `3.3.1`, and three public surfaces disagreed with each other. Under
+this shape that disagreement is not merely visible, it is untaggable.
+
+Two facts measured the same day, so the next session does not have to: the assurance
+repository's `plugin.json` and its own marketplace entry DO agree at 3.3.1, and its
+working tree carries untracked files (`.sbe/handover-*`, `design-checks.out`) which the
+clean-tree requirement would refuse. A plain `git tag` is unaffected by either.
+
+### What would flip this amendment
+
+- If the dependency mechanism stops resolving tags for the source type this estate uses,
+  the bundle cannot resolve versions and the shape reverts to plain Option B with a
+  documentation page naming all three.
+- If a capability name ever gains a hyphen AND the two dash separator behaves differently
+  than documented, the convention is re-verified before any release rather than assumed.
+- If the merge ever makes the three capabilities inseparable in practice, the bundle is
+  redundant. That is a reason to keep the seams real, not a reason to plan for collapse.
+
+### Done check for this amendment
+
+```
+grep -c 'plugin-name}--v{version}' docs/plan/ADR-2026-08-23-one-brother-repository.md
+```
+
+Must print 1 or more. And the convention is checked against the source rather than
+against this file, in the assurance repository:
+
+```
+git tag -l 'brothersbe--v*'
+```
+
+Today this prints nothing, which is the gap consequence 1 names. It prints at least one
+tag once a constraint on that capability is real.
