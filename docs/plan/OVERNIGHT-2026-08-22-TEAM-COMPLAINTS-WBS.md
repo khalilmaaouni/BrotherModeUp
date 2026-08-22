@@ -281,3 +281,10 @@ command is in that file's "Re-measured tonight" section; this section only maps 
   S2, S6, S7"; the night closed S0 and all of S1 (including the eval regressions the
   sibling's plan carries) and none of S2 to S8, in about six hours of clock with a two-hour
   account-limit pause, twelve writer lanes and five battery launches.
+
+## 10. Founder answers at the close, 10:0x JST, question UI, his chosen options verbatim
+
+The push: "I free the disk and run it myself (Recommended)". Codex: "Accept NO-DATA for this
+release". The version: "3.3.0 stands; I tag it after the push (Recommended)". The board links:
+"Files are fine for now (Recommended)". Consequence: the next session starts at section 4a
+rows S2 to S8 once the sibling's main has moved, and delivers boards as files.

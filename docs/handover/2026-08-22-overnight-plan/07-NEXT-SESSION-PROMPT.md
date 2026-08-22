@@ -108,6 +108,11 @@ FROZEN OR BLOCKED, nothing silently:
 
 FOUNDER ANSWERS AT PACK CLOSE (03:5x JST, question UI, his words): budget "12M until 12pm in
 this session"; window "Until I wake up"; SBE-2 fix band AUTHORISED; SBE-1 history ACCEPT AND
-RECORD (done: the acceptance record is in the sibling's tree); board account UNANSWERED,
-default holds.
+RECORD (done: the acceptance record is in the sibling's tree); board account answered below.
+
+FOUNDER ANSWERS AT THE CLOSE (10:0x JST, question UI, his chosen options verbatim): the push
+"I free the disk and run it myself (Recommended)"; Codex "Accept NO-DATA for this release";
+the version "3.3.0 stands; I tag it after the push (Recommended)"; the board links "Files are
+fine for now (Recommended)". So the next session does NOT run Q4 unless he asks; it starts at
+item 3 (the review's rows) after verifying the sibling's main moved.
 <!-- bm-human:end -->
