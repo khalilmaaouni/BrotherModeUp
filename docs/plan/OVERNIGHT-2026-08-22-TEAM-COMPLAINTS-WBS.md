@@ -210,6 +210,22 @@ unless the founder says otherwise (decision OV-1).
 | The tag and the note to the two lead reviewers | prepared, never cut | his hand, in the morning |
 | Bitbucket seat and credential | the leg stays NO-DATA by name | his hand, any time before the seal |
 
+## 6b. Founder answers, 2026-08-22 about 03:5x JST, question UI, his words quoted
+
+- Fix band (SBE-2): AUTHORISED. S1a to S1e open first.
+- Budget: "12M until 12pm in this session": 12,000,000 output tokens until 12:00 JST,
+  written into ~/.claude/spend-guard.json the same turn; shared pool.
+- Window: "Until I wake up": the run starts now, in the planning session itself; the
+  mechanical stop is the grant's expiry at 12:00 JST or the brake; the pack is refreshed at
+  every band close.
+- History (SBE-1): ACCEPT AND RECORD THE FLIP CONDITION: the history test stays the one
+  named red, waived by name with the founder as owner; a third exposure triggers clean
+  extraction.
+- Board account: not asked this round; default holds.
+- Consequence for OV-2: the session does not open in the sibling's path; it orchestrates
+  the sibling's lanes from here, every writer in a pinned worktree of the sibling, every
+  done-check re-run by the orchestrator in the sibling's main tree with absolute paths.
+
 ## 7. Decisions taken by this planning session
 
 - OV-1. The team's remaining items outrank both repositories' previously chosen
@@ -240,3 +256,28 @@ on a clean tree). NO-DATA is never a pass and never a block. Check for other
 writers before starting a gate, not only before editing. A close pack is not a
 stop signal. Read exit codes directly, never through a pipe. Hard stop 07:00
 JST; the ceremony is reserved 45 minutes before it.
+
+## 9. What the night did against this WBS, written at the close (10:0x JST)
+
+The founder turned the plan into "in this session" at 03:5x JST, so this session ran the
+night. It executed the SIBLING's plan of record (its own planning session had written
+docs/plans/2026-08-22-overnight-complaints-wbs.md at 02:13 JST with his 02:20 answers),
+whose bands Q0 to Q3 cover this WBS's Lane S rows S0 and S1a to S1g. Every verdict with its
+command is in that file's "Re-measured tonight" section; this section only maps it back.
+
+- S0, S1a to S1g: CLOSED on main-tree evidence in the sibling (seven eval regressions, six
+  suites, the honesty meta-test nobody had listed, the tracked acceptance record for the
+  history test, the manifest, the booklet; `547 evals: 547 passed, 0 regressions`; VERSION
+  3.3.0 with the release invariant PASS). The battery reached 50 of 52; its fifth run was
+  refused on disk 6 GiB; the Codex gate is NO-DATA (out of credits); the opus gate returned
+  REVISE twice and every finding above MINOR was fixed in the one round the plan allows.
+- Q4, the push to main: NOT DONE, one command for the founder, in the sibling's pack
+  `.sbe/handover-0bb03d4d/START-HERE.md`. The tag stays his.
+- S2 to S8 (the 15 August review's still-open rows) and 4b: NOT STARTED; the fix band and
+  its consequences took the night. They are the next round, in this order.
+- Lane M: M-a done for D4 only (moved on its own check, run in a temp dossier); H9 and H5
+  stay partial by their own checks; M-b recorded in the store; M-c and M-d untouched.
+- Forecast versus actual: section 5 sized a launch at 02:40 to 07:00 as "S0, S1a to S1d,
+  S2, S6, S7"; the night closed S0 and all of S1 (including the eval regressions the
+  sibling's plan carries) and none of S2 to S8, in about six hours of clock with a two-hour
+  account-limit pause, twelve writer lanes and five battery launches.
