@@ -6222,14 +6222,22 @@ class TestM1MigrateInstallScript(unittest.TestCase):
         against this project's real schema. Measured on 2026-08-20: an
         installed clone's own bm_store.py was hundreds of commits stale
         while wiring was intact, and the dry run still printed NOTHING
-        TO DO. This fixture reproduces the schema-behind shape with a
-        REAL, working copy of tools/ (the same dependency-closure
-        technique TestM17FenceLivenessAgainstRealStore's own
+        TO DO. This fixture builds a REAL, working copy of tools/ (the
+        same dependency-closure technique
+        TestM17FenceLivenessAgainstRealStore's own
         _old_install_one_schema_behind uses), its own bm_store.py
         patched down by exactly one schema, wired via skill_dir's own
         loader hooks.json (the same shape
         test_detect_working_clone_via_loader_hooks_json_is_not_stranded
-        above uses to be "not stranded")."""
+        above uses to be "not stranded").
+
+        REWRITTEN for M26 (docs/plan/QUEUE.json, family required-proof):
+        this fixture's copy is a REAL, RUNNABLE bm_store.py, not a stub,
+        so migrate_install.py's own real probe (_real_schema_probe) now
+        actually runs it as a subprocess against a real, current-schema
+        store and gets a genuine schema-ahead refusal back; this test no
+        longer merely trusts a source-constant comparison to predict
+        that outcome, it drives the process that produces it."""
         with tempfile.TemporaryDirectory() as tmp:
             home = os.path.join(tmp, "home")
             skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
@@ -6270,6 +6278,11 @@ class TestM1MigrateInstallScript(unittest.TestCase):
             self.assertIn(str(bs.SCHEMA_VERSION), r.stdout,
                          "the plan must name this project's own "
                          "(current) schema number. Output:\n%s" % r.stdout)
+            self.assertIn(
+                "SCHEMA GAP", r.stdout,
+                "the verdict must be a real SCHEMA GAP, not a NO-DATA "
+                "shrug, for a real store the wired copy genuinely "
+                "cannot open. Output:\n%s" % r.stdout)
 
     def test_wired_copy_that_is_this_projects_own_tree_is_not_nothing_to_do(self):
         """REPRODUCED pre-fix (M18 follow-up, orchestrator review): ROOT
@@ -6282,7 +6295,14 @@ class TestM1MigrateInstallScript(unittest.TestCase):
         itself, finds wired_version == current_version by construction,
         and returns None: build_plan falls through to NOTHING TO DO
         about a dimension it never actually looked at, the identical
-        M17/M18 defect reappearing inside the M18 fix itself."""
+        M17/M18 defect reappearing inside the M18 fix itself.
+
+        STILL VALID under M26 (docs/plan/QUEUE.json, family
+        required-proof): this self-path collapse stays a cheap
+        disqualifier the real probe never even runs for (a copy cannot
+        be probed against itself), so this fixture and its assertions
+        are unchanged; only the underlying implementation now reaches
+        this same NO-DATA line by a different, still-cheap route."""
         with tempfile.TemporaryDirectory() as tmp:
             home = os.path.join(tmp, "home")
             os.makedirs(os.path.join(home, ".claude", "skills"))
@@ -6311,6 +6331,72 @@ class TestM1MigrateInstallScript(unittest.TestCase):
                 "NO-DATA", r.stdout,
                 "the self-comparison must say plainly it could not "
                 "tell, not stay silent about it. Output:\n%s" % r.stdout)
+
+    def test_agreeing_constants_but_unopenable_real_store_is_not_nothing_to_do(self):
+        """THE MUTATION PROOF M26 asks for by name (docs/plan/QUEUE.json,
+        family required-proof, done_check: "fails when the code is
+        changed to compare source constants only"). The wired copy's own
+        SCHEMA_VERSION is left EXACTLY as this project's own (a plain
+        dependency-closure copy, untouched), so a SOURCE-CONSTANT
+        COMPARISON sees wired_version == current_version and returns
+        None: NOTHING TO DO. But the copy is corrupted a different way
+        that has nothing to do with schema (an import of a module that
+        does not exist, inserted before anything else in the file runs),
+        so the wired copy genuinely cannot reach a verdict against a
+        real store: it crashes before it ever gets to open one. Only a
+        REAL PROBE that actually runs the wired copy's own code can see
+        that; a comparison of two integers that agree cannot.
+
+        CALIBRATION (done-check, run by hand, not by this test): with
+        scripts/migrate_install.py's _schema_gap_message reduced to the
+        old `if wired_version >= current_version: return None` shape,
+        this test fails (constants agree, so NOTHING TO DO). Restored to
+        the real probe, it passes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            home = os.path.join(tmp, "home")
+            skill_dir = os.path.join(home, ".claude", "skills", "brothermode")
+            tools_dir = os.path.join(skill_dir, "tools")
+            os.makedirs(tools_dir)
+            for name in sorted(os.listdir(HERE)):
+                if name.endswith(".py") and not name.startswith("test_"):
+                    shutil.copy2(os.path.join(HERE, name),
+                                os.path.join(tools_dir, name))
+            store_copy = os.path.join(tools_dir, "bm_store.py")
+            with io.open(store_copy, encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertIn(
+                "SCHEMA_VERSION = %d" % bs.SCHEMA_VERSION, src,
+                "fixture assumption broke: tools/bm_store.py no longer "
+                "defines %r verbatim" % ("SCHEMA_VERSION = %d" % bs.SCHEMA_VERSION,))
+            # SCHEMA_VERSION is left untouched, agreeing exactly with
+            # this project's own; the corruption is an import that fails
+            # at module load, before main() or any command runs, so
+            # running this copy always crashes for a reason a schema
+            # comparison could never see.
+            with io.open(store_copy, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "import bm_store_m26_mutation_proof_missing_module\n"
+                    + src)
+            os.makedirs(os.path.join(skill_dir, "hooks"))
+            with io.open(os.path.join(skill_dir, "hooks", "hooks.json"),
+                         "w", encoding="utf-8") as fh:
+                fh.write('{"hooks": {"PreToolUse": [{"hooks": [{'
+                        '"command": "python3 %s/bm_fence_hook.py"'
+                        '}]}]}}' % tools_dir)
+            r = self._run("--home", home)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn(
+                "NOTHING TO DO", r.stdout,
+                "a wired copy whose SCHEMA_VERSION AGREES with this "
+                "project's own, but which cannot even be imported, "
+                "still cannot reach a verdict against a real store; a "
+                "source-constant comparison alone cannot see that, only "
+                "a real probe can. Output:\n%s" % r.stdout)
+            self.assertIn(
+                "NO-DATA", r.stdout,
+                "a real probe failure for a non-schema reason must say "
+                "plainly it could not tell, not stay silent. Output:\n%s"
+                % r.stdout)
 
 
     # -- M22: the version reported must be the one that would be USED --

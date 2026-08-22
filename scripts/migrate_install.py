@@ -43,6 +43,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -226,19 +227,98 @@ def _schema_version_of(path):
     return None
 
 
+def _real_schema_probe(current_store, wired_store):
+    """(verdict, detail): verdict is "ok" (the wired copy reached a
+    verdict against a real store), "gap" (it refused with a schema
+    reason), or "no-data" (anything else: it refused for some other
+    reason, crashed, or could not even be started). `detail` is the raw
+    subprocess output for "gap" and "no-data", ignored for "ok".
+
+    M26 (docs/plan/QUEUE.json, family required-proof): comparing
+    SCHEMA_VERSION integers answers "does the source say it is behind",
+    not "can this copy reach a verdict against a real store" -- a copy
+    whose constant matches but is broken some OTHER way (a corrupt
+    module, a missing dependency) would pass a constant comparison and
+    still fail open on every write. So this asks the wired copy
+    directly: build a throwaway project, let THIS project's OWN current
+    bm_store.py `init` a real store in it (current_version by
+    construction), then run the WIRED copy's own bm_store.py `verify`
+    against that same store, read-only. Same throwaway-store technique
+    tools/test_bm.py's TestM17FenceLivenessAgainstRealStore already uses
+    (_old_install_one_schema_behind /
+    test_real_store_ahead_of_wired_hook_fails_not_passes) and
+    scripts/doctor.py's own _verify_real_store already runs against a
+    real project's store, reused rather than reinvented.
+
+    sys.executable, not the wired command's own interpreter: doctor.py's
+    _verify_real_store can read the wired interpreter off the real
+    settings.json command line (command_words[0]) because it already has
+    that command in hand; this script only has a skill_dir path, no
+    command line to read an interpreter from, so sys.executable is the
+    only interpreter it can name without guessing. The M17 family
+    recorded that which interpreter runs a real-store probe can matter
+    (doctor.py fix-round B5); that tradeoff is accepted here, not
+    silently defaulted.
+
+    Never raises: every subprocess failure not started, timed out, or
+    exiting nonzero is folded into "no-data" rather than an exception,
+    per this project's own NO-DATA discipline."""
+    tmp = tempfile.mkdtemp(prefix="bm-schema-probe-")
+    try:
+        env = dict(os.environ)
+        env["BROTHERMODE_ROOT"] = tmp
+        try:
+            init_result = subprocess.run(
+                [sys.executable, current_store, "init"],
+                cwd=tmp, env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, encoding="utf-8", timeout=60)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            return "no-data", "could not build the throwaway probe " \
+                "store with %s: %s" % (current_store, exc)
+        if init_result.returncode != 0:
+            return "no-data", (
+                "%s init exited %d building the throwaway probe store: %s"
+                % (current_store, init_result.returncode,
+                   ((init_result.stdout or "") + (init_result.stderr or "")).strip()))
+        try:
+            probe = subprocess.run(
+                [sys.executable, wired_store, "verify"],
+                cwd=tmp, env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, encoding="utf-8", timeout=60)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            return "no-data", "could not run %s verify against the " \
+                "real probe store: %s" % (wired_store, exc)
+        output = (probe.stdout or "") + (probe.stderr or "")
+        if probe.returncode == 0:
+            return "ok", output
+        if "refused (schema-ahead)" in output or \
+                "refused (schema-behind)" in output:
+            return "gap", output
+        return "no-data", (
+            "%s verify against the real probe store exited %d for a "
+            "reason other than a schema refusal: %s"
+            % (wired_store, probe.returncode, output.strip()[:500] or
+               "(no output)"))
+    finally:
+        # A dry run must write nowhere except its own temporary
+        # directory (M18's own docstring promise); this is that promise
+        # kept for the probe's own scratch space.
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _schema_gap_message(skill_dir):
-    """None when there is nothing to report: either `skill_dir`'s own
-    tools/bm_store.py is current (its SCHEMA_VERSION is at or above this
-    project's own tools/bm_store.py), or this project's own copy could
-    not be read (nothing to compare against, and that is this script's
-    own tree, not the install being inspected, so it is not this
-    install's fault). Otherwise a plain-language line: a NO-DATA line
-    when the wired copy IS this project's own tree (running this same
-    migrate_install.py from an installed copy makes ROOT and skill_dir
-    the same directory; a symlinked dev install collapses them the same
-    way), a NO-DATA line when the wired copy's own store file cannot be
-    found or read (so whether it can reach a verdict cannot be told), or
-    the concrete SCHEMA GAP when it is readable but behind.
+    """None when there is nothing to report: either this project's own
+    copy could not be read (nothing to compare against, and that is
+    this script's own tree, not the install being inspected, so it is
+    not this install's fault), or the wired copy reached a verdict
+    against a REAL, current-schema store. Otherwise a plain-language
+    line: a NO-DATA line when the wired copy IS this project's own tree
+    (running this same migrate_install.py from an installed copy makes
+    ROOT and skill_dir the same directory; a symlinked dev install
+    collapses them the same way), a NO-DATA line when the wired copy has
+    no store file, no readable SCHEMA_VERSION, or fails the real probe
+    for a reason other than schema, or the concrete SCHEMA GAP when the
+    real probe shows it refused for a schema reason.
 
     WIRED is not the same as ABLE TO REACH A VERDICT (M18, docs/plan/
     QUEUE.json, family evidence-integrity): bm_store.py refuses to open
@@ -247,12 +327,15 @@ def _schema_gap_message(skill_dir):
     open on every write, same as no hook at all. scripts/doctor.py's own
     fence-liveness check had the identical blind spot until M17: it
     proved liveness only against a throwaway store the same code had
-    just built, never against a real store already ahead of it. This
-    function had the same blind spot until orchestrator review caught
-    it: run from the installed copy's own scripts/migrate_install.py,
-    ROOT and skill_dir resolve to the same file, wired_version equals
-    current_version by construction, and the old code returned None,
-    NOTHING TO DO about a dimension it never actually looked at."""
+    just built, never against a real store already ahead of it.
+
+    M26 (docs/plan/QUEUE.json, family required-proof) found the first
+    fix for M18 only half done it: it compared SCHEMA_VERSION integers,
+    which answers about the SOURCE, not about whether the wired copy can
+    actually open a real store. The two integers below are kept only for
+    the wording of the message; the verdict itself now comes from
+    _real_schema_probe, a real subprocess run of the wired copy's own
+    code against a real store."""
     current_store = os.path.join(ROOT, "tools", "bm_store.py")
     current_version = _schema_version_of(current_store)
     if current_version is None:
@@ -272,6 +355,13 @@ def _schema_gap_message(skill_dir):
             "fence hook can reach a verdict against this project's own "
             "schema %d store cannot be determined."
             % (wired_store, current_version))
+    # M22 (unchanged; a different property from M26 below): a
+    # SCHEMA_VERSION this script cannot read WITHOUT AMBIGUITY (no such
+    # line, set more than once, or set inside a branch) stays NO-DATA
+    # here, before any probe. Probing would still return a real verdict
+    # in most such cases (the module's LAST assignment is the one Python
+    # actually uses), but the honest answer about what the SOURCE names
+    # is that it cannot be told, and M22's own test pins that wording.
     wired_version = _schema_version_of(wired_store)
     if wired_version is None:
         return (
@@ -282,15 +372,28 @@ def _schema_gap_message(skill_dir):
             "Whether its wired fence hook can reach a verdict against "
             "this project's own schema %d store therefore cannot be "
             "determined." % (wired_store, current_version))
-    if wired_version >= current_version:
+    # M26 (docs/plan/QUEUE.json, family required-proof): wired_version is
+    # kept only for the wording below. The DECISION comes from a real
+    # probe, never from comparing it against current_version: a
+    # comparison that AGREES can still hide a copy that cannot actually
+    # open a real store for some other reason.
+    verdict, detail = _real_schema_probe(current_store, wired_store)
+    if verdict == "ok":
         return None
+    if verdict == "gap":
+        return (
+            "SCHEMA GAP: %s is stuck at schema %d while this project's "
+            "own tools/bm_store.py is already at schema %d. A wired "
+            "hook this far behind cannot reach a verdict: it refuses to "
+            "open a store already past the schema it understands, and "
+            "fails open on every write here, the same as if nothing "
+            "were wired at all. Confirmed against a real probe store, "
+            "not just the source constants: %s"
+            % (wired_store, wired_version, current_version, detail.strip()))
     return (
-        "SCHEMA GAP: %s is stuck at schema %d while this project's own "
-        "tools/bm_store.py is already at schema %d. A wired hook this "
-        "far behind cannot reach a verdict: it refuses to open a store "
-        "already past the schema it understands, and fails open on "
-        "every write here, the same as if nothing were wired at all."
-        % (wired_store, wired_version, current_version))
+        "NO-DATA: whether %s's wired fence hook can reach a verdict "
+        "against this project's own schema %d store cannot be "
+        "determined: %s" % (wired_store, current_version, detail.strip()))
 
 
 def detect(home):
