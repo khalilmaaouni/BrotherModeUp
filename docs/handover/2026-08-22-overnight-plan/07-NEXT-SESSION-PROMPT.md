@@ -71,104 +71,43 @@ already-closed fixes in front of the team.
 ### Ordered work list
 
 <!-- bm-human:begin -->
-0. OPEN, in the sibling, before any write:
-     cd /Users/khalil.maaouni/Documents/BrotherSBE
-     git rev-parse --short HEAD; git status --porcelain | wc -l
-     git ls-remote origin refs/heads/backup/main-unpushed-2026-08-19
-     python3 bin/sbe task list; git log --oneline -8
-     for p in $(pgrep -x claude); do lsof -p $p 2>/dev/null | awk '$4=="cwd"{print $9}'; done | sort | uniq -c
-   EXPECTED at planning time: HEAD 12d54fa, a modified GANTT.html (board refresh 13, another
-   session's), seven open tasks (night-dispositions-2026-08-21, night-orchestrator-2026-08-21,
-   night-dispositions-2-2026-08-21, lint-reads-prose, docstring-tripped-lint,
-   gate-battery-receipts, board-refresh-13). If a live session holds any of them, coordinate
-   by message and take only lanes it does not hold; never close another session's lane.
-   Read .sbe/handover-ae7cd173/START-HERE.md (its four decisions) and
-   docs/plans/2026-08-20-day-plan-wbs.md lines 234 to 300 (the six red suites, with their
-   exact assertions). Read ~/.claude/spend-guard.json; the run never raises its own ceiling.
-   Open your own lanes with `sbe task open --owns <paths>` per lane, main tree, for the record.
+THE NIGHT RAN IN THE PLANNING SESSION ITSELF (founder's words at 03:5x JST). This list is the
+MORNING's, in order; the sibling's own pack carries the same in its own words:
+`/Users/khalil.maaouni/Documents/BrotherSBE/.sbe/handover-0bb03d4d/NEXT-ROUND-PROMPT.md`.
 
-1. S1a DISCOVER. FILES: tools/test_sbe_discover.py or the missing wrapper it names.
-   DONE-CHECK: `python3 tools/test_sbe_discover.py` prints OK, the pre-fix red quoted first
-   ("sh: tools/sbe_sessionstart.sh: No such file or directory").
-2. S1b INTEROP. FILES: tools/test_sbe_interop.py, docs/INTEROPERABILITY.md, src/brothersbe/cli.py.
-   DONE-CHECK: `python3 tools/test_sbe_interop.py` OK; the three drifts (documented CLI
-   command list, 8 guarantee sections against 7 expected, a renamed test) each quoted red
-   then green.
-3. S1c SANDBOX. FILES: tools/test_sbe_sandbox.py and the walkthrough doc it reads.
-   DONE-CHECK: `python3 tools/test_sbe_sandbox.py` OK; the doc's quoted block matches a FRESH
-   run of the CLI, never a remembered output.
-4. S1d STALL DETECTOR. FILES: tools/test_stall_detector.py, tools/stall_detector.py.
-   DONE-CHECK: the test reads the fixture's disk, not this machine's; `python3
-   tools/test_stall_detector.py` OK with under 15 GiB free; the two disk floors (8 GiB in the
-   pre-seal list, 15 GiB in the detector) reconciled to one and recorded as a decision.
-5. S1e THE SEVEN EVAL REGRESSIONS. FILES: under evals/, per the list the battery prints.
-   DONE-CHECK: `python3 evals/run_evals.py --strict` prints 0 regressions, or names each one
-   waived with an owner and an expiry.
-   S1f test_sbe_book.py: NOT fixed; needs the `claude` CLI on PATH, absent here; log NO-DATA
-   environmental. S1g test_sbe.py history test: NOT fixable by code; log it and the decision
-   (SBE-1) it waits on. Nothing else is green-washed.
-   THEN the battery itself, detached and polled, load read first (`uptime`):
-     bash scripts/local-gates.sh > "$TMPDIR/sbe-gates.log" 2>&1; echo $? > "$TMPDIR/sbe-gates.exit"
-   (clear both files FIRST; a stale exit reads as yours). Quote the last lines and the exit.
-6. S2 p5 WALL OF TEXT. FILES: src/brothersbe/status.py (single holder: one lane, sequenced),
-   src/brothersbe/cli.py. DONE-CHECK: default `sbe status` under 25 lines on the sibling's own
-   repo; the long form behind one flag prints today's output byte for byte; status suite OK.
-7. S3 H7. FILES: src/brothersbe/reviewroute.py and its test. DONE-CHECK: route three changes to
-   one reviewer, the third prints a count of three.
-8. S4 H8. FILES: src/brothersbe/lifecycle.py (one lane at a time), contracts if the schema grows,
-   tests. DONE-CHECK: a fixture prints a median duration for T1 and NO-DATA for T3.
-9. S5 THE H5 WRITER. FILES: src/brothersbe/cli.py, src/brothersbe/lifecycle.py, tests.
-   DONE-CHECK: a fixture of six closed changes prints the tier against outcome table, four
-   prints NO-DATA; no second copy of reducer logic (grep proves the reducers are called).
-10. S6 H9 FINISH. FILES: the sibling's STATE.md and .sbe registry. DONE-CHECK:
-    `python3 tools/sbe_fence_hook.py fences | grep -c 'no readable'` prints 0 (15 tonight),
-    and 1 after a malformed line is added; each cleared line has a written disposition.
-11. S7 p12 DOCS. FILES: docs/BITBUCKET.md. DONE-CHECK: `grep -n 'seat' docs/BITBUCKET.md`
-    hits; the doc-consistency suite OK.
-12. S8 p2 DRAFT. FILES: the guide the complaint quotes, located first (PS 131 of
-    docs/plan/ADOPTER-TEAM-PROBLEMS-AND-SOLUTIONS-2026-08-15.md in this repository names the
-    text). DONE-CHECK: file and line named, the draft exists, close report says SIGN-OFF
-    PENDING with the analyst lead.
-13. BAND CLOSE, in order, each its own command with its exit read: the five scans over the
-    pushed range (secrets, assignment shapes, attribution, dashes, private terms read from
-    ~/.brothersbe-private-names and scanned over newly reachable BLOBS via
-    `git rev-list --objects`, never diff text); push the backup branch and verify
-    `git ls-remote` equals HEAD; NO push to main; republish the sibling's board to the URL
-    its PROJECT.md names from the account that owns it, and if it answers not found deliver
-    the file and never mint a second; then the Codex gate, detached, on "is this band really
-    ready" and "what would you improve before the seal".
-14. M-a and M-b HERE, only if budget remains after 13:
-     `cd /Users/khalil.maaouni/Documents/BrotherModeUp && python3 tools/bm_handover.py detect`
-    claim under your own derived label, run each row's OWN done_check (D4, H9, H5,
-    escalation-finish) and move only rows whose check passed, quote `python3 tools/bm_idle.py
-    check`; record the Windows decision with its flip condition.
-15. CLOSE, 45 minutes reserved: the sibling's pack per the decisions block above, its vault
-    log, the board; ONE zip to the founder.
+0. OPEN, both repositories: `python3
+   tools/bm_handover.py detect`; in the sibling `git rev-parse HEAD`, `git ls-remote origin
+   refs/heads/backup/main-unpushed-2026-08-19` (equal), `df -h /` (above 8 GiB or STOP).
+1. Q4 in the sibling, if the founder has not run it: `scripts/local-gates.sh --no-post` (52 of
+   52 expected), the five push gates each its own command, `scripts/local-gates.sh`, `git push
+   origin main`, `git rev-list --left-right --count origin/main...HEAD` prints `0	0`; then the
+   pull-request convergence and the install check per the sibling's plan. No tag.
+2. The Codex gate if credits exist (the prompt file is named above; stdin closed).
+3. The review's rows S2 to S8 then 4b, per the WBS section 4a and 4b, each with its files and
+   done-check there; every brief touching tools/*.py names `python3 evals/test_no_data_class.py`.
+4. Here, if budget remains: M-c (M22, M18, M26) then M-d, unchanged from the 2026-08-21 pack.
+5. CLOSE: both packs, both boards as files, the vault, one zip each.
 <!-- bm-human:end -->
 
 ### Frozen or blocked
 
 <!-- bm-human:begin -->
 FROZEN OR BLOCKED, nothing silently:
-- The tag, the note to the two lead reviewers, any Release object: the founder's hand.
-- SBE-1 the nine already-public objects: founder decision; the history test stays the one
-  named red until he decides.
-- SBE-2 the fix band authorisation: if unanswered, the WBS default is that the band does
-  NOT open and the run takes S2, S6, S7 then the SHOULD rows instead, with the tag still
-  blocked and said so.
-- The Bitbucket seat and the Bitbucket credential are the founder's alone; the leg stays NO-DATA by name.
-- Deletions of any kind (worktrees, break-glass records, branches): founder only.
-- The board accounts: the stable links of both repositories answer not found to the
-  account this planning session ran under; deliver files, ask, never mint.
-- Budget: the baseline (800,000 output per session) applies unless the founder named a
-  figure and it was written into ~/.claude/spend-guard.json under the project block with
-  an `until`. Read the file; never raise your own ceiling.
+- The push of 3.3.0 to the sibling's main: blocked on a battery receipt at the final head,
+  which is blocked on disk (6 GiB at 09:42 JST; the refuse line is 8). The founder frees disk.
+- The Codex gate: the workspace is out of credits (NO-DATA). The founder adds credits or
+  accepts the release without the cross-family read and says so.
+- The tag (3.3.0 or the number he prefers; VERSION is one line), the note to the two lead
+  reviewers, any Release object: his hand.
+- The Bitbucket keychain item for Q6: absent; his hand.
+- The board accounts: both stable links answer not found to this account; files delivered.
+- Deletions: the sibling's `.claude/worktrees/agent-*` (446 MB, other sessions'), this
+  repository's seven stale worktrees (M30), break-glass records: his gate.
+- Budget: the 2026-08-22 grant (12,000,000 until 12:00 JST) expires on schedule; the baseline
+  applies after it.
 
-FOUNDER ANSWERS AT PACK CLOSE: recorded below by the planning session after the question
-windows; a line reading UNANSWERED means the default above applies.
-  Budget: UNANSWERED at pack write time.
-  Window: UNANSWERED at pack write time.
-  SBE-2 fix band: UNANSWERED at pack write time.
-  SBE-1 history: UNANSWERED at pack write time.
-  Board account: UNANSWERED at pack write time.
+FOUNDER ANSWERS AT PACK CLOSE (03:5x JST, question UI, his words): budget "12M until 12pm in
+this session"; window "Until I wake up"; SBE-2 fix band AUTHORISED; SBE-1 history ACCEPT AND
+RECORD (done: the acceptance record is in the sibling's tree); board account UNANSWERED,
+default holds.
 <!-- bm-human:end -->

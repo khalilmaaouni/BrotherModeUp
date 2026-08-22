@@ -43,4 +43,43 @@ No structural facts are generated for this page; the store has no concept of a m
   static snapshots with no screenshot, and neither Chrome nor Playwright's Chromium is
   installed on this Mac, so the only file-free look is Safari at the computer-use read
   tier; plan the visual check route before the build, not after.
+
+FROM THE RUN ITSELF (the founder turned the plan into "in this session" at 03:5x JST).
+
+  A REGENERATION TOOL PASTED A FAILING TOOL INTO THE BOOK. `replay_book.py --write` and
+  `replay_guide05.py --write` did exactly what they promise, paste live output, and the
+  live output was the intake refusing ("stdin closed before this question was answered")
+  because the walkthroughs' scripted answers predated the 15 August three-way contract
+  question. Sixteen blocks of NO-DATA cascades would have shipped as documentation. Caught
+  by reading the diff before committing; reverted; the INPUTS were fixed by a writer; the
+  regeneration was run again and read again. Rule: a re-quote is only honest when the tool
+  was working; read every regenerated line for the tool's own failure vocabulary first.
+
+  A PUSH WAS CHAINED AFTER AN UNREAD HIT LIST. One scan script printed a secret-scan hit
+  count and then pushed in the same script, so the push ran before the four unexplained hit
+  lines were read. They were all identifiers (`disk_free_gib_override`, its hyphenated flag
+  form, and a test name), so nothing leaked, by luck rather than method. Rule kept: scans in
+  one call, the human read, the push in the next call, never chained.
+
+  THE REGISTRY'S CLOSE CANNOT PASS ONCE A LATER COMMIT EXISTS. `sbe task close` reads the
+  diff from the lane's base to the working tree, so every path another lane landed after
+  that base is a VIOLATION, and each force-close mints a decision package that must then be
+  declared. Eight packages were minted tonight for eight honest closes. Design question for
+  the sibling, not a defect to patch at 04:00: a lane's postcondition should read the lane's
+  own commit, not the tree.
+
+  A WRITER CAN STOP AT ITS FENCE AND BE RIGHT. The no-data meta-test's last failure named
+  files outside the no-data lane's declaration; the writer reported it as a forcing
+  condition instead of touching them, and a second lane took those files. The fence held
+  because the writer respected it, which is the half no hook enforces.
+
+  AN ACCOUNT SPEND LIMIT KILLED A WRITER MID-EDIT AND PAUSED THE SESSION TWO HOURS. The
+  writer's worktree held its uncommitted edits; resuming the same agent by message finished
+  the lane with its context intact. Rule: a killed writer's worktree is evidence, not waste;
+  read `git status` there before re-dispatching.
+
+  THE MANIFEST MOVED THE CITATION CHECK'S SCANNED SET. Regenerating CHECKSUMS.sha256 put a
+  plan file into the set the citation inventory derives from the manifest, surfacing a bare
+  placeholder URL written on 21 August. A fresh manifest can turn a dormant gap into a red
+  eval; regenerate it, then re-run the bed, then regenerate again if a shipped file changed.
 <!-- bm-human:end -->

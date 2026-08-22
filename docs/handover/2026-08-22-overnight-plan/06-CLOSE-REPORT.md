@@ -11,57 +11,40 @@ The notes block below MUST open with a line starting with the exact word FINISHE
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-FINISHED. This session's scope was a status read, a WBS, a board and a prompt, and all
-four are delivered. No product code changed. No gate was run; the only suites run were
-test_bm_effects.py (to prove one closure), test_bm_docs.py and test_bm_handover.py (to
-push), each quoted below.
+UNFINISHED. The baton lies at the sibling's Band Q4: the push of 3.3.0 to main, one command,
+the founder's, after the disk is freed above 8 GiB and a battery receipt exists at the final
+head. Everything before it is closed on main-tree evidence; everything after it is named.
 
-THE BATON lies at the overnight run briefed in 07-NEXT-SESSION-PROMPT.md, which opens in
-the SIBLING repository and works the adopter team's remaining complaints first: the fix
-band for the six red suites (if the founder authorises it), then p5 wall of text, H7, H8,
-the H5 writer, H9 finish, p12 docs, p2 draft. Both repositories' previously chosen rounds
-sit behind that list by decision OV-1.
+WHAT THIS SESSION DID, in order: the status read of both repositories and the vault; the
+overnight WBS and this repository's board; the pack; then, on the founder's "12M until 12pm
+in this session" and "until I wake up" at 03:5x JST, the overnight run itself, executing the
+sibling's plan of record from here with twelve sonnet writer lanes in pinned worktrees, every
+done-check re-run in the sibling's main tree by this session and quoted in
+docs/plans/2026-08-22-overnight-complaints-wbs.md (the sibling) section "Re-measured tonight".
 
-WHAT WAS VERIFIED, each after the last edit:
-  docs/plan/OVERNIGHT-2026-08-22-TEAM-COMPLAINTS-WBS.md: wc -l 242; dash scan 0;
-    private-term scan 0.
-  docs/plan/GANTT.html, rebuilt from the WBS by one sonnet builder into the scratchpad and
-    checked by this session before the copy: dash scan 0; private-term scan 0; seven h2
-    sections in the absolute order; every short-range row counted; Phase 7 at 3/20 with
-    three ticked boxes carrying quoted output and seventeen open boxes carrying their
-    checks; div open and close both 98; the style block identical to the previous board
-    plus one details rule; python3 tools/bm_progress_check.py printed
-    "progress page: current at docs/plan/GANTT.html" after the copy.
-  Commit 543a242 pushed to main: python3 tools/test_bm_docs.py printed "OK (skipped=1)"
-    exit 0 (after one red, the identity contract's retired-name check on two bare paths in
-    07, fixed by code spans); python3 tools/test_bm_handover.py printed "OK" exit 0; the
-    secret, attribution, dash and private-term scans over origin/main..HEAD each printed
-    no hit, each exit read on its own; git rev-parse HEAD, @{u} and git ls-remote all read
-    543a242ab65e20e303ad648bf9f375c9c6163881.
-  Pack and zip: verify-close verdict quoted in the session log and in chat.
+VERIFIED IN THE SIBLING after the last edit, the commands quoted there: `python3
+evals/run_evals.py` `547 evals: 547 passed, 0 regressions`; the six once-red suites OK on
+python3 and /usr/bin/python3; `python3 evals/test_no_data_class.py` `0 failure(s)`; `python3
+tools/test_sbe.py` `Ran 130 tests` `OK` with the seven WAIVED lines; `python3 bin/sbe book
+--check --strict` `0 FAIL`; `sh scripts/verify-install.sh` MISSING 0 MISMATCH 0; `python3
+tools/sbe_release_invariant.py --strict` PASS at 3.3.0; the battery's best receipt 50 of 52 at
+5a2edee (`evidence/gates/5a2edeea28ac.txt`), its last failure being the invariant since fixed.
 
-NOT DONE, stated plainly:
-  The board was NOT looked at rendered. The in-app pane snapshots files without a
-  screenshot, neither Chrome nor Playwright's Chromium is installed, the sibling's write
-  guard correctly refused a .claude/launch.json that would have served it over localhost,
-  and the Safari read-tier grant was denied. The structural checks above stand; the
-  founder's own open of GANTT.html is the first look.
-  The stable artifact link was NOT republished: it answers not found to this account, and
-  no second artifact was minted. The board travels as its file in this zip.
-  The sibling's board was NOT touched: a live session held it (board refresh 13
-  uncommitted, seven open tasks).
+VERIFIED HERE: D4 moved to done on its own check (an expired exemption refused by name in a
+temp dossier); `python3 tools/bm_idle.py check` `OK: depth 67`; the docs and handover suites
+exit 0 at the pack commit; pushes verified by ls-remote.
 
-NOT CLAIMED: none of the 23 team-item verdicts is a tick here; they are measurements at
-the sibling's 12d54fa with their commands, to be re-run by whoever closes each item.
+NOT DONE, stated plainly: the fifth battery run (disk 6 GiB, under the refuse line; nothing
+deleted unattended); the Codex gate (out of credits; NO-DATA); the push to main; Q5 and Q6;
+the review's rows S2 to S8; the three MINOR residue findings; this repository's chosen round.
+Not looked at rendered: both boards travel as files, their stable links being account-bound.
 
-DEVIATION REPORTED: the scout ran as the navigator type with a sonnet override, which kept
-the definition's xhigh effort, above the cap. Recorded in the WBS (OV-3) and in 02.
+DEVIATIONS REPORTED: the scout ran above the effort cap (pinned xhigh); one scan script pushed
+before its hit list was read (all hits were identifiers); a writer rewrote true prose toward a
+quoted hash and the gate caught it; the first Codex launch waited twenty minutes on an open
+stdin; the regeneration tool once pasted a failing tool into the book and was reverted.
 
-DOC LAG NOTED, not fixed here: ~/.claude/skills/github-desktop-push/repos.md still reads
-branch-plus-PR for this repository while the project CLAUDE.md (2026-08-15) records
-direct-to-main with every gate; the newer project file was followed and the five commits
-before this session landed the same way.
-
-ONE ACTIVE RECORD REMAINS and it is not this session's: controller-v3-finalization,
-lifecycle 4848b7b9, owner-session 18a183a9, persistent, no files. Left alone.
+RECORDS: this session's two records are parked; the persistent controller-v3-finalization
+record (owner 18a183a9) is not this session's and is left alone. Sixteen forced-close packages
+were minted in the sibling's registry tonight and are declared under orchestrator lanes.
 <!-- bm-human:end -->

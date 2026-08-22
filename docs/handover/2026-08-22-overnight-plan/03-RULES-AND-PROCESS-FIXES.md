@@ -18,4 +18,16 @@ None. If a process fix belongs here anyway, it is one this session found some ot
   A STATUS ROW MOVES ON A CODE READ WITH A QUOTED COMMAND, never on a plan document's
   word, and "closed in source" is written as exactly that until a tag the team can
   install exists.
+
+  READ EVERY REGENERATED LINE FOR THE TOOL'S FAILURE VOCABULARY before committing a
+  re-quote: "stdin closed", "NO-DATA", "no intake file", "declared tier none read".
+
+  SCANS AND PUSH IN SEPARATE CALLS, ALWAYS: the hit list is read by a person between them.
+
+  THE NUMBER RE-QUOTES (meta-test count, lint lines, SKILL.md figures) ARE PASTED ONCE,
+  LAST, after every code lane has landed and before the manifest; each landed module moves
+  them, and a paste made earlier is a paste made twice.
+
+  A LANE'S FORCED CLOSE MINTS A PACKAGE; declare every package in the same session under
+  an orchestrator lane, and list the package numbers in the close report.
 <!-- bm-human:end -->

@@ -9,24 +9,19 @@ No unacknowledged handover exists to seed a next loop from; the priority order b
 ## Notes (human, preserved verbatim on regeneration)
 
 <!-- bm-human:begin -->
-1. THE OVERNIGHT RUN, in the sibling's path, per the WBS section 4a: S0 open, S1a to S1e
-   the fix band (discover, interop, sandbox, stall detector, seven eval regressions), S2
-   p5 wall of text, S3 H7, S4 H8, S5 the H5 writer, S6 H9 finish, S7 p12 docs, S8 p2 draft.
-   530 agent minutes briefed, 740 to 1190 actual, 6 to 9 hours of wall. A launch now buys
-   S0, S1a to S1d, S2, S6, S7 and the ceremony.
-2. M-a and M-b here at that run's close if budget remains: queue reconciliation by each
-   row's OWN done_check (D4, H9, H5, escalation-finish), and the Windows decision recorded
-   with its flip condition.
-3. The SHOULD rows S9 to S14 (p3, p4, H4, H2, H6, H3): 630 agent minutes briefed, a second
-   night at least.
-4. The tag, the note to the two lead reviewers, the history decision, the seat: the
-   founder's hand, in the morning.
-5. This repository's chosen round M22, M18, M26, then M20, unchanged from the 2026-08-21
-   pack's prompt, behind the team's list by OV-1.
-6. The sibling's chosen round, the reality command, same position.
-7. p10 and p13, T3 design first, in an attended session where the navigator tier is
-   readjusted by the founder or the design is done by hand.
-8. Standing debt: the weekly review (tools/WEEKLY-REVIEW.md against RUBRIC.md) now ten
-   days overdue; M31 (done_checks rot silently); M30 (seven stale worktrees, 25 files,
-   removal founder-gated); 185 silent-failure-lint hits in legacy benchmark files.
+1. THE PUSH OF 3.3.0 TO THE SIBLING'S MAIN, one command, Khalil's: free disk above 8 GiB
+   (the detector's floor is 15), `scripts/local-gates.sh --no-post` (11 minutes quiet, expect
+   52 of 52), `scripts/local-gates.sh`, `git push origin main`. The sibling's pack
+   `.sbe/handover-0bb03d4d/START-HERE.md` carries it verbatim. The tag stays his.
+2. THE CODEX GATE, once credits exist: the prompt is at
+   `/Users/khalil.maaouni/Documents/BrotherSBE/.sbe/handover-0bb03d4d/codex-gate-prompt.txt`;
+   stdin must be closed (`< /dev/null`) or it waits forever.
+3. THE 15 AUGUST REVIEW'S STILL-OPEN ROWS, in the WBS order: S2 p5 wall of text, S3 H7, S4 H8,
+   S5 the H5 writer, S6 H9 finish, S7 p12 docs, S8 p2 draft; then 4b (p3, p4, H4, H2, H6, H3).
+   Every brief that touches tools/*.py names the meta-test.
+4. Q5 first hour and Q6 Bitbucket in the sibling, then this repository's chosen round (M22,
+   M18, M26, then M20) per OV-1's flip condition (the MUST rows S1 closed; S2 to S8 did not).
+5. Queue bookkeeping here: H9 and H5 stay partial by their own checks; M-a closed for D4 only.
+6. Standing debt unchanged: the weekly review (now eleven days overdue), M31, M30, the 185
+   legacy lint hits, and the three MINOR residue findings of the opus gate recorded in the plan.
 <!-- bm-human:end -->
