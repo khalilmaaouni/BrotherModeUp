@@ -28,8 +28,73 @@
 #
 #   scripts/verify-install.sh
 #   scripts/verify-install.sh /path/to/CHECKSUMS.sha256 ~/.claude/skills/brothermode
+#   scripts/verify-install.sh --selftest   # checks the gitignored-extra split, see below
 
 set -e
+
+# Self-check for the gitignored-extra split below (git-repo branch only; the
+# non-git branch is untouched by this change and needs no new check). No
+# framework, no new file to register in any registry: it builds a scratch
+# git repo under mktemp, calls this same script against it twice, and
+# asserts the two outcomes the split promises. Run it directly with
+# `scripts/verify-install.sh --selftest`.
+if [ "${1:-}" = "--selftest" ]; then
+    SDIR=$(mktemp -d 2>/dev/null || echo "/tmp/bm-verify-install-selftest.$$")
+    trap 'rm -rf "$SDIR"' EXIT INT TERM
+    STARGET="$SDIR/target"
+    mkdir -p "$STARGET"
+    git -C "$STARGET" init -q
+    printf 'ok\n' > "$STARGET/kept.txt"
+    printf 'ignored.txt\n' > "$STARGET/.gitignore"
+    printf 'x\n' > "$STARGET/ignored.txt"
+    git -C "$STARGET" add kept.txt .gitignore
+    git -C "$STARGET" -c user.email=selftest@example.invalid -c user.name=selftest \
+        commit -q -m init
+    if command -v sha256sum >/dev/null 2>&1; then
+        SHASH=$(sha256sum "$STARGET/kept.txt" | cut -c1-64)
+        GHASH=$(sha256sum "$STARGET/.gitignore" | cut -c1-64)
+    else
+        SHASH=$(shasum -a 256 "$STARGET/kept.txt" | cut -c1-64)
+        GHASH=$(shasum -a 256 "$STARGET/.gitignore" | cut -c1-64)
+    fi
+    {
+        printf '%s  kept.txt\n' "$SHASH"
+        printf '%s  .gitignore\n' "$GHASH"
+    } > "$STARGET/CHECKSUMS.sha256"
+
+    # Case 1: only a gitignored extra file present -> must PASS (exit 0).
+    if sh "$0" "$STARGET/CHECKSUMS.sha256" "$STARGET" >/dev/null 2>&1; then
+        RC1=0
+    else
+        RC1=$?
+    fi
+    if [ "$RC1" -ne 0 ]; then
+        echo "SELFTEST FAILED: a gitignored extra alone should PASS, got exit $RC1" >&2
+        exit 1
+    fi
+
+    # Case 2: add a non-ignored extra -> must FAIL and name it in the output.
+    printf 'y\n' > "$STARGET/rogue.txt"
+    if OUT=$(sh "$0" "$STARGET/CHECKSUMS.sha256" "$STARGET" 2>&1); then
+        RC2=0
+    else
+        RC2=$?
+    fi
+    if [ "$RC2" -eq 0 ]; then
+        echo "SELFTEST FAILED: a non-ignored extra should FAIL, got exit 0" >&2
+        exit 1
+    fi
+    case "$OUT" in
+        *rogue.txt*) : ;;
+        *) echo "SELFTEST FAILED: FAILED output did not name rogue.txt:" >&2
+           echo "$OUT" >&2
+           exit 1 ;;
+    esac
+
+    echo "SELFTEST OK: a gitignored extra alone passes; adding a non-ignored" \
+         "extra fails the run and names it."
+    exit 0
+fi
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 DEFAULT_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -211,7 +276,28 @@ find "$TARGET" ! -type d \
     ! -name 'PROJECT-VIEW.html' \
     > "$WORKDIR/installed_raw"
 
-EXTRA=0
+# An EXTRA entry is exactly the shape of a planted backdoor (see the FAILED
+# explanation below), and that alarm must not soften. But a real working
+# checkout of THIS repository also carries its own runtime state that was
+# never meant to be installed anywhere (.sbe/tasks.json and friends), and
+# that state is already named in this repository's own .gitignore. Asking
+# git which of the two an entry is, rather than hand-listing paths here a
+# second time, means the exclusion list can never drift out of sync with the
+# .gitignore that is the actual source of truth for "this is expected repo
+# state, not a backdoor".
+#
+# This distinction is drawn ONLY when $TARGET is itself a git repository. A
+# real installed copy (the case this script exists for) is a plain directory
+# with no .git and no .gitignore to consult, so there is nothing to ask, and
+# every extra entry there keeps today's full alarm and fails the run, exactly
+# as before. That branch is the security-critical one and is unchanged.
+IS_GIT=0
+if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    IS_GIT=1
+fi
+
+EXTRA_ALARM=0
+EXTRA_IGNORED=0
 while IFS= read -r full; do
     [ -z "$full" ] && continue
     rel=$(printf '%s\n' "$full" | sed "s|^$TARGET/||")
@@ -223,33 +309,48 @@ while IFS= read -r full; do
     # ordinary file from a planted link or device. -L comes first for the
     # usual reason: it is the only test that reports on the entry rather than
     # on whatever the entry points at.
+    #
+    # A symlink is deliberately NEVER moved into the quiet, ignored-by-git
+    # bucket below even when git-ignored: a gitignored build or venv
+    # directory is exactly where a planted link would be hidden on purpose,
+    # and this script's own history (FINDING 4, 2026-07-27) is a symlink
+    # planted to shadow a Python import. Loud, every time.
     if [ -L "$full" ]; then
         echo "EXTRA (symlink): $rel"
-    elif [ -f "$full" ]; then
+        EXTRA_ALARM=$((EXTRA_ALARM + 1))
+        continue
+    fi
+    if [ "$IS_GIT" -eq 1 ] && git -C "$TARGET" check-ignore -q -- "$rel"; then
+        echo "EXTRA (ignored, not failing): $rel"
+        EXTRA_IGNORED=$((EXTRA_IGNORED + 1))
+        continue
+    fi
+    if [ -f "$full" ]; then
         echo "EXTRA:     $rel"
     else
         echo "EXTRA (irregular): $rel"
     fi
-    EXTRA=$((EXTRA + 1))
+    EXTRA_ALARM=$((EXTRA_ALARM + 1))
 done < "$WORKDIR/installed_raw"
 
 echo ""
 echo "verify-install: checked against $MANIFEST"
-echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $TYPESWAPPED wrong type, $EXTRA extra (present on disk, absent from the manifest)"
+echo "verify-install: $OK file(s) match, $MISMATCHED mismatched, $MISSING missing, $TYPESWAPPED wrong type, $EXTRA_ALARM extra (present on disk, absent from the manifest, not ignored by git), $EXTRA_IGNORED extra (present on disk, absent from the manifest, but ignored by this repository's own .gitignore)"
 if [ "$REGISTRY_DRIFT" -gt 0 ]; then
     echo "verify-install: $REGISTRY_DRIFT registry file(s) missing or differing:$REGISTRY_NAMES"
 fi
 
-if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$TYPESWAPPED" -gt 0 ] || [ "$EXTRA" -gt 0 ]; then
+if [ "$MISMATCHED" -gt 0 ] || [ "$MISSING" -gt 0 ] || [ "$TYPESWAPPED" -gt 0 ] || [ "$EXTRA_ALARM" -gt 0 ]; then
     echo "verify-install: FAILED. Do not trust this installed copy until you" \
          "understand why the entries above differ from the published manifest." >&2
-    if [ "$EXTRA" -gt 0 ]; then
-        echo "verify-install: an EXTRA entry is exactly the shape of a" \
-             "planted backdoor: it runs automatically along with everything" \
-             "else in this installation, and the manifest says nothing" \
-             "about it because nothing here declared it. A symlink is the" \
-             "sharpest version of that: it can drop attacker-controlled code" \
-             "into a directory that is already on Python's import path." >&2
+    if [ "$EXTRA_ALARM" -gt 0 ]; then
+        echo "verify-install: an EXTRA entry (not ignored by git, or listed" \
+             "as a symlink) is exactly the shape of a planted backdoor: it" \
+             "runs automatically along with everything else in this" \
+             "installation, and the manifest says nothing about it because" \
+             "nothing here declared it. A symlink is the sharpest version of" \
+             "that: it can drop attacker-controlled code into a directory" \
+             "that is already on Python's import path." >&2
     fi
     if [ "$TYPESWAPPED" -gt 0 ]; then
         echo "verify-install: a TYPESWAP entry means the manifest attests a" \
